@@ -604,7 +604,8 @@ async function hydrateSignatures(rows: any[]): Promise<SigInput[]> {
   return Promise.all(rows.map(async (s) => ({
     role: s.role,
     signer_name: s.signer_name,
-    signed_at: new Date(s.signed_at).toLocaleString("zh-TW", { hour12: false }),
+    signed_at: new Date(s.signed_at)
+      .toLocaleString("zh-TW", { timeZone: TZ, hour12: false }),
     image: await readFileBytes(s.image_key),
   })));
 }

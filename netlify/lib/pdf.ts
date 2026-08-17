@@ -251,10 +251,14 @@ class Doc {
   }
 }
 
+// 伺服器跑 UTC。日期時間一律明確指定台北時區，
+// 否則存查文件上的提交時間與簽署時間會差 8 小時。
+const TZ = "Asia/Taipei";
+
 const fmtDate = (d: unknown) =>
-  d ? new Date(d as string).toLocaleDateString("zh-TW") : "－";
+  d ? new Date(d as string).toLocaleDateString("zh-TW", { timeZone: TZ }) : "－";
 const fmtTime = (d: unknown) =>
-  d ? new Date(d as string).toLocaleString("zh-TW", { hour12: false }) : "－";
+  d ? new Date(d as string).toLocaleString("zh-TW", { timeZone: TZ, hour12: false }) : "－";
 
 const RESULT_MARK: Record<string, string> = { pass: "✓", fail: "✓", na: "－" };
 const STATUS_LABEL: Record<string, string> = {
