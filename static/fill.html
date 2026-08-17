@@ -3,21 +3,27 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>自主檢查表填報</title>
+<title>自主檢查表</title>
+<link rel="stylesheet" href="/static/brand.css">
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <div class="topbar">
-  <h1>自主檢查表</h1>
+  <div class="brand" id="brand"></div>
   <div class="spacer"></div>
-  <a href="/static/home.html" style="text-decoration:none"><button class="ghost">首頁</button></a>
+  <a href="/static/home.html"><button class="ghost">首頁</button></a>
 </div>
 
 <div class="wrap">
+  <div class="page-head">
+    <div class="eyebrow">Self-Inspection Checklist</div>
+    <h1>自主檢查表填報</h1>
+  </div>
 
   <!-- 步驟 1：基本資料 -->
   <div class="card" id="step1">
-    <h2>1. 基本資料</h2>
+    <span class="chapter">01</span>
+    <h2>基本資料</h2>
     <div class="row">
       <div><label>工地</label><select id="site"></select></div>
       <div><label>檢查日期</label><input type="date" id="date"></div>
@@ -47,6 +53,7 @@
 
   <!-- 步驟 3：簽名 -->
   <div class="card hidden" id="step3">
+    <span class="chapter">03</span>
     <h2>簽核</h2>
     <label>簽核角色</label>
     <select id="sigRole">
@@ -68,16 +75,14 @@
     <h2>已送出</h2>
     <p id="doneMsg"></p>
     <div class="row">
-      <a id="pdfLink" target="_blank" style="text-decoration:none">
-        <button style="width:100%">開啟 PDF</button></a>
-      <a href="/static/fill.html" style="text-decoration:none">
-        <button class="ghost" style="width:100%">再填一張</button></a>
+      <a id="pdfLink" target="_blank"><button style="width:100%">開啟 PDF</button></a>
+      <a href="/static/fill.html"><button class="ghost" style="width:100%">再填一張</button></a>
     </div>
   </div>
 </div>
 
 <div class="progress hidden" id="prog">
-  <span class="muted" id="progText">0 / 0</span>
+  <span class="count" id="progText">0 / 0</span>
   <div class="bar"><span id="progBar" style="width:0%"></span></div>
   <button id="toSign" disabled>前往簽核</button>
 </div>
@@ -89,6 +94,8 @@ let me = null, formDef = null, vendors = [], state = {}, pad = null;
 const hazardOptions = HAZARDS.map(h => `<option value="${h[0]}">${h[1]}</option>`).join('');
 
 (async () => {
+  renderBrand('system_name');
+
   const r = await API.get('/api/me');
   if (!r.user) { location.href = '/static/index.html'; return; }
   me = r.user;

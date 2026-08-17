@@ -3,43 +3,49 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>職安填報系統</title>
+<title>首頁</title>
+<link rel="stylesheet" href="/static/brand.css">
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <div class="topbar">
-  <h1>職安填報系統</h1>
+  <div class="brand" id="brand"></div>
   <div class="spacer"></div>
   <span class="who" id="who"></span>
   <button class="ghost" id="out">登出</button>
 </div>
 
 <div class="wrap">
+  <div class="page-head">
+    <div class="eyebrow">Daily Operations</div>
+    <h1>今日作業</h1>
+    <p class="lede">選擇今日的作業類別填報自主檢查表；巡視發現的缺失會即時進入戰情儀表板。</p>
+  </div>
+
   <div class="card">
-    <h2>今日填報</h2>
+    <span class="chapter">01</span>
+    <h2>填報</h2>
     <div class="row">
-      <a href="/static/fill.html" style="text-decoration:none">
-        <button style="width:100%">填自主檢查表</button></a>
-      <a href="/static/coord.html" style="text-decoration:none">
-        <button style="width:100%">填每日協議巡視表</button></a>
+      <a href="/static/fill.html"><button style="width:100%">自主檢查表</button></a>
+      <a href="/static/coord.html"><button style="width:100%">每日協議巡視表</button></a>
     </div>
-    <p class="muted" style="margin-top:12px">
-      自主檢查表共 28 種。選擇今日作業類別後，系統只會帶出該表單的檢查項目。
+    <p class="muted" style="margin-bottom:0">
+      自主檢查表共 28 種。選定作業類別後，系統只帶出該表單的檢查項目。
     </p>
   </div>
 
   <div class="card">
-    <h2>缺失追蹤</h2>
+    <span class="chapter">02</span>
+    <h2>缺失概況</h2>
+    <div class="grid kpis" id="mini" style="margin-bottom:var(--sp-5)"></div>
     <div class="row">
-      <a href="/static/findings.html" style="text-decoration:none">
-        <button class="ghost" style="width:100%">缺失清單／複驗</button></a>
-      <a href="/static/dashboard.html" style="text-decoration:none">
-        <button class="ghost" style="width:100%">戰情儀表板</button></a>
+      <a href="/static/findings.html"><button class="ghost" style="width:100%">缺失清單／複驗</button></a>
+      <a href="/static/dashboard.html"><button class="ghost" style="width:100%">戰情儀表板</button></a>
     </div>
-    <div id="mini" class="row" style="margin-top:14px"></div>
   </div>
 
   <div class="card">
+    <span class="chapter">03</span>
     <h2>近期單據</h2>
     <div id="recent" class="muted">載入中…</div>
   </div>
@@ -50,22 +56,22 @@
 let me = null;
 
 (async () => {
+  renderBrand('system_name');
+  injectArchFrame();
+
   const r = await API.get('/api/me');
   if (!r.user) { location.href = '/static/index.html'; return; }
   me = r.user;
   document.getElementById('who').textContent = `${me.name}（${me.username}）`;
 
   const d = await API.get('/api/dashboard?days=30');
-  document.getElementById('mini').innerHTML = `
-    <div class="card" style="margin:0;text-align:center">
-      <div style="font-size:30px;font-weight:800">${d.kpi.findings_today}</div>
-      <div class="muted">今日缺失</div></div>
-    <div class="card" style="margin:0;text-align:center">
-      <div style="font-size:30px;font-weight:800;color:var(--warn)">${d.kpi.open}</div>
-      <div class="muted">未結案</div></div>
-    <div class="card" style="margin:0;text-align:center">
-      <div style="font-size:30px;font-weight:800;color:var(--bad)">${d.kpi.overdue}</div>
-      <div class="muted">逾期未改善</div></div>`;
+  document.getElementById('mini').innerHTML = [
+    ['accent', d.kpi.findings_today, '今日缺失'],
+    ['warn', d.kpi.open, '未結案'],
+    ['critical', d.kpi.overdue, '逾期未改善']
+  ].map(([c, n, l]) => `
+    <div class="panel kpi ${c}"><div class="n">${n}</div><div class="l">${l}</div></div>`
+  ).join('');
 
   const [insp, coord] = await Promise.all([
     API.get('/api/inspections?days=14'), API.get('/api/coordinations?days=14')
@@ -78,12 +84,13 @@ let me = null;
   ].sort((a, b) => b.d.localeCompare(a.d)).slice(0, 15);
 
   document.getElementById('recent').innerHTML = rows.length ? `
-    <table><thead><tr><th>日期</th><th>單別</th><th>工地</th><th></th><th></th></tr></thead>
+    <div class="table-scroll"><table>
+    <thead><tr><th>日期</th><th>單別</th><th>工地</th><th></th><th></th></tr></thead>
     <tbody>${rows.map(r => `<tr>
-      <td>${esc(r.d)}</td><td>${esc(r.t)}</td><td>${esc(r.s)}</td>
+      <td class="num">${esc(r.d)}</td><td>${esc(r.t)}</td><td>${esc(r.s)}</td>
       <td class="muted">${esc(r.extra)}</td>
       <td>${r.url ? `<a href="${r.url}" target="_blank">PDF</a>` : ''}</td>
-    </tr>`).join('')}</tbody></table>` : '<p class="muted">近 14 日尚無單據。</p>';
+    </tr>`).join('')}</tbody></table></div>` : '<p class="muted">近 14 日尚無單據。</p>';
 })();
 
 document.getElementById('out').onclick = async () => {

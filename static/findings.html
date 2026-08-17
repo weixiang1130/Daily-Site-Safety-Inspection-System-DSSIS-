@@ -4,16 +4,23 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>缺失清單</title>
+<link rel="stylesheet" href="/static/brand.css">
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <div class="topbar">
-  <h1>缺失清單</h1>
+  <div class="brand" id="brand"></div>
   <div class="spacer"></div>
-  <a href="/static/home.html" style="text-decoration:none"><button class="ghost">首頁</button></a>
+  <a href="/static/home.html"><button class="ghost">首頁</button></a>
 </div>
 
 <div class="wrap wide">
+  <div class="page-head">
+    <div class="eyebrow">Findings Register</div>
+    <h1>缺失清單</h1>
+    <p class="lede">限期改善逾期者以紅色標示。職安人員與主管可直接複驗結案。</p>
+  </div>
+
   <div class="card">
     <div class="row">
       <div><label>工地</label><select id="site"></select></div>
@@ -47,6 +54,8 @@
 let me = null;
 
 (async () => {
+  renderBrand('system_name');
+
   const r = await API.get('/api/me');
   if (!r.user) { location.href = '/static/index.html'; return; }
   me = r.user;
@@ -71,7 +80,7 @@ async function load() {
   const canVerify = ['safety', 'manager', 'admin'].includes(me.role);
 
   document.getElementById('list').innerHTML = rows.length ? `
-    <table><thead><tr>
+    <div class="table-scroll"><table><thead><tr>
       <th>單號</th><th>發現時間</th><th>工地</th><th>災害類別</th><th>缺失內容</th>
       <th>責任廠商／人</th><th>改善方式</th><th>期限</th><th>狀態</th><th>照片</th><th></th>
     </tr></thead><tbody>
@@ -91,7 +100,7 @@ async function load() {
           ${f.photo_after ? `<a href="/${esc(f.photo_after)}" target="_blank">後</a>` : ''}</td>
       <td>${f.status !== 'closed' && canVerify
             ? `<button class="ghost" onclick="verify(${f.id})">複驗結案</button>` : ''}</td>
-    </tr>`).join('')}</tbody></table>
+    </tr>`).join('')}</tbody></table></div>
     <p class="muted" style="margin-top:10px">共 ${rows.length} 筆</p>`
     : '<p class="muted">查無資料。</p>';
 }

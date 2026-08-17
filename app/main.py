@@ -40,7 +40,18 @@ INGEST_TOKENS = {
     if ":" in t
 }
 
-app = FastAPI(title="職安填報系統", version="0.1.0")
+# 品牌識別。本 repo 為公開，預設值一律為中性名稱；
+# 實際公司名稱由部署環境的環境變數提供，不寫進程式碼。
+BRANDING = {
+    "system_name": os.environ.get("SYSTEM_NAME", "職安填報系統"),
+    "war_room_name": os.environ.get("WAR_ROOM_NAME", "職安戰情室"),
+    "org_name": os.environ.get("BRAND_NAME", "示範營造股份有限公司"),
+    "org_short": os.environ.get("BRAND_SHORT_NAME", "示範營造"),
+    "org_name_en": os.environ.get("BRAND_NAME_EN", "Demo Construction"),
+    "group_name": os.environ.get("BRAND_GROUP", ""),
+}
+
+app = FastAPI(title=BRANDING["system_name"], version="0.1.0")
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY, max_age=12 * 3600)
 
 
@@ -634,6 +645,12 @@ def root():
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static"), html=True),
           name="static")
+
+
+@app.get("/api/branding")
+def branding():
+    """品牌識別。前端據此渲染版頭，公司名稱不寫死在程式碼或版控中。"""
+    return BRANDING
 
 
 @app.get("/api/health")

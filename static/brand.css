@@ -1,0 +1,275 @@
+/* ===========================================================================
+   品牌設計系統 — 設計權杖
+   ---------------------------------------------------------------------------
+   依企業品牌規範建立：溫暖中性色 + 深石板藍點綴、無漸層、銳利轉角、
+   暖色調陰影、沉穩動態、幾何標記優先於圖示。
+
+   ⚠ 色碼說明
+   本檔色階為依品牌文字規範（warm neutrals + deep slate blue）推定之數值。
+   日後取得官方 colors_and_type.css 時，**只需替換本檔的變數值**，
+   所有元件都是消費這些變數，不需修改任何一行元件樣式。
+
+   ⚠ 字型說明
+   本專案不依賴任何 CDN（工地內網／離線需可運作），因此字型採自行托管。
+   請將字型檔放入 static/fonts/，檔名見下方 @font-face。
+   檔案不存在時瀏覽器會自動回退到堆疊中的下一個字體，畫面不會壞掉。
+   =========================================================================== */
+
+/* ---------- 自行托管字型 ---------- */
+@font-face {
+  font-family: "Cormorant Garamond";
+  src: url("/static/fonts/CormorantGaramond-Regular.woff2") format("woff2");
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "Cormorant Garamond";
+  src: url("/static/fonts/CormorantGaramond-SemiBold.woff2") format("woff2");
+  font-weight: 600; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "Space Grotesk";
+  src: url("/static/fonts/SpaceGrotesk-Medium.woff2") format("woff2");
+  font-weight: 500; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "Space Grotesk";
+  src: url("/static/fonts/SpaceGrotesk-Bold.woff2") format("woff2");
+  font-weight: 700; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "DM Sans";
+  src: url("/static/fonts/DMSans-Regular.woff2") format("woff2");
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "DM Sans";
+  src: url("/static/fonts/DMSans-Medium.woff2") format("woff2");
+  font-weight: 500; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "DM Sans";
+  src: url("/static/fonts/DMSans-Bold.woff2") format("woff2");
+  font-weight: 700; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "DM Mono";
+  src: url("/static/fonts/DMMono-Regular.woff2") format("woff2");
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "DM Mono";
+  src: url("/static/fonts/DMMono-Medium.woff2") format("woff2");
+  font-weight: 500; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "Noto Sans TC";
+  src: url("/static/fonts/NotoSansTC-Regular.woff2") format("woff2");
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "Noto Sans TC";
+  src: url("/static/fonts/NotoSansTC-Medium.woff2") format("woff2");
+  font-weight: 500; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "Noto Sans TC";
+  src: url("/static/fonts/NotoSansTC-Bold.woff2") format("woff2");
+  font-weight: 700; font-style: normal; font-display: swap;
+}
+
+:root {
+  /* ---------- 溫暖中性色 ---------- */
+  --sand-50:  #faf8f5;
+  --sand-100: #f4f1ec;
+  --sand-200: #e9e4db;
+  --sand-300: #d9d2c6;
+  --sand-400: #bfb6a6;
+  --sand-500: #9c9384;
+
+  --stone-500: #8a8378;
+  --stone-600: #6b655c;
+  --stone-700: #4a4640;
+  --stone-800: #33302b;
+  --stone-900: #26231e;
+
+  /* ---------- 深石板藍（品牌點綴色） ---------- */
+  --slate-300: #93a6b8;
+  --slate-400: #6b8299;
+  --slate-500: #47617a;
+  --slate-600: #33495e;
+  --slate-700: #24384a;
+  --slate-800: #1a2937;
+  --slate-900: #121d28;
+
+  /* ---------- 狀態色（維持暖調，不使用螢光色） ---------- */
+  --ok-600:       #4a7c59;
+  --ok-100:       #e6efe8;
+  --warn-600:     #b5761f;
+  --warn-100:     #f7eedd;
+  --critical-600: #a33a32;
+  --critical-100: #f6e5e3;
+
+  /* ---------- 語意色（淺色介面：現場填報端） ---------- */
+  --bg-canvas:     var(--sand-50);
+  --bg-surface:    #ffffff;
+  --bg-sunken:     var(--sand-100);
+  --bg-inverse:    var(--slate-800);
+
+  --border:        var(--sand-200);
+  --border-strong: var(--sand-300);
+  --border-accent: var(--slate-700);
+
+  --text-primary:   var(--stone-900);
+  --text-secondary: var(--stone-600);
+  --text-muted:     var(--stone-500);
+  --text-inverse:   var(--sand-50);
+  --text-accent:    var(--slate-700);
+
+  --accent:        var(--slate-700);
+  --accent-hover:  var(--slate-800);
+  --accent-subtle: #eef1f4;
+
+  /* ---------- 字型 ---------- */
+  --font-display: "Cormorant Garamond", "Noto Serif TC", Georgia, "Times New Roman", serif;
+  --font-heading: "Space Grotesk", "Noto Sans TC", "Microsoft JhengHei", "微軟正黑體", sans-serif;
+  --font-body:    "DM Sans", "Noto Sans TC", "Microsoft JhengHei", "微軟正黑體", "PingFang TC", sans-serif;
+  --font-mono:    "DM Mono", "JetBrains Mono", Consolas, "Courier New", monospace;
+  --font-cjk:     "Noto Sans TC", "Microsoft JhengHei", "微軟正黑體", "PingFang TC", sans-serif;
+
+  --fs-display: 2.75rem;
+  --fs-h1:      1.5rem;
+  --fs-h2:      1.125rem;
+  --fs-h3:      0.9375rem;
+  --fs-body:    1rem;
+  --fs-sm:      0.875rem;
+  --fs-xs:      0.75rem;
+  --fs-metric:  2.75rem;
+
+  --lh-tight: 1.2;
+  --lh-body:  1.65;
+
+  /* 標籤字：字距放寬，是本品牌的識別特徵 */
+  --ls-label: 0.14em;
+  --ls-wide:  0.06em;
+
+  /* ---------- 間距（8 為基準，留白寬裕） ---------- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+  --sp-8: 64px;
+  --sp-9: 96px;
+
+  /* ---------- 轉角：銳利 ---------- */
+  --radius-sm: 2px;
+  --radius:    3px;
+  --radius-lg: 4px;
+
+  /* ---------- 陰影：暖色調，不用純黑 ---------- */
+  --shadow-sm: 0 1px 2px rgba(74, 70, 64, .06);
+  --shadow:    0 1px 3px rgba(74, 70, 64, .08), 0 6px 20px rgba(74, 70, 64, .05);
+  --shadow-lg: 0 2px 6px rgba(74, 70, 64, .10), 0 16px 40px rgba(74, 70, 64, .08);
+
+  /* ---------- 動態：平緩淡入，無彈跳 ---------- */
+  --ease:      200ms ease;
+  --ease-slow: 320ms ease;
+}
+
+/* ---------- 深色情境（戰情室大螢幕）----------
+   非另一套配色，而是同一組色階的深色端，維持品牌一致性。 */
+.theme-dark {
+  --bg-canvas:     var(--slate-900);
+  --bg-surface:    #16232f;
+  --bg-sunken:     #0e1821;
+  --bg-inverse:    var(--sand-50);
+
+  --border:        #22323f;
+  --border-strong: #2e4152;
+  --border-accent: var(--slate-400);
+
+  --text-primary:   #e9e4db;
+  --text-secondary: #9fb0be;
+  --text-muted:     #75889a;
+  --text-inverse:   var(--stone-900);
+  --text-accent:    var(--slate-300);
+
+  --accent:        var(--slate-400);
+  --accent-hover:  var(--slate-300);
+  --accent-subtle: #1b2b39;
+
+  --ok-600:       #6faa7e;
+  --warn-600:     #d69a45;
+  --critical-600: #d1685e;
+
+  --shadow-sm: none;
+  --shadow:    none;
+  --shadow-lg: none;
+}
+
+/* ===========================================================================
+   基礎排版
+   =========================================================================== */
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  font-feature-settings: "kern" 1;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--text-accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* 章節編號、KPI 數字：等寬字，是品牌的視覺重心 */
+.numeral {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* 全大寫小標籤，字距放寬 */
+.label {
+  font-family: var(--font-heading);
+  font-size: var(--fs-xs);
+  letter-spacing: var(--ls-label);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* ▎ 區段標記 —— 取代圖示的幾何標記 */
+.marker::before {
+  content: "▎";
+  color: var(--accent);
+  margin-right: var(--sp-2);
+}
+
+/* 建築線條裝飾：右下角框景，低調不搶內容 */
+.arch-frame {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  width: min(420px, 38vw);
+  pointer-events: none;
+  opacity: .5;
+  z-index: 0;
+}
+.theme-dark .arch-frame { opacity: .28; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    transition-duration: .01ms !important;
+  }
+}

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 300" fill="none"
+     stroke="currentColor" stroke-width="1" aria-hidden="true">
+  <!-- 建築框景：施工架立面線稿。純幾何、無填色，作為版面右下角的框景元素。 -->
+  <g opacity="0.55">
+    <!-- 立柱 -->
+    <path d="M60 300V70M130 300V50M200 300V30M270 300V50M340 300V70"/>
+    <!-- 水平橫材 -->
+    <path d="M60 110h280M60 160h280M60 210h280M60 260h280"/>
+    <!-- 頂部斜撐 -->
+    <path d="M60 70L130 50L200 30L270 50L340 70" stroke-width="1.5"/>
+  </g>
+  <g opacity="0.32">
+    <!-- 交叉斜撐 -->
+    <path d="M60 110L130 160M130 110L60 160M200 110L270 160M270 110L200 160"/>
+    <path d="M130 210L200 260M200 210L130 260"/>
+  </g>
+  <g opacity="0.7">
+    <!-- 基準線 -->
+    <path d="M20 300h380" stroke-width="1.5"/>
+  </g>
+</svg>

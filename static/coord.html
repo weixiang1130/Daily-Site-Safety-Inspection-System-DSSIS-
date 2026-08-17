@@ -3,18 +3,25 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>每日協議、巡視及處理紀錄表</title>
+<title>每日協議巡視表</title>
+<link rel="stylesheet" href="/static/brand.css">
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <div class="topbar">
-  <h1>每日協議巡視表</h1>
+  <div class="brand" id="brand"></div>
   <div class="spacer"></div>
-  <a href="/static/home.html" style="text-decoration:none"><button class="ghost">首頁</button></a>
+  <a href="/static/home.html"><button class="ghost">首頁</button></a>
 </div>
 
 <div class="wrap" id="main">
+  <div class="page-head">
+    <div class="eyebrow">Daily Coordination &amp; Patrol</div>
+    <h1>每日協議、巡視及處理紀錄表</h1>
+  </div>
+
   <div class="card">
+    <span class="chapter">01</span>
     <h2>基本資料</h2>
     <div class="row">
       <div><label>工地</label><select id="site"></select></div>
@@ -27,6 +34,7 @@
   </div>
 
   <div class="card">
+    <span class="chapter">02</span>
     <h2>參加協議人員</h2>
     <p class="muted">未來可由門禁系統當日進場名單自動帶入，現階段先手動新增。</p>
     <div id="attendees"></div>
@@ -34,24 +42,28 @@
   </div>
 
   <div class="card">
+    <span class="chapter">03</span>
     <h2>一、協議事項</h2>
     <p class="muted">應具體指明何處、何事、何人。</p>
     <textarea id="agreement" placeholder="1. 高架作業人員須佩戴全身式安全帶，並將掛勾扣掛於堅固錨錠。&#10;2. 天氣炎熱，注意熱危害，工區提供飲用水。"></textarea>
   </div>
 
   <div class="card">
+    <span class="chapter">04</span>
     <h2>二、巡視結果（缺失）</h2>
     <div id="findings"></div>
     <button class="ghost" id="addFind" style="margin-top:10px">＋ 新增一筆缺失</button>
   </div>
 
   <div class="card">
+    <span class="chapter">05</span>
     <h2>三、處理情形</h2>
     <p class="muted">說明停止作業、扣款及要求改善情形。</p>
     <textarea id="handling"></textarea>
   </div>
 
   <div class="card">
+    <span class="chapter">06</span>
     <h2>簽核</h2>
     <label>簽核角色</label>
     <select id="sigRole">
@@ -72,9 +84,9 @@
     <h2>已送出</h2>
     <p id="doneMsg"></p>
     <div class="row">
-      <a id="pdfLink" target="_blank" style="text-decoration:none">
+      <a id="pdfLink" target="_blank">
         <button style="width:100%">開啟 PDF</button></a>
-      <a href="/static/home.html" style="text-decoration:none">
+      <a href="/static/home.html">
         <button class="ghost" style="width:100%">回首頁</button></a>
     </div>
   </div>
@@ -86,6 +98,9 @@ let me = null, vendors = [], pad = null, attSeq = 0, findSeq = 0;
 const hazardOptions = HAZARDS.map(h => `<option value="${h[0]}">${h[1]}</option>`).join('');
 
 (async () => {
+  renderBrand('system_name');
+  injectArchFrame();
+
   const r = await API.get('/api/me');
   if (!r.user) { location.href = '/static/index.html'; return; }
   me = r.user;

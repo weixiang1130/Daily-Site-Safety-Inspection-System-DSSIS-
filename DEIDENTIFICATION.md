@@ -97,6 +97,17 @@ python tools/deidentify.py --restore API_SPEC.md -o API_SPEC.internal.md
 - `*.internal*` / `docs.internal/` —— 還原後的對內版本
 - `.env` —— 連線字串、金鑰、廠商權杖
 
+### 公司名稱：改為設定值而非去識別化
+
+介面上的公司名稱**不是靠置換規則處理，而是根本不寫進程式碼**。
+版頭與頁面標題的名稱由 `/api/branding` 從環境變數 `BRAND_NAME` 等提供，
+repo 中的預設值一律為中性名稱。
+
+這比事後置換更可靠：置換規則可能漏掉新增的檔案，但環境變數的做法讓
+真實名稱從一開始就不存在於版控中。**新增畫面時請沿用此模式，不要把公司名稱寫死。**
+
+視覺風格（色彩、字型、版型）本身不含識別資訊，正常進版控。
+
 ### 注意：`data/forms.json`
 
 此檔為公司自主檢查表的 541 個項目全文，屬公司內部標準文件（非個資）。
@@ -114,3 +125,4 @@ python tools/deidentify.py --restore API_SPEC.md -o API_SPEC.internal.md
 |---|---|---|
 | 2026-08-17 | 專案初版：填報網站、PDF 簽核、戰情儀表板、對外 API | 建立機制，置換 99 處 |
 | 2026-08-17 | 資料庫由 SQLite 改為 SQL Server LocalDB，加入索引與 `/api/health` | 通過 |
+| 2026-08-17 | 全站套用企業品牌視覺；公司名稱改由 `BRAND_NAME` 環境變數提供，不進版控 | 新增 6 條規則，通過 |
