@@ -10,13 +10,21 @@
 ## 快速啟動
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements-mssql.txt
 python tools/create_db.py       # 在 SQL Server LocalDB 建立 SafetyOps 資料庫
 python -m app.seed --demo       # 匯入 28 張表模板 + 示範資料
 uvicorn app.main:app --host 0.0.0.0 --port 8010
 ```
 
-沒有 SQL Server 的環境（例如 Linux 容器快速試跑），設 `DB_BACKEND=sqlite` 即可改用 SQLite。
+資料庫驅動依環境分開安裝，因為不同環境用不同資料庫：
+
+| 環境 | 安裝 | 說明 |
+|---|---|---|
+| 本機開發 / 公司內網 | `requirements-mssql.txt` | SQL Server，需先裝 Microsoft ODBC Driver |
+| 雲端試辦 | `requirements-postgres.txt` | PostgreSQL |
+| 快速試跑 | `requirements.txt` + `DB_BACKEND=sqlite` | 免驅動 |
+
+**部署到雲端請看 [DEPLOY.md](DEPLOY.md)**（Netlify 前端 + Python 後端的架構與步驟）。
 
 瀏覽器開 <http://localhost:8010>
 

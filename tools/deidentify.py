@@ -22,6 +22,7 @@
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -69,6 +70,24 @@ def should_skip(rel: str) -> bool:
     return rel.lower().endswith(SKIP_SUFFIXES)
 
 
+def term_pattern(term: str) -> re.Pattern:
+    """把字詞編成比對樣式。
+
+    純英數字詞（如工地代碼 TPS）必須做單詞邊界比對，否則會誤命中
+    HTTPS_ONLY 之類的無關字串。中文沒有單詞邊界，維持子字串比對。
+    """
+    esc = re.escape(term)
+    if re.fullmatch(r"[\x00-\x7F]+", term):
+        return re.compile(rf"(?<![A-Za-z0-9_-]){esc}(?![A-Za-z0-9_-])")
+    return re.compile(esc)
+
+
+def compile_terms(terms):
+    for t in terms:
+        t.setdefault("_re", term_pattern(t["real"]))
+    return terms
+
+
 def read_text(path):
     try:
         with open(path, encoding="utf-8") as f:
@@ -79,6 +98,7 @@ def read_text(path):
 
 def check(paths, terms) -> int:
     hits = []
+    compile_terms(terms)
     for rel in paths:
         if should_skip(rel):
             continue
@@ -88,7 +108,7 @@ def check(paths, terms) -> int:
             continue
         for lineno, line in enumerate(content.splitlines(), 1):
             for t in terms:
-                if t["real"] in line:
+                if t["_re"].search(line):
                     hits.append((rel, lineno, t["real"], t["public"],
                                  t.get("type", "-")))
 
@@ -114,13 +134,13 @@ def transform(path, terms, reverse=False, out_path=None) -> int:
     if content is None:
         raise SystemExit(f"[去識別化] 無法讀取 {path}")
     n = 0
-    # 長字串優先置換，避免短字串先命中造成部分replace
+    # 長字串優先置換，避免短字串先命中造成部分 replace
     ordered = sorted(terms, key=lambda t: -len(t["real" if not reverse else "public"]))
     for t in ordered:
         src, dst = (t["public"], t["real"]) if reverse else (t["real"], t["public"])
-        if src in content:
-            n += content.count(src)
-            content = content.replace(src, dst)
+        pat = term_pattern(src)
+        content, k = pat.subn(dst.replace("\\", r"\\"), content)
+        n += k
     target = out_path or full
     with open(target, "w", encoding="utf-8", newline="") as f:
         f.write(content)

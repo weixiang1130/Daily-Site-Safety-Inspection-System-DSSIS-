@@ -51,8 +51,22 @@ BRANDING = {
     "group_name": os.environ.get("BRAND_GROUP", ""),
 }
 
+# 戰情室大螢幕是否免登入。放在公司內網時可設為 true（大螢幕不必有人登入）；
+# **部署到公開網際網路時務必維持 false**，否則任何拿到網址的人都能看到
+# 全公司的缺失、廠商與工地資料。
+PUBLIC_DASHBOARD = os.environ.get("PUBLIC_DASHBOARD", "false").lower() == "true"
+
+# 部署在 HTTPS 後方時，session cookie 應限定僅走加密連線。
+HTTPS_ONLY = os.environ.get("HTTPS_ONLY", "false").lower() == "true"
+
 app = FastAPI(title=BRANDING["system_name"], version="0.1.0")
-app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY, max_age=12 * 3600)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=SECRET_KEY,
+    max_age=12 * 3600,
+    same_site="lax",
+    https_only=HTTPS_ONLY,
+)
 
 
 def get_db():
@@ -478,8 +492,15 @@ async def upload_photo(file: UploadFile = File(...), user=Depends(need_login)):
 # 戰情室儀表板
 # ==========================================================================
 @app.get("/api/dashboard")
-def dashboard(site_id: int = None, days: int = 30, db: Session = Depends(get_db)):
-    """儀表板彙總。戰情室大螢幕免登入即可讀取（唯讀，不含個資明細）。"""
+def dashboard(request: Request, site_id: int = None, days: int = 30,
+              db: Session = Depends(get_db)):
+    """儀表板彙總。
+
+    預設需登入。設定 PUBLIC_DASHBOARD=true 可開放免登入，
+    僅建議在公司內網的戰情室大螢幕使用。
+    """
+    if not PUBLIC_DASHBOARD and not current_user(request):
+        raise HTTPException(status_code=401, detail="請先登入")
     today = date.today()
     since = datetime.now() - timedelta(days=days)
 

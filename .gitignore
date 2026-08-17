@@ -27,6 +27,10 @@ deid_rules.local.json
 *.internal.*
 docs.internal/
 
+# 建置產出
+dist/
+.netlify/
+
 # 編輯器 / 作業系統
 .vscode/
 .idea/

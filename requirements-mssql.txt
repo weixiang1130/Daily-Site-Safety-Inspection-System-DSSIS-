@@ -1,0 +1,4 @@
+# SQL Server（本機 LocalDB 開發、公司內網正式環境）
+# 需先安裝 Microsoft ODBC Driver 17 或 18 for SQL Server。
+-r requirements.txt
+pyodbc>=5.0

@@ -46,20 +46,30 @@ def _sqlite_url() -> str:
     return "sqlite:///" + os.path.join(BASE_DIR, "safety.db").replace("\\", "/")
 
 
+def _normalize(url: str) -> str:
+    """雲端平台常給 postgres:// 開頭的連線字串，SQLAlchemy 2.x 不再接受。"""
+    if url.startswith("postgres://"):
+        return "postgresql+psycopg://" + url[len("postgres://"):]
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg://" + url[len("postgresql://"):]
+    return url
+
+
 if os.environ.get("DATABASE_URL"):
-    DATABASE_URL = os.environ["DATABASE_URL"]
+    DATABASE_URL = _normalize(os.environ["DATABASE_URL"])
 elif os.environ.get("DB_BACKEND", "mssql").lower() == "sqlite":
     DATABASE_URL = _sqlite_url()
 else:
     DATABASE_URL = _localdb_url()
 
 IS_SQLITE = DATABASE_URL.startswith("sqlite")
+IS_MSSQL = DATABASE_URL.startswith("mssql")
 
 _engine_kwargs = {"echo": False, "pool_pre_ping": True}
 if IS_SQLITE:
     _engine_kwargs["connect_args"] = {"check_same_thread": False}
-else:
-    # pyodbc 批次寫入加速，僅 mssql+pyodbc 支援
+elif IS_MSSQL:
+    # pyodbc 批次寫入加速，僅 mssql+pyodbc 支援，其他方言傳入會直接報錯
     _engine_kwargs["fast_executemany"] = True
 
 engine = create_engine(DATABASE_URL, **_engine_kwargs)
@@ -326,4 +336,8 @@ def db_info() -> str:
     """回傳目前連線的資料庫描述，供啟動訊息與健康檢查使用。"""
     if IS_SQLITE:
         return "SQLite（開發用）"
-    return f"SQL Server {MSSQL_SERVER} / {MSSQL_DATABASE}"
+    if IS_MSSQL:
+        if os.environ.get("DATABASE_URL"):
+            return "SQL Server（由 DATABASE_URL 指定）"
+        return f"SQL Server {MSSQL_SERVER} / {MSSQL_DATABASE}"
+    return DATABASE_URL.split("://", 1)[0] + "（由 DATABASE_URL 指定）"

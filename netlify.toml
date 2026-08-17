@@ -1,0 +1,38 @@
+# Netlify 設定
+#
+# 架構：Netlify 托管前端靜態檔案，並把 /api/* 與 /uploads/* 反向代理到
+#       Python 後端主機。使用者從頭到尾只看到一個 Netlify 網址，
+#       填報、簽名、產生 PDF 全部正常運作；瀏覽器認為 API 與前端同源，
+#       因此 cookie 正常、不需處理 CORS。
+#
+# 為什麼後端不放 Netlify：
+#   Netlify Functions 只支援 Node.js / TypeScript，不支援 Python。
+#   硬搬需要把 FastAPI 整個重寫成 TS，資料庫也得從 SQL Server 換成 Postgres，
+#   而本專案最終要遷回公司內網的 SQL Server，那個工會白做。
+#
+# 部署前必須設定：
+#   Netlify 後台 → Site configuration → Environment variables
+#   新增 BACKEND_ORIGIN = https://<你的後端網址>
+#
+# 遷移到內網時：把 BACKEND_ORIGIN 改成內網主機位址即可，程式碼不用動。
+
+[build]
+  publish = "dist"
+  command = "python3 tools/build_frontend.py"
+
+[build.environment]
+  PYTHON_VERSION = "3.11"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "geolocation=(), microphone=(), camera=(self)"
+
+# 字型可長期快取
+[[headers]]
+  for = "/static/fonts/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

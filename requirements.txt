@@ -1,3 +1,8 @@
+# 核心相依套件（不含資料庫驅動）
+# 資料庫驅動另外裝，因為不同環境用不同資料庫：
+#   SQL Server（本機開發 / 公司內網）→ pip install -r requirements-mssql.txt
+#   PostgreSQL（雲端試辦）           → pip install -r requirements-postgres.txt
+#   SQLite（快速試跑，免驅動）        → 設 DB_BACKEND=sqlite
 fastapi>=0.110
 uvicorn[standard]>=0.27
 sqlalchemy>=2.0
@@ -5,4 +10,3 @@ python-multipart>=0.0.9
 itsdangerous>=2.1
 reportlab>=4.0
 pillow>=10.0
-pyodbc>=5.0        ; SQL Server / LocalDB 連線用（改用 SQLite 時可省略）

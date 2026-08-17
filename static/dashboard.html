@@ -164,7 +164,10 @@ async function load() {
   document.getElementById('days').onchange = load;
   await load();
   setInterval(load, 60000);   // 每分鐘自動刷新
-})();
+})().catch(() => {
+  // 未開放免登入時（PUBLIC_DASHBOARD=false）導向登入頁
+  location.href = '/static/index.html';
+});
 </script>
 </body>
 </html>
