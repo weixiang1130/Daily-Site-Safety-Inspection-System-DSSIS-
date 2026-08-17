@@ -485,7 +485,8 @@ async def upload_photo(file: UploadFile = File(...), user=Depends(need_login)):
     path = os.path.join(PHOTO_DIR, name)
     with open(path, "wb") as f:
         f.write(await file.read())
-    return {"ok": True, "path": os.path.relpath(path, BASE_DIR).replace("\\", "/")}
+    # 回傳可直接放進 href 的絕對路徑，與 Netlify 版的回傳格式一致
+    return {"ok": True, "path": "/" + os.path.relpath(path, BASE_DIR).replace("\\", "/")}
 
 
 # ==========================================================================

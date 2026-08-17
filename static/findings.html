@@ -96,8 +96,8 @@ async function load() {
       <td>${f.overdue ? '<span class="tag overdue">逾期</span>' :
             `<span class="tag ${f.status === 'closed' ? 'closed' : f.status === 'fixed' ? 'fixed' : 'open'}">
               ${STATUS_LABEL[f.status] || f.status}</span>`}</td>
-      <td>${f.photo_before ? `<a href="/${esc(f.photo_before)}" target="_blank">前</a> ` : ''}
-          ${f.photo_after ? `<a href="/${esc(f.photo_after)}" target="_blank">後</a>` : ''}</td>
+      <td>${f.photo_before ? `<a href="${esc(f.photo_before)}" target="_blank">前</a> ` : ''}
+          ${f.photo_after ? `<a href="${esc(f.photo_after)}" target="_blank">後</a>` : ''}</td>
       <td>${f.status !== 'closed' && canVerify
             ? `<button class="ghost" onclick="verify(${f.id})">複驗結案</button>` : ''}</td>
     </tr>`).join('')}</tbody></table></div>

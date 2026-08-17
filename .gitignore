@@ -29,7 +29,6 @@ docs.internal/
 
 # 建置產出
 dist/
-.netlify/
 
 # 編輯器 / 作業系統
 .vscode/
@@ -43,3 +42,7 @@ desktop.ini
 *.doc
 *.pdf
 !docs/**/*.pdf
+
+# Node / Netlify
+node_modules/
+.netlify/

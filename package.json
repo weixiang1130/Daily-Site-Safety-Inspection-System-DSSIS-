@@ -1,0 +1,17 @@
+{
+  "name": "safety-ops",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "職安填報系統：自主檢查表數位填報、電子簽核、PDF 存查與戰情儀表板",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@netlify/blobs": "^8.1.0",
+    "@netlify/database": "^1.0.0",
+    "@netlify/functions": "^3.0.0",
+    "@pdf-lib/fontkit": "^1.1.1",
+    "pdf-lib": "^1.17.1"
+  }
+}

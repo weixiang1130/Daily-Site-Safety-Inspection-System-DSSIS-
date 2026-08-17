@@ -1,28 +1,18 @@
 # -*- coding: utf-8 -*-
 """建置 Netlify 前端產出。
 
-把 static/ 複製到 dist/static/，並依環境變數 BACKEND_ORIGIN 產生 _redirects，
-將 /api/* 與 /uploads/* 反向代理到 Python 後端。
+把 static/ 複製到 dist/static/，並產生根目錄導頁。
+API 由同一個 Netlify 站台的 Functions 提供（/api/*），因此不需要任何代理設定。
 
-使用者從頭到尾只看到一個 Netlify 網址；瀏覽器認為 API 與前端同源，
-因此 cookie 正常運作、不需要處理 CORS。
-
-環境變數：
-    BACKEND_ORIGIN   後端網址，例如 https://safety-ops-api.onrender.com
-                     （在 Netlify 後台 Site settings → Environment variables 設定）
-
-本機測試：
-    BACKEND_ORIGIN=http://127.0.0.1:8010 python tools/build_frontend.py
+本機執行：
+    python tools/build_frontend.py
 """
 import os
 import shutil
-import sys
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(BASE_DIR, "static")
 DIST = os.path.join(BASE_DIR, "dist")
-
-BACKEND = os.environ.get("BACKEND_ORIGIN", "").rstrip("/")
 
 ROOT_INDEX = """<!doctype html>
 <html lang="zh-Hant">
@@ -35,13 +25,12 @@ ROOT_INDEX = """<!doctype html>
 </html>
 """
 
+# /api/* 由 Functions 接手（函式自身的 config.path 已宣告），
+# 這裡只處理根路徑導頁與 SPA 式的靜態回退。
+REDIRECTS = "/  /static/index.html  302\n"
+
 
 def main():
-    if not BACKEND:
-        print("[build] 警告：未設定 BACKEND_ORIGIN，API 代理不會生效。", file=sys.stderr)
-        print("[build]        請在 Netlify 環境變數中設定後端網址後重新部署。",
-              file=sys.stderr)
-
     if os.path.isdir(DIST):
         shutil.rmtree(DIST)
     os.makedirs(DIST)
@@ -53,18 +42,9 @@ def main():
     with open(os.path.join(DIST, "index.html"), "w", encoding="utf-8") as f:
         f.write(ROOT_INDEX)
 
-    lines = []
-    if BACKEND:
-        lines += [
-            f"/api/*      {BACKEND}/api/:splat      200",
-            f"/uploads/*  {BACKEND}/uploads/:splat  200",
-        ]
-    lines.append("/  /static/index.html  302")
-
     with open(os.path.join(DIST, "_redirects"), "w", encoding="utf-8", newline="\n") as f:
-        f.write("\n".join(lines) + "\n")
+        f.write(REDIRECTS)
 
-    print(f"[build] 產生 _redirects，後端指向：{BACKEND or '（未設定）'}")
     print("[build] 完成")
 
 
