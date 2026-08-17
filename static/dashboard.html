@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>職安戰情室</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="war">
+
+<div class="war-head">
+  <h1>職安戰情室</h1>
+  <select id="site" style="padding:6px 10px;border-radius:6px"></select>
+  <select id="days" style="padding:6px 10px;border-radius:6px">
+    <option value="7">近 7 日</option>
+    <option value="30" selected>近 30 日</option>
+    <option value="90">近 90 日</option>
+  </select>
+  <div class="spacer"></div>
+  <span class="muted" id="stamp" style="color:#6b8296"></span>
+  <span class="clock" id="clock"></span>
+</div>
+
+<div class="wrap wide">
+
+  <div class="grid kpis" id="kpis" style="margin-bottom:14px"></div>
+
+  <div class="grid cols-2" style="margin-bottom:14px">
+    <div class="panel">
+      <h3>逾期未改善缺失</h3>
+      <div id="overdue"></div>
+    </div>
+    <div class="panel">
+      <h3>各工地狀態</h3>
+      <div id="sites"></div>
+    </div>
+  </div>
+
+  <div class="grid cols-3" style="margin-bottom:14px">
+    <div class="panel">
+      <h3>災害類別分布</h3>
+      <div class="barlist" id="hazard"></div>
+    </div>
+    <div class="panel">
+      <h3>廠商缺失排行</h3>
+      <div class="barlist" id="vendor"></div>
+    </div>
+    <div class="panel">
+      <h3>近 14 日缺失趨勢</h3>
+      <div class="spark" id="trend"></div>
+      <div class="muted" style="display:flex;justify-content:space-between;margin-top:6px;color:#6b8296"
+           id="trendLabels"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>最新缺失動態</h3>
+    <div id="recent"></div>
+  </div>
+
+  <p class="muted" style="color:#5d7285;margin-top:14px">
+    人員在場數、證照到期、環境監測與 CCTV 影像辨識等即時資料，
+    待各設備廠商依 <code>/api/v1/ingest/device</code> 格式串接後自動併入本畫面。
+  </p>
+</div>
+
+<script src="/static/common.js"></script>
+<script>
+function tick() {
+  const d = new Date();
+  document.getElementById('clock').textContent =
+    d.toLocaleTimeString('zh-TW', { hour12: false });
+}
+setInterval(tick, 1000); tick();
+
+async function load() {
+  const site = document.getElementById('site').value;
+  const days = document.getElementById('days').value;
+  const d = await API.get(`/api/dashboard?days=${days}${site ? '&site_id=' + site : ''}`);
+  const k = d.kpi;
+
+  document.getElementById('stamp').textContent = '更新於 ' + d.generated_at.replace('T', ' ');
+
+  document.getElementById('kpis').innerHTML = [
+    ['blue', k.findings_today, '今日新增缺失'],
+    ['red', k.overdue, '逾期未改善'],
+    ['amber', k.open, '未結案'],
+    ['green', k.onsite_fixed, '當場改善'],
+    ['amber', k.scheduled, '限期改善'],
+    ['green', k.closed_rate + '%', '結案率'],
+    ['blue', k.median_fix_hours == null ? '—' : k.median_fix_hours + 'h', '改善時效中位數'],
+    ['blue', k.inspections_today, '今日已交巡檢單']
+  ].map(([c, n, l]) => `
+    <div class="panel kpi ${c}"><div class="n">${n}</div><div class="l">${l}</div></div>`
+  ).join('');
+
+  document.getElementById('overdue').innerHTML = d.overdue_list.length ? `
+    <table><thead><tr><th>單號</th><th>工地</th><th>缺失內容</th><th>責任廠商／人</th>
+    <th>期限</th><th>逾期</th></tr></thead><tbody>
+    ${d.overdue_list.map(o => `<tr>
+      <td>${esc(o.no)}</td><td>${esc(o.site)}</td><td>${esc(o.description)}</td>
+      <td>${esc(o.vendor)}${o.person ? '／' + esc(o.person) : ''}</td>
+      <td>${esc(o.due_date || '')}</td>
+      <td><span class="tag overdue">${o.days_over} 天</span></td>
+    </tr>`).join('')}</tbody></table>`
+    : '<p style="color:#4ddb8a;font-size:20px;padding:20px 0">目前無逾期未改善項目</p>';
+
+  document.getElementById('sites').innerHTML = `
+    <table><thead><tr><th></th><th>工地</th><th>缺失</th><th>未結案</th>
+    <th>逾期</th><th>今日巡檢單</th></tr></thead><tbody>
+    ${d.sites.map(s => `<tr>
+      <td><span class="light ${s.light}"></span></td>
+      <td>${esc(s.site)}</td><td>${s.findings}</td><td>${s.open}</td>
+      <td style="color:${s.overdue ? '#ff6b6b' : 'inherit'};font-weight:${s.overdue ? 700 : 400}">${s.overdue}</td>
+      <td>${s.inspections_today}</td>
+    </tr>`).join('')}</tbody></table>`;
+
+  const barlist = (el, rows) => {
+    const max = Math.max(1, ...rows.map(r => r.count));
+    document.getElementById(el).innerHTML = rows.length ? rows.map(r => `
+      <div class="r"><div class="lbl">${esc(r.label)}</div>
+      <div class="track"><i style="width:${r.count / max * 100}%"></i></div>
+      <div class="v">${r.count}</div></div>`).join('')
+      : '<p class="muted" style="color:#5d7285">尚無資料</p>';
+  };
+  barlist('hazard', d.by_hazard);
+  barlist('vendor', d.by_vendor);
+
+  const max = Math.max(1, ...d.trend.map(t => t.count));
+  document.getElementById('trend').innerHTML = d.trend.map(t =>
+    `<div style="height:${t.count / max * 100}%" title="${t.date}：${t.count} 件"></div>`).join('');
+  document.getElementById('trendLabels').innerHTML =
+    `<span>${d.trend[0].date.slice(5)}</span><span>${d.trend[d.trend.length - 1].date.slice(5)}</span>`;
+
+  document.getElementById('recent').innerHTML = `
+    <table><thead><tr><th>時間</th><th>單號</th><th>工地</th><th>災害類別</th>
+    <th>缺失內容</th><th>責任廠商</th><th>改善方式</th><th>狀態</th></tr></thead><tbody>
+    ${d.recent.map(r => `<tr>
+      <td>${esc(r.found_at.replace('T', ' '))}</td><td>${esc(r.no)}</td>
+      <td>${esc(r.site)}</td><td>${esc(r.hazard_label)}</td>
+      <td>${esc(r.description)}</td><td>${esc(r.vendor)}</td>
+      <td>${r.action_type === 'onsite' ? '當場改善' : '限期改善'}</td>
+      <td><span class="tag ${r.status === 'closed' ? 'closed' : r.status === 'fixed' ? 'fixed' : 'open'}">
+        ${STATUS_LABEL[r.status] || r.status}</span></td>
+    </tr>`).join('')}</tbody></table>`;
+}
+
+(async () => {
+  // 戰情室大螢幕可不登入直接開啟，因此這裡不使用會導向登入頁的 API.get
+  let sites = [];
+  const r = await fetch('/api/sites', { credentials: 'same-origin' });
+  if (r.ok) sites = await r.json();
+  document.getElementById('site').innerHTML =
+    '<option value="">全部工地</option>' +
+    sites.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
+  document.getElementById('site').onchange = load;
+  document.getElementById('days').onchange = load;
+  await load();
+  setInterval(load, 60000);   // 每分鐘自動刷新
+})();
+</script>
+</body>
+</html>

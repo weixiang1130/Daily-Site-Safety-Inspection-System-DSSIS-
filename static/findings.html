@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>缺失清單</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="topbar">
+  <h1>缺失清單</h1>
+  <div class="spacer"></div>
+  <a href="/static/home.html" style="text-decoration:none"><button class="ghost">首頁</button></a>
+</div>
+
+<div class="wrap wide">
+  <div class="card">
+    <div class="row">
+      <div><label>工地</label><select id="site"></select></div>
+      <div><label>狀態</label>
+        <select id="status">
+          <option value="">全部</option>
+          <option value="open">改善中</option>
+          <option value="fixed">待複驗</option>
+          <option value="closed">已結案</option>
+        </select></div>
+      <div><label>區間</label>
+        <select id="days">
+          <option value="7">近 7 日</option>
+          <option value="30" selected>近 30 日</option>
+          <option value="90">近 90 日</option>
+        </select></div>
+      <div><label>&nbsp;</label>
+        <label style="display:flex;align-items:center;gap:8px;margin-top:12px">
+          <input type="checkbox" id="overdue" style="width:auto"> 只看逾期
+        </label></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div id="list">載入中…</div>
+  </div>
+</div>
+
+<script src="/static/common.js"></script>
+<script>
+let me = null;
+
+(async () => {
+  const r = await API.get('/api/me');
+  if (!r.user) { location.href = '/static/index.html'; return; }
+  me = r.user;
+  const sites = await API.get('/api/sites');
+  document.getElementById('site').innerHTML = '<option value="">全部工地</option>' +
+    sites.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
+  ['site', 'status', 'days', 'overdue'].forEach(id =>
+    document.getElementById(id).onchange = load);
+  load();
+})();
+
+async function load() {
+  const q = new URLSearchParams();
+  const site = document.getElementById('site').value;
+  const status = document.getElementById('status').value;
+  if (site) q.set('site_id', site);
+  if (status) q.set('status', status);
+  q.set('days', document.getElementById('days').value);
+  if (document.getElementById('overdue').checked) q.set('overdue', 'true');
+
+  const rows = await API.get('/api/findings?' + q.toString());
+  const canVerify = ['safety', 'manager', 'admin'].includes(me.role);
+
+  document.getElementById('list').innerHTML = rows.length ? `
+    <table><thead><tr>
+      <th>單號</th><th>發現時間</th><th>工地</th><th>災害類別</th><th>缺失內容</th>
+      <th>責任廠商／人</th><th>改善方式</th><th>期限</th><th>狀態</th><th>照片</th><th></th>
+    </tr></thead><tbody>
+    ${rows.map(f => `<tr>
+      <td>${esc(f.no)}</td>
+      <td>${esc(f.found_at.replace('T', ' '))}</td>
+      <td>${esc(f.site)}</td>
+      <td>${esc(f.hazard_label || '')}</td>
+      <td>${esc(f.description)}</td>
+      <td>${esc(f.vendor || '')}${f.responsible_person ? '／' + esc(f.responsible_person) : ''}</td>
+      <td>${f.action_type === 'onsite' ? '當場改善' : '限期改善'}</td>
+      <td>${esc(f.due_date || '')}</td>
+      <td>${f.overdue ? '<span class="tag overdue">逾期</span>' :
+            `<span class="tag ${f.status === 'closed' ? 'closed' : f.status === 'fixed' ? 'fixed' : 'open'}">
+              ${STATUS_LABEL[f.status] || f.status}</span>`}</td>
+      <td>${f.photo_before ? `<a href="/${esc(f.photo_before)}" target="_blank">前</a> ` : ''}
+          ${f.photo_after ? `<a href="/${esc(f.photo_after)}" target="_blank">後</a>` : ''}</td>
+      <td>${f.status !== 'closed' && canVerify
+            ? `<button class="ghost" onclick="verify(${f.id})">複驗結案</button>` : ''}</td>
+    </tr>`).join('')}</tbody></table>
+    <p class="muted" style="margin-top:10px">共 ${rows.length} 筆</p>`
+    : '<p class="muted">查無資料。</p>';
+}
+
+async function verify(id) {
+  try {
+    await API.post(`/api/findings/${id}/verify`, {});
+    toast('已複驗結案');
+    load();
+  } catch (e) { toast('操作失敗：' + e.message); }
+}
+</script>
+</body>
+</html>

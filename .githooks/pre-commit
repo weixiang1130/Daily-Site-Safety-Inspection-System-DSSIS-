@@ -1,0 +1,22 @@
+#!/bin/sh
+# 去識別化把關：commit 前掃描已 staged 的檔案，發現真實人名／廠商名／工地名即擋下。
+# 啟用方式（clone 後執行一次）：
+#     git config core.hooksPath .githooks
+#
+# 緊急略過（不建議，且僅限確認無個資時）：
+#     git commit --no-verify
+
+PY=python
+command -v python >/dev/null 2>&1 || PY=python3
+
+PYTHONIOENCODING=utf-8 "$PY" tools/deidentify.py --check --staged
+status=$?
+
+if [ $status -ne 0 ]; then
+    echo ""
+    echo "commit 已中止。本 repo 為公開，請先完成去識別化。"
+    echo "詳見 DEIDENTIFICATION.md"
+    exit 1
+fi
+
+exit 0

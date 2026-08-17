@@ -1,0 +1,14 @@
+{
+  "_說明": [
+    "本檔為結構範例，內容全部是假資料，可以安全進版控。",
+    "實際使用時請複製為 deid_rules.local.json 並填入真實對照。",
+    "deid_rules.local.json 已列入 .gitignore，不會被推上 GitHub。",
+    "type 可用值：person（人名）、vendor（廠商）、site（工地）、internal（內部字詞）"
+  ],
+  "terms": [
+    { "real": "某某營造股份有限公司", "public": "甲營造", "type": "vendor" },
+    { "real": "某某工程處", "public": "示範工地 A", "type": "site" },
+    { "real": "某測試員", "public": "王小明", "type": "person" },
+    { "real": "某內部專案代號", "public": "示範專案", "type": "internal" }
+  ]
+}

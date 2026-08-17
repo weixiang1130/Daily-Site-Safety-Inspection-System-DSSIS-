@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>每日協議、巡視及處理紀錄表</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="topbar">
+  <h1>每日協議巡視表</h1>
+  <div class="spacer"></div>
+  <a href="/static/home.html" style="text-decoration:none"><button class="ghost">首頁</button></a>
+</div>
+
+<div class="wrap" id="main">
+  <div class="card">
+    <h2>基本資料</h2>
+    <div class="row">
+      <div><label>工地</label><select id="site"></select></div>
+      <div><label>開會日期</label><input type="date" id="mdate"></div>
+      <div><label>作業日期</label><input type="date" id="wdate"></div>
+      <div><label>天氣</label>
+        <select id="weather"><option>晴</option><option>陰</option><option>雨</option>
+        <option>強風</option></select></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>參加協議人員</h2>
+    <p class="muted">未來可由門禁系統當日進場名單自動帶入，現階段先手動新增。</p>
+    <div id="attendees"></div>
+    <button class="ghost" id="addAtt" style="margin-top:10px">＋ 新增一列</button>
+  </div>
+
+  <div class="card">
+    <h2>一、協議事項</h2>
+    <p class="muted">應具體指明何處、何事、何人。</p>
+    <textarea id="agreement" placeholder="1. 高架作業人員須佩戴全身式安全帶，並將掛勾扣掛於堅固錨錠。&#10;2. 天氣炎熱，注意熱危害，工區提供飲用水。"></textarea>
+  </div>
+
+  <div class="card">
+    <h2>二、巡視結果（缺失）</h2>
+    <div id="findings"></div>
+    <button class="ghost" id="addFind" style="margin-top:10px">＋ 新增一筆缺失</button>
+  </div>
+
+  <div class="card">
+    <h2>三、處理情形</h2>
+    <p class="muted">說明停止作業、扣款及要求改善情形。</p>
+    <textarea id="handling"></textarea>
+  </div>
+
+  <div class="card">
+    <h2>簽核</h2>
+    <label>簽核角色</label>
+    <select id="sigRole">
+      <option>工程專案主管</option><option>職安人員</option><option>施工組</option>
+      <option>供應商</option>
+    </select>
+    <label>簽名</label>
+    <canvas class="sig-pad" id="pad"></canvas>
+    <div class="row" style="margin-top:8px">
+      <button class="ghost" id="clearSig">清除重簽</button>
+      <button id="submit">確認送出並產生 PDF</button>
+    </div>
+  </div>
+</div>
+
+<div class="wrap hidden" id="done">
+  <div class="card">
+    <h2>已送出</h2>
+    <p id="doneMsg"></p>
+    <div class="row">
+      <a id="pdfLink" target="_blank" style="text-decoration:none">
+        <button style="width:100%">開啟 PDF</button></a>
+      <a href="/static/home.html" style="text-decoration:none">
+        <button class="ghost" style="width:100%">回首頁</button></a>
+    </div>
+  </div>
+</div>
+
+<script src="/static/common.js"></script>
+<script>
+let me = null, vendors = [], pad = null, attSeq = 0, findSeq = 0;
+const hazardOptions = HAZARDS.map(h => `<option value="${h[0]}">${h[1]}</option>`).join('');
+
+(async () => {
+  const r = await API.get('/api/me');
+  if (!r.user) { location.href = '/static/index.html'; return; }
+  me = r.user;
+  const [sites, vs] = await Promise.all([API.get('/api/sites'), API.get('/api/vendors')]);
+  vendors = vs;
+  document.getElementById('site').innerHTML = sites.map(s =>
+    `<option value="${s.id}" ${s.id === me.site_id ? 'selected' : ''}>${esc(s.name)}</option>`).join('');
+  document.getElementById('mdate').value = today();
+  document.getElementById('wdate').value = today();
+  addAttendee(); addAttendee();
+  pad = initSignaturePad(document.getElementById('pad'));
+})();
+
+function vendorOptions() {
+  return '<option value="">— 廠商 —</option>' +
+    vendors.map(v => `<option value="${v.id}">${esc(v.name)}</option>`).join('');
+}
+
+function addAttendee() {
+  const i = ++attSeq;
+  const div = document.createElement('div');
+  div.className = 'row';
+  div.style.marginBottom = '8px';
+  div.innerHTML = `
+    <input type="text" id="aw-${i}" placeholder="作業項目">
+    <select id="av-${i}">${vendorOptions()}</select>
+    <input type="text" id="at-${i}" placeholder="職種">
+    <input type="text" id="ap-${i}" placeholder="人員姓名">
+    <input type="text" id="ac-${i}" placeholder="作業內容">`;
+  document.getElementById('attendees').appendChild(div);
+}
+document.getElementById('addAtt').onclick = addAttendee;
+
+function addFinding() {
+  const i = ++findSeq;
+  const div = document.createElement('div');
+  div.className = 'item';
+  div.innerHTML = `
+    <label>缺失內容</label>
+    <input type="text" id="fd-${i}" placeholder="例：地下室通高位置未設置護欄">
+    <div class="row">
+      <div><label>災害類別</label><select id="fh-${i}">${hazardOptions}</select></div>
+      <div><label>嚴重度</label><select id="fs-${i}">
+        <option value="minor">輕微</option><option value="major">中度</option>
+        <option value="critical">重大</option><option value="stop_work">立即停工</option>
+      </select></div>
+      <div><label>位置</label><input type="text" id="fl-${i}" placeholder="例：B2"></div>
+    </div>
+    <div class="row">
+      <div><label>責任廠商</label><select id="fv-${i}">${vendorOptions()}</select></div>
+      <div><label>責任人</label><input type="text" id="fp-${i}"></div>
+    </div>
+    <div class="row">
+      <div><label>改善方式</label>
+        <select id="fa-${i}" onchange="
+          document.getElementById('fw-${i}').classList.toggle('hidden', this.value!=='scheduled')">
+          <option value="onsite">當場改善</option>
+          <option value="scheduled">限期改善</option>
+        </select></div>
+      <div id="fw-${i}" class="hidden"><label>改善期限</label>
+        <input type="date" id="fdue-${i}"></div>
+    </div>
+    <label>改善說明</label>
+    <input type="text" id="ff-${i}" placeholder="例：派員立即設置護欄">
+    <div class="row">
+      <div><label>改善前照片</label>
+        <input type="file" accept="image/*" capture="environment"
+               onchange="upPhoto(this, ${i}, 'before')"></div>
+      <div><label>改善後照片</label>
+        <input type="file" accept="image/*" capture="environment"
+               onchange="upPhoto(this, ${i}, 'after')"></div>
+    </div>
+    <div class="muted" id="fph-${i}"></div>`;
+  document.getElementById('findings').appendChild(div);
+}
+document.getElementById('addFind').onclick = addFinding;
+
+const photos = {};
+async function upPhoto(input, i, which) {
+  if (!input.files || !input.files[0]) return;
+  const fd = new FormData();
+  fd.append('file', input.files[0]);
+  try {
+    const r = await API.form('/api/upload/photo', fd);
+    photos[i] = Object.assign(photos[i] || {}, { [which]: r.path });
+    document.getElementById('fph-' + i).textContent =
+      `已上傳：${photos[i].before ? '改善前 ✓ ' : ''}${photos[i].after ? '改善後 ✓' : ''}`;
+  } catch (e) { toast('照片上傳失敗：' + e.message); }
+}
+
+document.getElementById('clearSig').onclick = () => pad && pad.clear();
+
+document.getElementById('submit').onclick = async () => {
+  if (!pad || pad.isEmpty()) { toast('請先簽名'); return; }
+  const btn = document.getElementById('submit');
+  btn.disabled = true;
+
+  const attendees = [];
+  for (let i = 1; i <= attSeq; i++) {
+    const w = document.getElementById('aw-' + i);
+    if (!w) continue;
+    const vsel = document.getElementById('av-' + i);
+    if (!w.value && !document.getElementById('ap-' + i).value) continue;
+    attendees.push({
+      work_item: w.value,
+      vendor_id: vsel.value || null,
+      vendor_name: vsel.selectedOptions[0] ? vsel.selectedOptions[0].text.replace('— 廠商 —', '') : '',
+      trade: document.getElementById('at-' + i).value,
+      person_name: document.getElementById('ap-' + i).value,
+      work_content: document.getElementById('ac-' + i).value
+    });
+  }
+
+  const findings = [];
+  for (let i = 1; i <= findSeq; i++) {
+    const d = document.getElementById('fd-' + i);
+    if (!d || !d.value.trim()) continue;
+    const hz = document.getElementById('fh-' + i).value;
+    findings.push({
+      description: d.value,
+      hazard_code: hz,
+      hazard_label: (HAZARDS.find(h => h[0] === hz) || [, '其他'])[1],
+      location: document.getElementById('fl-' + i).value,
+      severity: document.getElementById('fs-' + i).value,
+      vendor_id: document.getElementById('fv-' + i).value || null,
+      responsible_person: document.getElementById('fp-' + i).value,
+      action_type: document.getElementById('fa-' + i).value,
+      due_date: document.getElementById('fdue-' + i).value || null,
+      fix_note: document.getElementById('ff-' + i).value,
+      photo_before: (photos[i] || {}).before || null,
+      photo_after: (photos[i] || {}).after || null
+    });
+  }
+
+  try {
+    const res = await API.post('/api/coordinations', {
+      site_id: parseInt(document.getElementById('site').value),
+      meeting_date: document.getElementById('mdate').value,
+      work_date: document.getElementById('wdate').value,
+      weather: document.getElementById('weather').value,
+      agreement_text: document.getElementById('agreement').value,
+      handling_text: document.getElementById('handling').value,
+      attendees, findings,
+      signatures: [{
+        role: document.getElementById('sigRole').value,
+        signer_name: me.name, image: pad.toDataURL()
+      }]
+    });
+    document.getElementById('main').classList.add('hidden');
+    document.getElementById('done').classList.remove('hidden');
+    document.getElementById('doneMsg').textContent =
+      `單號 COORD-${String(res.coordination_id).padStart(6, '0')}，` +
+      `共開立 ${findings.length} 筆缺失。`;
+    document.getElementById('pdfLink').href = res.pdf_url;
+    window.scrollTo(0, 0);
+  } catch (e) {
+    toast('送出失敗：' + e.message);
+    btn.disabled = false;
+  }
+};
+</script>
+</body>
+</html>

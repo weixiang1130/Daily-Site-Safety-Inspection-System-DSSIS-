@@ -1,0 +1,4044 @@
+{
+  "source": "K02-3-HS07-02-自主檢查表(範本)-1-20191115 1.docx",
+  "forms": [
+    {
+      "form_code": "F01",
+      "title": "一般作業安全自主檢查表",
+      "short_name": "一般作業",
+      "form_type": "single",
+      "item_count": 26,
+      "items": [
+        {
+          "seq": 1,
+          "category": "門禁管制",
+          "hazard_code": "PPE",
+          "hazard_label": "門禁與防護具",
+          "text": "人員、車輛進出工區是否指派專人管制"
+        },
+        {
+          "seq": 2,
+          "category": "門禁管制",
+          "hazard_code": "PPE",
+          "hazard_label": "門禁與防護具",
+          "text": "人員是否依規定辦理進場6小時教育訓練並張貼安全帽,以茲識別"
+        },
+        {
+          "seq": 3,
+          "category": "門禁管制",
+          "hazard_code": "PPE",
+          "hazard_label": "門禁與防護具",
+          "text": "人員進入工區是否配戴安全帽、著安全鞋、反光背心"
+        },
+        {
+          "seq": 4,
+          "category": "門禁管制",
+          "hazard_code": "PPE",
+          "hazard_label": "門禁與防護具",
+          "text": "工區出入口警示標誌是否設立"
+        },
+        {
+          "seq": 5,
+          "category": "門禁管制",
+          "hazard_code": "PPE",
+          "hazard_label": "門禁與防護具",
+          "text": "車輛入口處是否設制交通指揮人員並使該員著反光衣、反光安全帽、指揮捧"
+        },
+        {
+          "seq": 6,
+          "category": "開口",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "開口部、坑洞墜落防護措施是否設置"
+        },
+        {
+          "seq": 7,
+          "category": "開口",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "從事高架作業勞工是否佩戴安全帶"
+        },
+        {
+          "seq": 8,
+          "category": "開口",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "安全護欄因作業需要拆除,事先是否報備,(並做好後續安全防護措施)"
+        },
+        {
+          "seq": 9,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "各分電箱是否設置漏電斷路器"
+        },
+        {
+          "seq": 10,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "電線是否架設高,未橫越地面或浸泡水中"
+        },
+        {
+          "seq": 11,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "電線絕緣劣化是否更換新品"
+        },
+        {
+          "seq": 12,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "是否使用無插頭電線直接插入插座"
+        },
+        {
+          "seq": 13,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "電焊機是否設置自動電擊防止裝置"
+        },
+        {
+          "seq": 14,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "夜間及黑暗工作場所是否有足夠照明及警示標誌"
+        },
+        {
+          "seq": 15,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "高壓電線下作業是否有安全措施如遷移或加裝絕綠套管"
+        },
+        {
+          "seq": 16,
+          "category": "圍籬",
+          "hazard_code": "ENV",
+          "hazard_label": "環境整潔",
+          "text": "工地圍籬是否完整無隨意拆卸及損壞未修情形"
+        },
+        {
+          "seq": 17,
+          "category": "圍籬",
+          "hazard_code": "ENV",
+          "hazard_label": "環境整潔",
+          "text": "夜間圍籬警示燈是否正常"
+        },
+        {
+          "seq": 18,
+          "category": "環境整潔",
+          "hazard_code": "ENV",
+          "hazard_label": "環境整潔",
+          "text": "工區環境是否保持清潔"
+        },
+        {
+          "seq": 19,
+          "category": "環境整潔",
+          "hazard_code": "ENV",
+          "hazard_label": "環境整潔",
+          "text": "車輛駛出工地時輪胎之沖洗是否確實"
+        },
+        {
+          "seq": 20,
+          "category": "環境整潔",
+          "hazard_code": "ENV",
+          "hazard_label": "環境整潔",
+          "text": "工地附近環境是否未遭受本工程污染"
+        },
+        {
+          "seq": 21,
+          "category": "環境整潔",
+          "hazard_code": "ENV",
+          "hazard_label": "環境整潔",
+          "text": "人行道、車道公共安全衛生狀況是否良好"
+        },
+        {
+          "seq": 22,
+          "category": "環境整潔",
+          "hazard_code": "ENV",
+          "hazard_label": "環境整潔",
+          "text": "是否指派專人每日不定時巡視檢點,並維持工區內外清潔"
+        },
+        {
+          "seq": 23,
+          "category": "其他",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "局限空間作業是否依規定申請並依法進行管制防護"
+        },
+        {
+          "seq": 24,
+          "category": "其他",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "動火作業是否依規定申請並依規定進行管制防護、設制監火人員"
+        },
+        {
+          "seq": 25,
+          "category": "其他",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "滅火器數量是否足夠"
+        },
+        {
+          "seq": 26,
+          "category": "其他",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "易燃物堆置處是否設置滅火器及「嚴禁煙火」之標誌"
+        }
+      ]
+    },
+    {
+      "form_code": "F02",
+      "title": "機電作業安全自主檢查表",
+      "short_name": "機電作業",
+      "form_type": "single",
+      "item_count": 19,
+      "items": [
+        {
+          "seq": 1,
+          "category": "一般作業",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "電氣作業人員是否戴用防護具（絕緣性安全鞋、戴用絕緣手套等）及活線作業器具"
+        },
+        {
+          "seq": 2,
+          "category": "一般作業",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "近接高壓電路作業是否有安全距離標示或派員監視"
+        },
+        {
+          "seq": 3,
+          "category": "一般作業",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "停電活線作業前是否告知勞工並派專人指揮"
+        },
+        {
+          "seq": 4,
+          "category": "一般作業",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "發電機之接地功能是否正常"
+        },
+        {
+          "seq": 5,
+          "category": "一般作業",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "入場電動機具設備接地、並通過漏電檢試"
+        },
+        {
+          "seq": 6,
+          "category": "一般作業",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "對於導電性良好及臨時用電設備應於各該電路設置高速型漏電斷路器並應保持功能正常(額定感度電流A，跳脫時間0.1秒以內)，使用電動工具應接於負載側，不得跳接"
+        },
+        {
+          "seq": 7,
+          "category": "一般作業",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "分電盤應常保關閉上鎖非電氣人員不得開啟，並設立警示標語"
+        },
+        {
+          "seq": 8,
+          "category": "一般作業",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "電氣器材之裝設與保養，非合格之電氣技術人員不得擔任"
+        },
+        {
+          "seq": 9,
+          "category": "一般作業",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "分電盤線路之搭接，嚴禁跳過漏電斷路器"
+        },
+        {
+          "seq": 10,
+          "category": "一般作業",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "於作業中或通行時，有接觸絕緣被覆配線或移動電線或電氣機具、設備之虞，應有防止絕緣被破壞或老化之設施"
+        },
+        {
+          "seq": 11,
+          "category": "一般作業",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "電線應架高且避免浸水"
+        },
+        {
+          "seq": 12,
+          "category": "一般作業",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "應以插座、插頭接用電源，避免裸線插接"
+        },
+        {
+          "seq": 13,
+          "category": "一般作業",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "為防止電氣災害應備有不導電之滅火設備"
+        },
+        {
+          "seq": 14,
+          "category": "一般作業",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "營造工地周圍有高壓線路通過時，施工前應裝設絕緣護套並作警告標示"
+        },
+        {
+          "seq": 15,
+          "category": "一般作業",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "電氣設備裝置及線路，應依電業法規規定施工"
+        },
+        {
+          "seq": 16,
+          "category": "一般作業",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "電氣器材及線路等，應符合國家標準規格"
+        },
+        {
+          "seq": 17,
+          "category": "一般作業",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "於良導體機器設備內之狹小空間或高度以上之鋼架上作業使用之交流電焊機應有自動電擊防止裝置並應保持功能正常（二次側電壓應在25V以下）"
+        },
+        {
+          "seq": 18,
+          "category": "一般作業",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "電焊機二次側有裝自動電擊防止裝置，電源側仍須經漏電斷路器，以保機體漏電時人員安全"
+        },
+        {
+          "seq": 19,
+          "category": "一般作業",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "對於電焊作業使用之焊接柄，應有相當之絕緣耐力及耐熱性"
+        }
+      ]
+    },
+    {
+      "form_code": "F03",
+      "title": "電焊作業安全自主檢查表",
+      "short_name": "電焊作業",
+      "form_type": "single",
+      "item_count": 21,
+      "items": [
+        {
+          "seq": 1,
+          "category": "設備檢點",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "金屬機件是否腐蝕不全"
+        },
+        {
+          "seq": 2,
+          "category": "設備檢點",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "銲接迴路是否有足夠的斷面積，且接觸良好"
+        },
+        {
+          "seq": 3,
+          "category": "設備檢點",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "線路接頭是否鎖緊"
+        },
+        {
+          "seq": 4,
+          "category": "設備檢點",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "電焊手把及電纜線尺寸是否與電流大小匹配"
+        },
+        {
+          "seq": 5,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "導線絕緣被覆是否有破損，施作地面是否潮濕"
+        },
+        {
+          "seq": 6,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "電焊機內外部是否有灰塵覆蓋，是否清潔"
+        },
+        {
+          "seq": 7,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "電焊手把是否破損"
+        },
+        {
+          "seq": 8,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "電焊機是否裝遮雨設施"
+        },
+        {
+          "seq": 9,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "是否裝設防止電擊裝置"
+        },
+        {
+          "seq": 10,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "防電擊裝置動作是否正常"
+        },
+        {
+          "seq": 11,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "電源部份是否裝設漏電斷路器"
+        },
+        {
+          "seq": 12,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "電焊機設備是否接地良好"
+        },
+        {
+          "seq": 13,
+          "category": "防護具",
+          "hazard_code": "PPE",
+          "hazard_label": "門禁與防護具",
+          "text": "施工人員使否確實使用個人防護具(護目鏡、電焊皮手套、皮袖套、皮腳套、防護面罩、口罩等)"
+        },
+        {
+          "seq": 14,
+          "category": "防護具",
+          "hazard_code": "PPE",
+          "hazard_label": "門禁與防護具",
+          "text": "是否使勞工配戴安全帽"
+        },
+        {
+          "seq": 15,
+          "category": "防護具",
+          "hazard_code": "PPE",
+          "hazard_label": "門禁與防護具",
+          "text": "是否架設高之m鋼索安全母索(可承載每人之拉力)，並使施工人員一律使用安全帶，並正確掛於母索"
+        },
+        {
+          "seq": 16,
+          "category": "災害防止",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "電焊地點是否通風良好"
+        },
+        {
+          "seq": 17,
+          "category": "災害防止",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "電焊地點四周易燃品、危險物是否移開或覆蓋保護"
+        },
+        {
+          "seq": 18,
+          "category": "災害防止",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "是否設置遮光板足夠的斷面積，且接觸良好"
+        },
+        {
+          "seq": 19,
+          "category": "災害防止",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "焊道背面是否有易燃品"
+        },
+        {
+          "seq": 20,
+          "category": "災害防止",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "掉落焊渣是否傷及附近人物"
+        },
+        {
+          "seq": 21,
+          "category": "災害防止",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "是否設置滅火器、監火人員"
+        }
+      ]
+    },
+    {
+      "form_code": "F04",
+      "title": "乙炔鋼瓶作業安全自主檢查表",
+      "short_name": "乙炔鋼瓶作業",
+      "form_type": "single",
+      "item_count": 14,
+      "items": [
+        {
+          "seq": 1,
+          "category": "作業前檢點",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "鋼瓶是否無變形、腐蝕、破裂情形"
+        },
+        {
+          "seq": 2,
+          "category": "作業前檢點",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "鋼瓶是否置於通風陰涼處"
+        },
+        {
+          "seq": 3,
+          "category": "作業前檢點",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "作業時，應檢點瓶閥，壓升調整器，軟管套夾、凸緣、旋塞、閥等之接合部分，是否有使用墊圈…等器具，是否正常"
+        },
+        {
+          "seq": 4,
+          "category": "作業前檢點",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "發現有損傷、磨損致漏洩氣體或氧氣時，是否更換新品"
+        },
+        {
+          "seq": 5,
+          "category": "作業前檢點",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "是否清除鋼瓶及配管口附著之油漬、塵埃等"
+        },
+        {
+          "seq": 6,
+          "category": "作業前檢點",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "更換空器時，應檢點該鋼瓶之口及管口部份之漏氣並應排除配管內該氣體與空氣之混合氣體"
+        },
+        {
+          "seq": 7,
+          "category": "作業前檢點",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "檢點漏氣時是否使用皂水"
+        },
+        {
+          "seq": 8,
+          "category": "作業前檢點",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "施工人員使否確實使用個人防護具(護目鏡、防護手套、防護面罩、口罩等)"
+        },
+        {
+          "seq": 9,
+          "category": "作業前檢點",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "主管及分岐管設置安全器，使每一吹管有兩個以上之安全器。"
+        },
+        {
+          "seq": 10,
+          "category": "災害防止",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "雇主對於使用乙炔熔接裝置或氧乙炔熔接裝置從事金屬之熔接、熔斷或加熱作業時，應規定其產生之乙炔壓力不得超過表壓力每平方公分一點三公斤以上"
+        },
+        {
+          "seq": 11,
+          "category": "災害防止",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "移動使用時，是否採用直立式手推車搬運並固定，確實配置滅火器及「嚴禁煙火」之標示"
+        },
+        {
+          "seq": 12,
+          "category": "災害防止",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "施作前，是否確實檢查有無易燃物"
+        },
+        {
+          "seq": 13,
+          "category": "災害防止",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "設置場是否有適當之消防設備"
+        },
+        {
+          "seq": 14,
+          "category": "災害防止",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "乙炔、氧氣鋼瓶是否分開放置，放置安全資料表及滅火器並加標示「嚴禁煙火」"
+        }
+      ]
+    },
+    {
+      "form_code": "F05",
+      "title": "局限空間作業安全自主檢查表",
+      "short_name": "局限空間作業",
+      "form_type": "single",
+      "item_count": 12,
+      "items": [
+        {
+          "seq": 1,
+          "category": "檢查項目",
+          "hazard_code": "CONFINED",
+          "hazard_label": "局限空間",
+          "text": "是否依非訂定局限空間危害防止計畫(29-1)"
+        },
+        {
+          "seq": 2,
+          "category": "檢查項目",
+          "hazard_code": "CONFINED",
+          "hazard_label": "局限空間",
+          "text": "是否有設制現場作業主管、監視人員並在場執行業務"
+        },
+        {
+          "seq": 3,
+          "category": "檢查項目",
+          "hazard_code": "CONFINED",
+          "hazard_label": "局限空間",
+          "text": "是否進行局限空間管制並經許可同意後，方可作業。(29-6)"
+        },
+        {
+          "seq": 4,
+          "category": "檢查項目",
+          "hazard_code": "CONFINED",
+          "hazard_label": "局限空間",
+          "text": "局限空間人員之進出，應予確認、點名登記(29-6)"
+        },
+        {
+          "seq": 5,
+          "category": "檢查項目",
+          "hazard_code": "CONFINED",
+          "hazard_label": "局限空間",
+          "text": "是否已於作業場所公告：(29-2) □作業有可能引起缺氧等危害時，應經許可始得進入重要性。 □進入該場所時應採取之措施 □緊急連絡電話及通報程序 □現場監視人員姓名 □作業防護具、聯絡設備、測定儀器及緊急救援器材放置場所"
+        },
+        {
+          "seq": 6,
+          "category": "檢查項目",
+          "hazard_code": "CONFINED",
+          "hazard_label": "局限空間",
+          "text": "禁止作業無關人員進入局限空間之作業場所，並於入口顯而易見處所公告禁止進入之規定；非作業期間，採取上鎖或阻隔人員進入等管制措施(29-3)"
+        },
+        {
+          "seq": 7,
+          "category": "檢查項目",
+          "hazard_code": "CONFINED",
+          "hazard_label": "局限空間",
+          "text": "作業前是否已確認該局限空間內，無缺氧、中毒、感電、倒塌、被夾、及火災、爆炸等危害，各作業點或各深度之氧氣濃度(須大於18%)、可燃性氣體濃度(如須動火作業應不得有可燃性氣體殘存)，及其他毒性物質 (如硫化氫、氨氣、一氧化碳、有機溶劑及有害物等之濃度)，需測定並加以記錄？"
+        },
+        {
+          "seq": 8,
+          "category": "檢查項目",
+          "hazard_code": "CONFINED",
+          "hazard_label": "局限空間",
+          "text": "是否已依作業需要備妥□梯子、□配戴全身背負式安全帶、□可偵測人員活動情形之裝置、□動力或機械輔助吊升之緊急救援設備、□通信設備、□其他作業或救援之所需之器材如："
+        },
+        {
+          "seq": 9,
+          "category": "檢查項目",
+          "hazard_code": "CONFINED",
+          "hazard_label": "局限空間",
+          "text": "各電路是否已裝設感電防止用漏電斷路器？電源插座是否已置於室外？電線絕緣是否良好且無接點？"
+        },
+        {
+          "seq": 10,
+          "category": "檢查項目",
+          "hazard_code": "CONFINED",
+          "hazard_label": "局限空間",
+          "text": "局限空間動火作業是否已申請，並放置滅火器(29-6)"
+        },
+        {
+          "seq": 11,
+          "category": "檢查項目",
+          "hazard_code": "CONFINED",
+          "hazard_label": "局限空間",
+          "text": "作業前、作業時，是否有持續加強通風及換氣，並確認有效運轉？(通風換氣要確實達到作業空間的各個角落，並視有害氣體比重，使其有效排出有害氣體)(29-5)"
+        },
+        {
+          "seq": 12,
+          "category": "檢查項目",
+          "hazard_code": "CONFINED",
+          "hazard_label": "局限空間",
+          "text": "作業期間採取連續確認之措施，隨時監測氧氣、可燃性氣體或其他有害物之濃度？並記錄之，超過範圍時應即停止工作。(29-4)"
+        }
+      ]
+    },
+    {
+      "form_code": "F06",
+      "title": "鋼板樁作業安全自主檢查表",
+      "short_name": "鋼板樁作業",
+      "form_type": "single",
+      "item_count": 19,
+      "items": [
+        {
+          "seq": 1,
+          "category": "作業前準備",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "鋼鈑樁卸載吊掛作業有訓練合格人員擔任指揮"
+        },
+        {
+          "seq": 2,
+          "category": "作業前準備",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "鋼鈑樁之堆放牢固，且無倒塌之虞"
+        },
+        {
+          "seq": 3,
+          "category": "作業前準備",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "作業地面平整，打樁機無翻倒之虞"
+        },
+        {
+          "seq": 4,
+          "category": "作業前準備",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "作業地盤堅硬，施工機具無沉陷之虞"
+        },
+        {
+          "seq": 5,
+          "category": "作業前準備",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "確認作業地點埋設之地下物均已遷移或已採防護措施"
+        },
+        {
+          "seq": 6,
+          "category": "作業前準備",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "事先調查該作業場所之地質、地形狀況，決定所使用車輛系營建機械之種類及性能、行經路線、作業方法，並告知作業勞工。"
+        },
+        {
+          "seq": 7,
+          "category": "作業前準備",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "鄰接之構造物、架空纜線已採警示、防護措施"
+        },
+        {
+          "seq": 8,
+          "category": "作業前準備",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "作業區域設立警示標誌，並禁止人員進入吊掛作業範圍"
+        },
+        {
+          "seq": 9,
+          "category": "施工作業",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "作業起重機具檢查合格證，操作人員"
+        },
+        {
+          "seq": 10,
+          "category": "施工作業",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "檢視使用之鋼軌樁應無變形、腐蝕情形"
+        },
+        {
+          "seq": 11,
+          "category": "施工作業",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "導軌設置電焊作業設內藏式自動電擊防止裝置"
+        },
+        {
+          "seq": 12,
+          "category": "施工作業",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "鋼鈑樁架設、打設吊掛作業應避免碰觸鄰接物"
+        },
+        {
+          "seq": 13,
+          "category": "施工作業",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "鋼鈑樁之尖銳端有警示或防護措施"
+        },
+        {
+          "seq": 14,
+          "category": "施工作業",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "拔樁作業拔樁機具之作用平衡"
+        },
+        {
+          "seq": 15,
+          "category": "施工作業",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "施工範圍以活動圍欄圍束禁止人員進入振動機作業範圍"
+        },
+        {
+          "seq": 16,
+          "category": "施工作業",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "打樁、拔樁機機體之附件裝置不得有顯著變形、腐蝕、磨損"
+        },
+        {
+          "seq": 17,
+          "category": "施工作業",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "使用臨時用電設備應設置高敏感度之感電防止用漏電斷路器(額訂感應電流A，跳脫時間0.1秒以內)"
+        },
+        {
+          "seq": 18,
+          "category": "個人防護具",
+          "hazard_code": "PPE",
+          "hazard_label": "門禁與防護具",
+          "text": "電焊人員置備電焊面罩、皮胸圍、電焊皮手套、皮袖管、皮腳套、防塵口罩"
+        },
+        {
+          "seq": 19,
+          "category": "個人防護具",
+          "hazard_code": "PPE",
+          "hazard_label": "門禁與防護具",
+          "text": "一般作業置備安全帽、工作鞋、防止噪音之防護具、令勞工確實使用"
+        }
+      ]
+    },
+    {
+      "form_code": "F07",
+      "title": "連續壁作業安全自主檢查表",
+      "short_name": "連續壁作業",
+      "form_type": "single",
+      "item_count": 25,
+      "items": [
+        {
+          "seq": 1,
+          "category": "一般",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "作業主管應在現場指揮監督職務"
+        },
+        {
+          "seq": 2,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "樓板開口周圍以∮鋼管設置護欄(高≧90有上中欄杆及12㎝腳趾板)"
+        },
+        {
+          "seq": 3,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "1.5公尺以上高度作業應設置上下設備"
+        },
+        {
+          "seq": 4,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "開口邊緣施工應使用安全帶及安全母索"
+        },
+        {
+          "seq": 5,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "合梯作業高度不得超過以上"
+        },
+        {
+          "seq": 6,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "電焊機加裝接地線並加裝自動電擊防止裝置，遲動時間為1.0±0.3秒"
+        },
+        {
+          "seq": 7,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "分電盤採二段式，材料符合CNS4782規範"
+        },
+        {
+          "seq": 8,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "電線不可裸接、跳接或破皮、嚴格禁止活線作業"
+        },
+        {
+          "seq": 9,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "電焊機加裝自動電擊防止裝置(二次側無載電壓低於25伏特)"
+        },
+        {
+          "seq": 10,
+          "category": "火災",
+          "hazard_code": "FIRE",
+          "hazard_label": "火災",
+          "text": "設置足夠之滅火器並注意有效期限"
+        },
+        {
+          "seq": 11,
+          "category": "衝撞防止",
+          "hazard_code": "COLLISION",
+          "hazard_label": "衝撞",
+          "text": "起重機作業手吊舉物件時，應謹慎操作避免搖晃，致撞及人員或物品"
+        },
+        {
+          "seq": 12,
+          "category": "衝撞防止",
+          "hazard_code": "COLLISION",
+          "hazard_label": "衝撞",
+          "text": "鋼筋籠於吊放時須使用曳引繩控制以減少晃動"
+        },
+        {
+          "seq": 13,
+          "category": "衝撞防止",
+          "hazard_code": "COLLISION",
+          "hazard_label": "衝撞",
+          "text": "車輛系營建機械吊運作業時由現場領班指揮、連絡"
+        },
+        {
+          "seq": 14,
+          "category": "被夾",
+          "hazard_code": "CAUGHT",
+          "hazard_label": "被夾被捲",
+          "text": "工地使用之機械，如有傳動帶、傳動輪、齒輪、轉軸等有效勞工被捲、夾、擦傷者，應設護罩或護欄"
+        },
+        {
+          "seq": 15,
+          "category": "穿刺",
+          "hazard_code": "PUNCTURE",
+          "hazard_label": "穿刺",
+          "text": "作業勞工必須確實使用合格之安全帽"
+        },
+        {
+          "seq": 16,
+          "category": "穿刺",
+          "hazard_code": "PUNCTURE",
+          "hazard_label": "穿刺",
+          "text": "鋼筋籠之工作筋須經焊接強度測試，夾板固定筋須穿入主筋或副筋內至少m以上並至少電焊4處以上"
+        },
+        {
+          "seq": 17,
+          "category": "穿刺",
+          "hazard_code": "PUNCTURE",
+          "hazard_label": "穿刺",
+          "text": "服裝整齊不得打赤膊或赤腳及穿著拖鞋"
+        },
+        {
+          "seq": 18,
+          "category": "物體飛落",
+          "hazard_code": "FALLING_OBJ",
+          "hazard_label": "物體飛落",
+          "text": "作業半徑內以活動式柵欄加以區隔，並派監視員警戒，吊掛作業進行中及有危險時以哨音警告"
+        },
+        {
+          "seq": 19,
+          "category": "物體飛落",
+          "hazard_code": "FALLING_OBJ",
+          "hazard_label": "物體飛落",
+          "text": "起重機進場前須經勞檢單位檢查合格並檢附合格證明文件辦理進場申請"
+        },
+        {
+          "seq": 20,
+          "category": "物體飛落",
+          "hazard_code": "FALLING_OBJ",
+          "hazard_label": "物體飛落",
+          "text": "起重機操作人員、吊掛人員需有訓練合格證照"
+        },
+        {
+          "seq": 21,
+          "category": "物體飛落",
+          "hazard_code": "FALLING_OBJ",
+          "hazard_label": "物體飛落",
+          "text": "起重機具之吊鉤或釣具應設防滑舌片裝置、過捲揚警告裝置及過荷警告裝置"
+        },
+        {
+          "seq": 22,
+          "category": "物體飛落",
+          "hazard_code": "FALLING_OBJ",
+          "hazard_label": "物體飛落",
+          "text": "設置吊掛作業人員指揮吊掛，嚴禁吊舉物經過人員上方"
+        },
+        {
+          "seq": 23,
+          "category": "物體飛落",
+          "hazard_code": "FALLING_OBJ",
+          "hazard_label": "物體飛落",
+          "text": "吊掛作業人員與操作人員依統一指揮訊號指揮起吊"
+        },
+        {
+          "seq": 24,
+          "category": "物體飛落",
+          "hazard_code": "FALLING_OBJ",
+          "hazard_label": "物體飛落",
+          "text": "吊掛物下方應嚴禁人員進入,並設置警告設施"
+        },
+        {
+          "seq": 25,
+          "category": "物體飛落",
+          "hazard_code": "FALLING_OBJ",
+          "hazard_label": "物體飛落",
+          "text": "吊掛用具、鋼所需於作業前進行檢點"
+        }
+      ]
+    },
+    {
+      "form_code": "F08",
+      "title": "露天開挖作業安全自主檢查表",
+      "short_name": "露天開挖作業",
+      "form_type": "single",
+      "item_count": 23,
+      "items": [
+        {
+          "seq": 1,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "依地質鑽探調查結果擬定開挖計畫，內容應包括開挖方法、順序、進度、使用機械種類、降低水位方法及土壓觀測系統"
+        },
+        {
+          "seq": 2,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "開挖前應先調查地下管線，並留下位置記號"
+        },
+        {
+          "seq": 3,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "開挖作業中應指派專人指揮監督"
+        },
+        {
+          "seq": 4,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "應管制作業勞工與作業無關人員進入作業現場"
+        },
+        {
+          "seq": 5,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "對地面水及地下水之排洩應隨時加以注意"
+        },
+        {
+          "seq": 6,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "作業應量測空氣中氧含量及CO2濃度並實施足夠之通風換氣"
+        },
+        {
+          "seq": 7,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "開挖週邊應設置安全防護，出土作業時護欄可部分拆卸並由專人管制，作業完成後應將護欄復原"
+        },
+        {
+          "seq": 8,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "安全母索、安全帶繫固之錨錠，至少應能承受每人之拉力"
+        },
+        {
+          "seq": 9,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "從事高架作業勞工是否配戴安全帶並掛於母索上"
+        },
+        {
+          "seq": 10,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "開挖四周應設置警告標示"
+        },
+        {
+          "seq": 11,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "高差以上場所是否設置安全上下設備"
+        },
+        {
+          "seq": 12,
+          "category": "崩塌防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "開挖面之傾斜度應保持在自由安息角內"
+        },
+        {
+          "seq": 13,
+          "category": "崩塌防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "開挖邊緣每次在暴雨過後，應加以檢查並加強防止滑動及崩塌之措施"
+        },
+        {
+          "seq": 14,
+          "category": "崩塌防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "挖出之土方應堆在開挖邊緣至少之外，施工機械設備不得置放於開挖邊緣"
+        },
+        {
+          "seq": 15,
+          "category": "崩塌防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "開挖底部應設置排水措施，隨時排除地面水、地下水"
+        },
+        {
+          "seq": 16,
+          "category": "崩塌防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "準備砂袋，以緊急應變，並嚴禁超挖"
+        },
+        {
+          "seq": 17,
+          "category": "崩塌防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "開挖深度≧以上應設置擋土支撐，擋土支撐作業主管需在場監督"
+        },
+        {
+          "seq": 18,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "接近高架線路應於該線路上裝設絕緣防護套管"
+        },
+        {
+          "seq": 19,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "各分電盤應裝設高速型漏電斷路器(額定感度電流A，跳脫時間0.1秒以內)，使用之電動工具應接於負載側，不得跳接"
+        },
+        {
+          "seq": 20,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "橫越通道或勞工作業之電線應架高或保護"
+        },
+        {
+          "seq": 21,
+          "category": "機械管理",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "開挖作業之機械設備及工具應於每日開工前檢查"
+        },
+        {
+          "seq": 22,
+          "category": "機械管理",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "挖土機迴轉半徑內，禁止人員進入並派專人從事開挖作業之指揮工作"
+        },
+        {
+          "seq": 23,
+          "category": "機械管理",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "機械、車輛之運行路線及進出土石裝卸場所之方法應事前決定並告知勞工"
+        }
+      ]
+    },
+    {
+      "form_code": "F09",
+      "title": "擋土支撐作業安全自主檢查表",
+      "short_name": "擋土支撐作業",
+      "form_type": "single",
+      "item_count": 23,
+      "items": [
+        {
+          "seq": 1,
+          "category": "作業主管",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "擋土支撐作業主管須在場監督擋土支撐作業"
+        },
+        {
+          "seq": 2,
+          "category": "作業主管",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "對勞工之安全帽或安全帶是否監督確實使用"
+        },
+        {
+          "seq": 3,
+          "category": "作業主管",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "對與作業無關人員是否嚴禁進入作業現場"
+        },
+        {
+          "seq": 4,
+          "category": "作業主管",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "對地下水之湧出有危及勞工之虞時是否立即使勞工退避"
+        },
+        {
+          "seq": 5,
+          "category": "作業主管",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "是否監督起重機械運轉時防止觸及高壓線或妨礙交通"
+        },
+        {
+          "seq": 6,
+          "category": "一般",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "作業人員是否穿著防滑性佳之安全鞋"
+        },
+        {
+          "seq": 7,
+          "category": "一般",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "高差以上場所是否設置安全上下設備"
+        },
+        {
+          "seq": 8,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "開挖四周及施工構台等是否設置合符規定之安全護欄"
+        },
+        {
+          "seq": 9,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "安全支撐上是否架設高Φm鋼索之安全母索並使勞工佩掛安全帶"
+        },
+        {
+          "seq": 10,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "構台護蓋板如有開啟，應在開口邊緣組立鍍鋅鋼管以防人員墜落"
+        },
+        {
+          "seq": 11,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "安全支撐兩邊如無設置護欄，嚴禁人員行走"
+        },
+        {
+          "seq": 12,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "安全母索、安全帶繫固之錨錠，至少應能承受每人之拉力"
+        },
+        {
+          "seq": 13,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "從事高架作業勞工是否配戴安全帶並掛於母索上"
+        },
+        {
+          "seq": 14,
+          "category": "倒塌防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "組件、構件是否有損壞、變形、位移、下陷、鬆動"
+        },
+        {
+          "seq": 15,
+          "category": "倒塌防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "支柱是否平正、背填是否滑動、位移；圍令是否穩固；襯板是否破裂；螺栓是否鬆動、斷裂"
+        },
+        {
+          "seq": 16,
+          "category": "倒塌防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "施工構台(便橋)不得超載並設置限重標示。"
+        },
+        {
+          "seq": 17,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "接近高架線路是否於該線路上裝設絕緣防護套管"
+        },
+        {
+          "seq": 18,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "各分電盤是否裝設高速型漏電斷路器(額定感度電流A，跳脫時間0.1秒以內)，使用之電動工具應接於負載側，不得跳接"
+        },
+        {
+          "seq": 19,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "交流電焊機應使用自動電擊防止裝置（二次側電壓應在25V以下）"
+        },
+        {
+          "seq": 20,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "橫越通道或勞工作業之電線是否架高或保護"
+        },
+        {
+          "seq": 21,
+          "category": "危險機械",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "危險性機械進場前需作門禁管制，察看吊車、操作手、吊掛手之合格證，吊釣防滑舌片及過捲揚裝置，合格後方可進場"
+        },
+        {
+          "seq": 22,
+          "category": "危險機械",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "吊放型鋼應使用防止脫落之夾具"
+        },
+        {
+          "seq": 23,
+          "category": "危險機械",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "對於起重機具之運轉，應於運轉時採取防止吊掛物通過人員上方，及人員進入吊掛物下方之設備或措施"
+        }
+      ]
+    },
+    {
+      "form_code": "F10",
+      "title": "施工構台作業安全自主檢查表",
+      "short_name": "施工構台作業",
+      "form_type": "single",
+      "item_count": 23,
+      "items": [
+        {
+          "seq": 1,
+          "category": "作業主管",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "擋土支撐作業主管須在場監督擋土支撐作業"
+        },
+        {
+          "seq": 2,
+          "category": "作業主管",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "對勞工之安全帽或安全帶是否監督確實使用"
+        },
+        {
+          "seq": 3,
+          "category": "作業主管",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "對與作業無關人員是否嚴禁進入作業現場"
+        },
+        {
+          "seq": 4,
+          "category": "作業主管",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "地下水之湧出有危及勞工之虞時是否即使勞工退避"
+        },
+        {
+          "seq": 5,
+          "category": "作業主管",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "監督起重機械運轉時是否觸及高壓線或妨礙交通"
+        },
+        {
+          "seq": 6,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "作業人員是否穿著防滑性佳之安全鞋"
+        },
+        {
+          "seq": 7,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "是否設置鋼樓梯等安全上下設備"
+        },
+        {
+          "seq": 8,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "開挖四周及施工構台等是否設置合符規定之安全護欄（Ｈ≧m）"
+        },
+        {
+          "seq": 9,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "構台架設作業上是否架設高及鋼索安全母索並使勞工佩掛安全帶"
+        },
+        {
+          "seq": 10,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "構台覆蓋板如有開啟，應在開口邊緣組立鍍鋅鋼管以防人員墜落"
+        },
+        {
+          "seq": 11,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "構台下方應設置安全護網"
+        },
+        {
+          "seq": 12,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "安全母索得由鋼索、尼龍繩索或合成纖維之材質構成，其最小斷裂強度應在 以上"
+        },
+        {
+          "seq": 13,
+          "category": "倒塌防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "組件、構件是否損壞、變形、位移、下陷、鬆動"
+        },
+        {
+          "seq": 14,
+          "category": "倒塌防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "支柱是否平正、墊妥是否滑動、位移；圍苓是否穩固；襯板是否破裂；鉚釘是否鬆動、斷裂"
+        },
+        {
+          "seq": 15,
+          "category": "倒塌防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "施工構台不得超載並設限重標示"
+        },
+        {
+          "seq": 16,
+          "category": "防止感電",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "接近高架線路是否於該線路上裝設絕緣防護套管"
+        },
+        {
+          "seq": 17,
+          "category": "防止感電",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "各分電盤應裝設高速型漏電斷路器（額定感度電流A，跳脫時間0.1秒以內），使用之電動工具應接於負載側，不得跳接"
+        },
+        {
+          "seq": 18,
+          "category": "防止感電",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "交流電焊機應使用自動電擊防止裝置（二次側電壓應在25V以下）"
+        },
+        {
+          "seq": 19,
+          "category": "防止感電",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "橫越通道或勞工作業之電線應架高或保護"
+        },
+        {
+          "seq": 20,
+          "category": "危險機械",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "危險性機械進場前需作門禁管制，檢查吊車、操作手、吊掛手之合格證，吊勾防滑舌片及過捲揚裝置，合格後方可進場"
+        },
+        {
+          "seq": 21,
+          "category": "危險機械",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "吊放型鋼應使用具防止脫落之夾具"
+        },
+        {
+          "seq": 22,
+          "category": "危險機械",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "吊運作業半徑（含型鋼）內應作管制並嚴禁人員進入"
+        },
+        {
+          "seq": 23,
+          "category": "危險機械",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "覆工鈑吊掛應使用防止脫鉤之吊具"
+        }
+      ]
+    },
+    {
+      "form_code": "F11",
+      "title": "基樁/井式基礎作業安全自主檢查表",
+      "short_name": "基樁井式基礎作業",
+      "form_type": "single",
+      "item_count": 33,
+      "items": [
+        {
+          "seq": 1,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "是否注意地面水之排洩情形，並採取必要措施"
+        },
+        {
+          "seq": 2,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "機具移動時指揮訊息是否正確"
+        },
+        {
+          "seq": 3,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "機具之延長電纜須加以架高防護及使用漏電斷路器"
+        },
+        {
+          "seq": 4,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "事先調查作業場所之地質、地形狀況並規劃車輛機械之行徑路線"
+        },
+        {
+          "seq": 5,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "垂直開挖深度超過以上且有崩塌之虞者，需設擋土支撐"
+        },
+        {
+          "seq": 6,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "作業勞工是否有定期健康檢查"
+        },
+        {
+          "seq": 7,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "是否請技師先行計算鋼筋籠重量、吊耳計算、焊點強度"
+        },
+        {
+          "seq": 8,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "是否設置安全護欄及警示標誌"
+        },
+        {
+          "seq": 9,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "高度以上之開口是否設置安全護欄及警示標誌或使用安全帶"
+        },
+        {
+          "seq": 10,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "棄土坑是否置護欄，破壞之護欄是否立即復原"
+        },
+        {
+          "seq": 11,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "搖管機高於以上,是否以鋼管設置護欄高以上設上中欄桿踢腳板"
+        },
+        {
+          "seq": 12,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "接管時是否高於搖管機 以上"
+        },
+        {
+          "seq": 13,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "電焊機應接地"
+        },
+        {
+          "seq": 14,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "電焊機是否裝設內藏式自動電擊防止裝置(二次側電壓＜25V)"
+        },
+        {
+          "seq": 15,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "發電機及各分電路設置漏電斷路器(額定感應電流A、跳脫時間0.1秒以內)"
+        },
+        {
+          "seq": 16,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "電線劣化應更換新品"
+        },
+        {
+          "seq": 17,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "電線使用雙重絕緣地纜線，並檢查有無破損"
+        },
+        {
+          "seq": 18,
+          "category": "開挖安全",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "開挖時應加強觀測並做成記錄"
+        },
+        {
+          "seq": 19,
+          "category": "開挖安全",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "開挖面週圍是否設置警示標誌"
+        },
+        {
+          "seq": 20,
+          "category": "開挖安全",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "人員於實施檢驗時是否將開挖面用護蓋加以防護"
+        },
+        {
+          "seq": 21,
+          "category": "危險機械管理",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "吊放前檢查鋼筋籠各焊點是否牢固, 並採3點吊掛"
+        },
+        {
+          "seq": 22,
+          "category": "危險機械管理",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "吊掛鋼索是否正常堪用"
+        },
+        {
+          "seq": 23,
+          "category": "危險機械管理",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "吊具是否確實檢查換新"
+        },
+        {
+          "seq": 24,
+          "category": "危險機械管理",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "是否統一指揮信號"
+        },
+        {
+          "seq": 25,
+          "category": "危險機械管理",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "起重機械應檢驗合格,合格之吊掛作業手及起重機操作手"
+        },
+        {
+          "seq": 26,
+          "category": "危險機械管理",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "吊舉物下方作業半徑嚴禁人員進入並設置警告標誌"
+        },
+        {
+          "seq": 27,
+          "category": "危險機械管理",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "吊放範圍四週是否設置管制區,及指揮人員"
+        },
+        {
+          "seq": 28,
+          "category": "危險機械管理",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "挖土機嚴禁作不當使用，不得使挖土機抓斗供為主要用途以外之用途"
+        },
+        {
+          "seq": 29,
+          "category": "危險機械管理",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "不得使挖土機於抓斗在負載情形下行駛"
+        },
+        {
+          "seq": 30,
+          "category": "危險機械管理",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "使用良好吊具，鋼索定期檢修、換新，吊勾防滑舌片作用良好有過負荷預防裝置"
+        },
+        {
+          "seq": 31,
+          "category": "危險機械管理",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "車輛機械操作者應於駕駛座內操作，嚴禁於駕駛座外操作"
+        },
+        {
+          "seq": 32,
+          "category": "危險機械管理",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "鑽機行走舖面予以RC或鐵鈑使承載力足夠"
+        },
+        {
+          "seq": 33,
+          "category": "衝撞",
+          "hazard_code": "COLLISION",
+          "hazard_label": "衝撞",
+          "text": "鑽機操作室外應淨空，禁止人員站立於駕駛座外踏板平台上"
+        }
+      ]
+    },
+    {
+      "form_code": "F12",
+      "title": "隧道挖掘作業安全自主檢查表",
+      "short_name": "隧道挖掘作業",
+      "form_type": "single",
+      "item_count": 14,
+      "items": [
+        {
+          "seq": 1,
+          "category": "一般作業",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "事先調查作業場所之地質、地形狀況並規劃車輛機械之行徑路線"
+        },
+        {
+          "seq": 2,
+          "category": "一般作業",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "是否注意地面水之排洩情形，並採取必要措施"
+        },
+        {
+          "seq": 3,
+          "category": "一般作業",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "勞工確實佩戴安全帽、穿著反光背心或具反光標示之服裝"
+        },
+        {
+          "seq": 4,
+          "category": "一般作業",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "地層坍塌時，儘速疏散危險區域內人員並設置警告標"
+        },
+        {
+          "seq": 5,
+          "category": "一般作業",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "是否依據施工計畫施作"
+        },
+        {
+          "seq": 6,
+          "category": "局限空間作業",
+          "hazard_code": "CONFINED",
+          "hazard_label": "局限空間",
+          "text": "進入隧道前是否進行通風措施"
+        },
+        {
+          "seq": 7,
+          "category": "局限空間作業",
+          "hazard_code": "CONFINED",
+          "hazard_label": "局限空間",
+          "text": "進入作業前，是否進行氣體偵測"
+        },
+        {
+          "seq": 8,
+          "category": "局限空間作業",
+          "hazard_code": "CONFINED",
+          "hazard_label": "局限空間",
+          "text": "作業中，是否連續測定"
+        },
+        {
+          "seq": 9,
+          "category": "局限空間作業",
+          "hazard_code": "CONFINED",
+          "hazard_label": "局限空間",
+          "text": "是否落實隧道近初掛牌管制"
+        },
+        {
+          "seq": 10,
+          "category": "局限空間作業",
+          "hazard_code": "CONFINED",
+          "hazard_label": "局限空間",
+          "text": "不得使用具有內燃機之機械，以免排出之廢氣危害勞工"
+        },
+        {
+          "seq": 11,
+          "category": "物體飛落",
+          "hazard_code": "FALLING_OBJ",
+          "hazard_label": "物體飛落",
+          "text": "設置支撐、岩栓、噴凝土、環片等支持構造，並清除浮石"
+        },
+        {
+          "seq": 12,
+          "category": "物體飛落",
+          "hazard_code": "FALLING_OBJ",
+          "hazard_label": "物體飛落",
+          "text": "進出口附近是否設置擋土支撐、張設防護網、清除浮石或採取邊坡保護。"
+        },
+        {
+          "seq": 13,
+          "category": "物體飛落",
+          "hazard_code": "FALLING_OBJ",
+          "hazard_label": "物體飛落",
+          "text": "作業前，是否確實檢查歲到支撐無顯著損傷、變形或腐蝕"
+        },
+        {
+          "seq": 14,
+          "category": "物體飛落",
+          "hazard_code": "FALLING_OBJ",
+          "hazard_label": "物體飛落",
+          "text": "隧道、坑道開挖作業，如其豎坑深度超過二十公尺者，應設專供人員緊急出坑之安全吊升設備"
+        }
+      ]
+    },
+    {
+      "form_code": "F13",
+      "title": "隧道等襯砌作業安全自主檢查表",
+      "short_name": "隧道等襯砌作業",
+      "form_type": "single",
+      "item_count": 14,
+      "items": [
+        {
+          "seq": 1,
+          "category": "般作業",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "事先調查作業場所之地質、地形狀況並規劃車輛機械之行徑路線"
+        },
+        {
+          "seq": 2,
+          "category": "般作業",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "是否注意地面水之排洩情形，並採取必要措施"
+        },
+        {
+          "seq": 3,
+          "category": "般作業",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "勞工確實佩戴安全帽、穿著反光背心或具反光標示之服裝"
+        },
+        {
+          "seq": 4,
+          "category": "般作業",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "地層坍塌時，儘速疏散危險區域內人員並設置警告標"
+        },
+        {
+          "seq": 5,
+          "category": "般作業",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "是否依據施工計畫施作"
+        },
+        {
+          "seq": 6,
+          "category": "局限空間作業",
+          "hazard_code": "CONFINED",
+          "hazard_label": "局限空間",
+          "text": "進入隧道前是否進行通風措施"
+        },
+        {
+          "seq": 7,
+          "category": "局限空間作業",
+          "hazard_code": "CONFINED",
+          "hazard_label": "局限空間",
+          "text": "進入作業前，是否進行氣體偵測"
+        },
+        {
+          "seq": 8,
+          "category": "局限空間作業",
+          "hazard_code": "CONFINED",
+          "hazard_label": "局限空間",
+          "text": "作業中，是否連續測定"
+        },
+        {
+          "seq": 9,
+          "category": "局限空間作業",
+          "hazard_code": "CONFINED",
+          "hazard_label": "局限空間",
+          "text": "是否落實隧道近初掛牌管制"
+        },
+        {
+          "seq": 10,
+          "category": "局限空間作業",
+          "hazard_code": "CONFINED",
+          "hazard_label": "局限空間",
+          "text": "不得使用具有內燃機之機械，以免排出之廢氣危害勞工"
+        },
+        {
+          "seq": 11,
+          "category": "物體飛落",
+          "hazard_code": "FALLING_OBJ",
+          "hazard_label": "物體飛落",
+          "text": "設置支撐、岩栓、噴凝土、環片等支持構造，並清除浮石"
+        },
+        {
+          "seq": 12,
+          "category": "物體飛落",
+          "hazard_code": "FALLING_OBJ",
+          "hazard_label": "物體飛落",
+          "text": "進出口附近是否設置擋土支撐、張設防護網、清除浮石或採取邊坡保護。"
+        },
+        {
+          "seq": 13,
+          "category": "物體飛落",
+          "hazard_code": "FALLING_OBJ",
+          "hazard_label": "物體飛落",
+          "text": "作業前，是否確實檢查歲到支撐無顯著損傷、變形或腐蝕"
+        },
+        {
+          "seq": 14,
+          "category": "物體飛落",
+          "hazard_code": "FALLING_OBJ",
+          "hazard_label": "物體飛落",
+          "text": "隧道、坑道開挖作業，如其豎坑深度超過二十公尺者，應設專供人員緊急出坑之安全吊升設備"
+        }
+      ]
+    },
+    {
+      "form_code": "F14",
+      "title": "混凝土澆置作業安全自主檢查表",
+      "short_name": "混凝土澆置作業",
+      "form_type": "single",
+      "item_count": 21,
+      "items": [
+        {
+          "seq": 1,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "應指派模板工巡視"
+        },
+        {
+          "seq": 2,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "禁止勞工乘坐於混凝土澆置桶上"
+        },
+        {
+          "seq": 3,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "以起重機具或索道吊運之混凝土桶下方，禁止人員進入"
+        },
+        {
+          "seq": 4,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "以起重機具吊運混凝土桶澆置混凝土時，應指派信號指揮人員指揮"
+        },
+        {
+          "seq": 5,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "應指定安全出入口"
+        },
+        {
+          "seq": 6,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "攪拌器及輸送管接頭銜接狀況應良好"
+        },
+        {
+          "seq": 7,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "作業時攪拌器攪刀之覆蓋不得開啟"
+        },
+        {
+          "seq": 8,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "容積以上之漏斗之混凝土拌合機，應有清掃裝置與護欄"
+        },
+        {
+          "seq": 9,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "四周開口邊緣應設置護欄等防護措施"
+        },
+        {
+          "seq": 10,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "開口邊緣組筋，開口邊緣應設護欄，無法設置護欄時，作業勞工是否配戴安全帶並掛於母索上"
+        },
+        {
+          "seq": 11,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "安全母索、安全帶繫固之錨錠，至少應能承受每人之拉力"
+        },
+        {
+          "seq": 12,
+          "category": "倒塌防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "支撐混凝土輸送管固定架應考慮一切可能之荷重及震動妥為設計"
+        },
+        {
+          "seq": 13,
+          "category": "倒塌防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "輸送管需以鐵線固定，並加墊輪胎吸收震動，避免模板倒塌"
+        },
+        {
+          "seq": 14,
+          "category": "倒塌防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "模板及支撐材料應牢固、完整"
+        },
+        {
+          "seq": 15,
+          "category": "倒塌防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "澆置前須檢查模板支撐各部份之連接及斜撐是否安全，支撐之水平繫條是否足夠，澆置期間應指派模板工巡視"
+        },
+        {
+          "seq": 16,
+          "category": "倒塌防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "禁止輸送管堆置於施工架上"
+        },
+        {
+          "seq": 17,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "各分電盤應裝設5A、0.1sec即跳脫之電流動作高速型漏電斷路器，使用電動工具應接於負載側，不得跳接"
+        },
+        {
+          "seq": 18,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "橫越通道或勞工作業之電線應架高或保護"
+        },
+        {
+          "seq": 19,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "混凝土壓送車輸送管等有觸及高壓線路之虞時，是否設置絕緣套管並派專人指揮以保持安全距離"
+        },
+        {
+          "seq": 20,
+          "category": "危險機械",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "從事吊運混凝土桶之危險性機械進場前需作門禁管制，檢查吊車、操作手、吊掛手之合格證，吊鉤防滑舌片及過捲揚過負荷裝置，合格後方可進場"
+        },
+        {
+          "seq": 21,
+          "category": "危險機械",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "對於起重機具之運轉，應於運轉時採取防止吊掛物通過人員上方，及人員進入吊掛物下方之設備或措施"
+        }
+      ]
+    },
+    {
+      "form_code": "F15",
+      "title": "鋼筋作業安全自主檢查表",
+      "short_name": "鋼筋作業",
+      "form_type": "single",
+      "item_count": 19,
+      "items": [
+        {
+          "seq": 1,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "鋼筋應分類整齊儲放，並不得置放於高壓電線下方"
+        },
+        {
+          "seq": 2,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "從事鋼筋作業之勞工應戴用手套"
+        },
+        {
+          "seq": 3,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "利用鋼筋結構作為通道時表面應舖以木板"
+        },
+        {
+          "seq": 4,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "不可使用鋼筋作為鋼索支持物、工作架或起重支撐架"
+        },
+        {
+          "seq": 5,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "鋼筋不得散放於施工架上"
+        },
+        {
+          "seq": 6,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "暴露之鋼筋應將尖端彎曲或加蓋"
+        },
+        {
+          "seq": 7,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "應確實使用安全帽、安全帶、安全鞋"
+        },
+        {
+          "seq": 8,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "2公尺以上柱筋作業，應設置具安全上下設備之工作台，四周應設置護欄，並妥為固定"
+        },
+        {
+          "seq": 9,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "開口邊緣應設護欄，無法設置護欄時，作業勞工是否配戴安全帶並掛於母索上"
+        },
+        {
+          "seq": 10,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "安全母索、安全帶繫固之錨錠，至少應能承受每人之拉力"
+        },
+        {
+          "seq": 11,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "使用吊車或索道運送鋼筋時，應予紮牢以防滑落"
+        },
+        {
+          "seq": 12,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "吊運長度超過之鋼筋，應在適當距離之二端以吊鏈鉤住或鋼索捆紮拉緊"
+        },
+        {
+          "seq": 13,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "總受電盤應裝設≦100歐姆之接地線"
+        },
+        {
+          "seq": 14,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "各分電盤應裝設高速型漏電斷路器(額定感度電流A，跳脫時間0.1秒以內)，使用電動工具應接於負載側，不得跳接"
+        },
+        {
+          "seq": 15,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "於接近高壓線路搬運鋼筋作業，應保持安全距離，橫越通道或勞工作業之電線應架高或保護"
+        },
+        {
+          "seq": 16,
+          "category": "危險機械",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "從事吊運鋼筋之危險性機械進場前需作門禁管制，檢查吊車、操作手、吊掛手之合格證，吊鉤防滑舌片及過捲揚裝置，合格後方可進場"
+        },
+        {
+          "seq": 17,
+          "category": "危險機械",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "吊具、鋼索不可有截斷、磨損、變形、扭結"
+        },
+        {
+          "seq": 18,
+          "category": "危險機械",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "對於起重機具之運轉，應於運轉時採取防止吊掛物通過人員上方，及人員進入吊掛物下方之設備或措施"
+        },
+        {
+          "seq": 19,
+          "category": "危險機械",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "吊運鋼筋時嚴禁搭載人員"
+        }
+      ]
+    },
+    {
+      "form_code": "F16",
+      "title": "鋼構作業安全自主檢查表",
+      "short_name": "鋼構作業",
+      "form_type": "single",
+      "item_count": 27,
+      "items": [
+        {
+          "seq": 1,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "作業主管是否依規定入場指揮"
+        },
+        {
+          "seq": 2,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "吊料處是否兩人共同作業"
+        },
+        {
+          "seq": 3,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "作業現場是否選派專人指揮並設置管制區"
+        },
+        {
+          "seq": 4,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "人員是否配戴安全帽"
+        },
+        {
+          "seq": 5,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "作業人員是否穿著防滑性佳之膠鞋"
+        },
+        {
+          "seq": 6,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "依法令規定設置高空警示燈"
+        },
+        {
+          "seq": 7,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "操作手、吊掛人員是否具有訓練合格證照"
+        },
+        {
+          "seq": 8,
+          "category": "人體",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "室內地板、踏板是否清潔,並無油污、物品"
+        },
+        {
+          "seq": 9,
+          "category": "墜落",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "已完成之樓層安全護網是否有被破壞"
+        },
+        {
+          "seq": 10,
+          "category": "防止",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "鋼柱立柱間是否架設之m鋼索安全母鎖"
+        },
+        {
+          "seq": 11,
+          "category": "檢查項目",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "吊勾是否正常"
+        },
+        {
+          "seq": 12,
+          "category": "飛",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "吊具鋼索是否已有截斷磨損變形扭結"
+        },
+        {
+          "seq": 13,
+          "category": "落",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "接合板、高張力螺栓、安全網等物料妥善保存"
+        },
+        {
+          "seq": 14,
+          "category": "防",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "吊勾防止吊物脫落之防滑舌片裝置是否正常"
+        },
+        {
+          "seq": 15,
+          "category": "止",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "吊物是否超過額定荷重"
+        },
+        {
+          "seq": 16,
+          "category": "檢查項目",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "作業範圍是否嚴禁人員進入吊舉物下方"
+        },
+        {
+          "seq": 17,
+          "category": "倒塌",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "起重設備之架設型鋼是否強固"
+        },
+        {
+          "seq": 18,
+          "category": "防止",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "過負荷警報裝置是否正常"
+        },
+        {
+          "seq": 19,
+          "category": "檢查項目",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "進場型鋼料是否堆放穩固"
+        },
+        {
+          "seq": 20,
+          "category": "感電",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "與供電線路是否保持安全距離"
+        },
+        {
+          "seq": 21,
+          "category": "防止",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "設備是否經過漏電合格測試"
+        },
+        {
+          "seq": 22,
+          "category": "檢查項目",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "各分電盤是否安裝A 0.1sec跳脫之漏電斷路器"
+        },
+        {
+          "seq": 23,
+          "category": "機",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "吊掛機具是否通過工檢"
+        },
+        {
+          "seq": 24,
+          "category": "具",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "吊掛機具是否按時保養"
+        },
+        {
+          "seq": 25,
+          "category": "檢",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "鋼索吊環是否變形損傷"
+        },
+        {
+          "seq": 26,
+          "category": "點",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "安裝之構件具備有詳重量、高度、距離等資料"
+        },
+        {
+          "seq": 27,
+          "category": "檢查項目",
+          "hazard_code": "OTHER",
+          "hazard_label": "其他",
+          "text": "桁架、鞍架、伸臂等結構是否安裝穩固"
+        }
+      ]
+    },
+    {
+      "form_code": "F17",
+      "title": "模板作業安全自主檢查表",
+      "short_name": "模板作業",
+      "form_type": "single",
+      "item_count": 23,
+      "items": [
+        {
+          "seq": 1,
+          "category": "作業主管",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "是否分配勞工工作及在現場監督、指揮勞工作業"
+        },
+        {
+          "seq": 2,
+          "category": "作業主管",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "對作業器具、工具、材料是否經檢查後方才使用"
+        },
+        {
+          "seq": 3,
+          "category": "作業主管",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "是否確實監督勞工使用安全帽、安全帶"
+        },
+        {
+          "seq": 4,
+          "category": "作業主管",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "混凝土澆築作業前模板支撐作業主管是否檢查模板支撐各部份之連接及水平繫條設置情形"
+        },
+        {
+          "seq": 5,
+          "category": "作業主管",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "混凝土澆築期間模板支撐作業主管是否帶領模板工共同巡視，並做適當之處理"
+        },
+        {
+          "seq": 6,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "模板上突出之鐵釘是否拔出或釘入"
+        },
+        {
+          "seq": 7,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "模板拆卸後應整理並不得堆置於勞工作業動線上"
+        },
+        {
+          "seq": 8,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "是否禁止無關之人員進入作業區域"
+        },
+        {
+          "seq": 9,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "地面及牆面開口等是否設置符合規定之安全護欄"
+        },
+        {
+          "seq": 10,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "安全母索、安全帶繫固之錨錠，至少應能承受每人之拉力"
+        },
+        {
+          "seq": 11,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "開口邊緣如無法施作護欄，人員應使用安全帶帶並掛於母索上"
+        },
+        {
+          "seq": 12,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "高差以上場所是否設置安全上下設備"
+        },
+        {
+          "seq": 13,
+          "category": "倒塌防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "模板支撐應依模板形狀、預期荷重及混凝土澆置方法等妥為設計，支柱間距是否恰當"
+        },
+        {
+          "seq": 14,
+          "category": "倒塌防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "支柱與水平繫條架設及支柱墊底之墊木是否穩固"
+        },
+        {
+          "seq": 15,
+          "category": "倒塌防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "模板斜撐材是否足夠、模板支撐搭接部份是否依規定妥為固定"
+        },
+        {
+          "seq": 16,
+          "category": "倒塌防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "拆模之臨時工作架是否穩固"
+        },
+        {
+          "seq": 17,
+          "category": "防止感電",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "各分電盤是否裝設高速型漏電斷路器(額定感度電流A，跳脫時間0.1秒以內)，使用之電動工具應接於負載側，不得跳接"
+        },
+        {
+          "seq": 18,
+          "category": "防止感電",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "分電盤應常保關閉上鎖非電氣人員不得開啟，並設立警示標語"
+        },
+        {
+          "seq": 19,
+          "category": "防止感電",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "橫越通道或勞工作業之電線是否架高或保護"
+        },
+        {
+          "seq": 20,
+          "category": "危險機械",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "從事吊運模板之起重機進場前需作門禁管制，檢查吊車、操作手、吊掛手之合格證，吊鉤防滑舌片及過捲揚裝置，合格後方可進場"
+        },
+        {
+          "seq": 21,
+          "category": "危險機械",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "吊運模板應有兩處以上之固定，方可起吊"
+        },
+        {
+          "seq": 22,
+          "category": "危險機械",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "對於起重機具之運轉，應於運轉時採取防止吊掛物通過人員上方，及人員進入吊掛物下方之設備或措施"
+        },
+        {
+          "seq": 23,
+          "category": "危險機械",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "吊運模板禁止搭載人員"
+        }
+      ]
+    },
+    {
+      "form_code": "F18",
+      "title": "施工架拆除作業安全自主檢查表",
+      "short_name": "施工架拆除作業",
+      "form_type": "single",
+      "item_count": 19,
+      "items": [
+        {
+          "seq": 1,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "施工架拆除作業主管應分配勞工工作並在現場監督勞工從事施工架拆卸作業"
+        },
+        {
+          "seq": 2,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "施工架拆除前，應進行人員裝備、垂直母索、垂直防墜器、捲揚式防墜器等檢查，作業中確實監督使用人員使用背負式安全帶並勾掛使用。"
+        },
+        {
+          "seq": 3,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "施工架拆除作業前，應進行捲揚機/吊車檢查，並檢查機具合格證、操作人員證照、吊掛人員證照等相關證照"
+        },
+        {
+          "seq": 4,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "拆除作業前，應召開拆架會議討論拆除方式、下架點、物料堆置區、其他作業勞工配合方式、當日動線管制區域"
+        },
+        {
+          "seq": 5,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "不可因外牆施工有不當切除壁連座之情行"
+        },
+        {
+          "seq": 6,
+          "category": "墜落滾落災害防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "手工具應繫繩"
+        },
+        {
+          "seq": 7,
+          "category": "墜落滾落災害防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "拆除施工架時，應設置扶手先行欄杆，使勞工確實穿配背負式安全帶"
+        },
+        {
+          "seq": 8,
+          "category": "墜落滾落災害防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "工作台應低於施工架立柱頂點以上"
+        },
+        {
+          "seq": 9,
+          "category": "墜落滾落災害防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "材料垂直運送應使用起重設備"
+        },
+        {
+          "seq": 10,
+          "category": "墜落滾落災害防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "是否設置警示區嚴禁無關人員進入組、拆作業區域"
+        },
+        {
+          "seq": 11,
+          "category": "墜落滾落災害防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "天候不佳應該停止拆除作業"
+        },
+        {
+          "seq": 12,
+          "category": "墜落滾落災害防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "防塵網及帆布拆除,須注意風力,交叉拉桿不能先行拆除"
+        },
+        {
+          "seq": 13,
+          "category": "墜落滾落災害防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "拆除斜屏防墜設施應雙人作業,防墜設配須確實著裝"
+        },
+        {
+          "seq": 14,
+          "category": "物體倒塌災害防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "架材、主柱、橫擋、踏腳桁、斜撐材之安裝、鬆弛狀況及損傷狀況"
+        },
+        {
+          "seq": 15,
+          "category": "物體倒塌災害防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "固定材料及固定金屬配件之損傷及腐蝕狀況"
+        },
+        {
+          "seq": 16,
+          "category": "物體倒塌災害防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "拆除應分層拆除"
+        },
+        {
+          "seq": 17,
+          "category": "物體倒塌災害防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "拆除時是否繫壁杆每拆一層再拆除該層施工架"
+        },
+        {
+          "seq": 18,
+          "category": "物體倒塌災害防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "材料吊運離場要確實綁紮"
+        },
+        {
+          "seq": 19,
+          "category": "物體倒塌災害防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "遇強風(/sec、大雨m/hr、m/day)等惡劣天候及四級以上地震是否停止作業"
+        }
+      ]
+    },
+    {
+      "form_code": "F19",
+      "title": "施工架作業安全自主檢查表",
+      "short_name": "施工架作業",
+      "form_type": "single",
+      "item_count": 26,
+      "items": [
+        {
+          "seq": 1,
+          "category": "作業主管",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "是否分配勞工工作並在現場監督勞工從事施工架組配、拆卸作業"
+        },
+        {
+          "seq": 2,
+          "category": "作業主管",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "材料是否經檢查無缺陷後方始用"
+        },
+        {
+          "seq": 3,
+          "category": "作業主管",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "是否將作業時間、範圍及順序等告知作業勞工"
+        },
+        {
+          "seq": 4,
+          "category": "作業主管",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "對組裝或拆卸作業人員之安全帽或安全帶是否監督確實使用"
+        },
+        {
+          "seq": 5,
+          "category": "作業主管",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "施工架吊送是否指派吊掛手負責作業及指揮"
+        },
+        {
+          "seq": 6,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "作業人員是否穿著防滑性佳之膠鞋"
+        },
+        {
+          "seq": 7,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "工作台、走道、階梯等是否有堆積物料阻礙通行及作業"
+        },
+        {
+          "seq": 8,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "施工架與結構體間之開口是否舖設狹長型安全網以防人員墜落"
+        },
+        {
+          "seq": 9,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "總高度≧是否設置供勞工安全上下之階梯"
+        },
+        {
+          "seq": 10,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "施工架組配是否架設高之m鋼索安全母索(可承載每人之拉力)，並使組裝、拆卸人員一律使用安全帶，並正確掛於母索"
+        },
+        {
+          "seq": 11,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "工作台是否低於施工架立柱頂點以上"
+        },
+        {
+          "seq": 12,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "不得使勞工在施工架上使用合梯或板凳等從事作業"
+        },
+        {
+          "seq": 13,
+          "category": "飛落防止",
+          "hazard_code": "FALLING_OBJ",
+          "hazard_label": "物體飛落",
+          "text": "吊升或卸放材料、器具、工具等是否使用吊索、吊帶等"
+        },
+        {
+          "seq": 14,
+          "category": "飛落防止",
+          "hazard_code": "FALLING_OBJ",
+          "hazard_label": "物體飛落",
+          "text": "有鄰近或跨越工作走道部份是否設置斜籬或安全網"
+        },
+        {
+          "seq": 15,
+          "category": "飛落防止",
+          "hazard_code": "FALLING_OBJ",
+          "hazard_label": "物體飛落",
+          "text": "是否設置警示區嚴禁無關人員進入組、拆作業區域"
+        },
+        {
+          "seq": 16,
+          "category": "倒塌防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "是否置放鋼筋等重物超過施工架荷重限制"
+        },
+        {
+          "seq": 17,
+          "category": "倒塌防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "架材之按裝、鬆弛狀況"
+        },
+        {
+          "seq": 18,
+          "category": "倒塌防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "架材是否損傷"
+        },
+        {
+          "seq": 19,
+          "category": "倒塌防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "基腳之下沈、滑動之狀況"
+        },
+        {
+          "seq": 20,
+          "category": "倒塌防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "三角托架螺栓是否固定確實"
+        },
+        {
+          "seq": 21,
+          "category": "倒塌防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "是否因外牆施工有不當切除繫壁杆之情形"
+        },
+        {
+          "seq": 22,
+          "category": "倒塌防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "固定材料與固定金屬配件之損傷及腐蝕狀況"
+        },
+        {
+          "seq": 23,
+          "category": "倒塌防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "組立時是否在垂直向以≦、水平向以≦與結構物妥實連接"
+        },
+        {
+          "seq": 24,
+          "category": "倒塌防止",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "拆除時是否繫壁杆每拆一層再拆除該層施工架"
+        },
+        {
+          "seq": 25,
+          "category": "危險機械",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "從事吊裝施工架之危險性機械進場前需作門禁管制，檢查吊車、操作手、吊掛手之合格證，吊鉤防滑舌片及過捲揚裝置，合格後方可進場"
+        },
+        {
+          "seq": 26,
+          "category": "危險機械",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "對於起重機具之運轉，應於運轉時採取防止吊掛物通過人員上方，及人員進入吊掛物下方之設備或措施"
+        }
+      ]
+    },
+    {
+      "form_code": "F20",
+      "title": "模板支撐架作業安全自主檢查表",
+      "short_name": "模板支撐架作業",
+      "form_type": "single",
+      "item_count": 22,
+      "items": [
+        {
+          "seq": 1,
+          "category": "作業主管",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "應分配勞工工作並在現場監督、指揮勞工作業"
+        },
+        {
+          "seq": 2,
+          "category": "作業主管",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "材料是否經檢查無缺陷後使用"
+        },
+        {
+          "seq": 3,
+          "category": "作業主管",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "作業時間、範圍及順序是否告知作業勞工"
+        },
+        {
+          "seq": 4,
+          "category": "作業主管",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "對組裝或拆卸作業人員之安全帽或安全帶是否確實使用"
+        },
+        {
+          "seq": 5,
+          "category": "作業主管",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "施工架吊送是否指派吊掛手負責指揮"
+        },
+        {
+          "seq": 6,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "作業人員應穿防滑性佳之膠鞋"
+        },
+        {
+          "seq": 7,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "工作台、走道是否堆積物料阻礙通行及作業"
+        },
+        {
+          "seq": 8,
+          "category": "人體墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "不可於施工架上使用梯子、合梯或踏凳等從事作業"
+        },
+        {
+          "seq": 9,
+          "category": "人體墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "施工架內側是否架設高之安全母索並使勞工佩掛安全帶"
+        },
+        {
+          "seq": 10,
+          "category": "人體墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "支撐架開口處是否設置安全網"
+        },
+        {
+          "seq": 11,
+          "category": "人體墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "固定或拆除模板支撐架是否設置安全母索並使勞工佩掛安全帶"
+        },
+        {
+          "seq": 12,
+          "category": "結構安全",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "支撐架主體結構與基礎接合是否依設計方式鎖固"
+        },
+        {
+          "seq": 13,
+          "category": "結構安全",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "底部是否夯實鋪設鐵板，每處接合螺栓是否鎖固"
+        },
+        {
+          "seq": 14,
+          "category": "結構安全",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "工作平台及架設安全欄杆接合是否穩固"
+        },
+        {
+          "seq": 15,
+          "category": "結構安全",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "支柱等之固定部分、接觸部分及搭接重疊部分之鬆弛狀況"
+        },
+        {
+          "seq": 16,
+          "category": "結構安全",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "固定材料與固定金屬配件之損傷及腐蝕狀況"
+        },
+        {
+          "seq": 17,
+          "category": "結構安全",
+          "hazard_code": "COLLAPSE",
+          "hazard_label": "倒塌崩塌",
+          "text": "斜撐材、水平繫條等補強材之狀況"
+        },
+        {
+          "seq": 18,
+          "category": "危險機具管理",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "從事吊運模板支撐架之起重機進場前需作門禁管制，檢查吊車、操作手、吊掛手之合格證、吊勾防滑舌片及過捲揚裝置，合格後方可進場"
+        },
+        {
+          "seq": 19,
+          "category": "危險機具管理",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "吊運模板支撐是否有兩處以上之固定，方可起吊並使用控制索加以控制方向"
+        },
+        {
+          "seq": 20,
+          "category": "危險機具管理",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "吊掛人員是否有合格證照，並劃一指揮信號"
+        },
+        {
+          "seq": 21,
+          "category": "危險機具管理",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "對於起重機具之運轉，應於運轉時採取防止吊掛物通過人員上方，及人員進入吊掛物下方之設備或措施"
+        },
+        {
+          "seq": 22,
+          "category": "危險機具管理",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "高空作業車使用前是否檢查制動裝置、警報裝置、緊急停止裝置、分電盤及控制桿，檢查完成方可施作"
+        }
+      ]
+    },
+    {
+      "form_code": "F21",
+      "title": "捲揚機作業安全自主檢查表",
+      "short_name": "捲揚機作業",
+      "form_type": "monthly",
+      "item_count": 10,
+      "items": [
+        {
+          "seq": 1,
+          "category": "每日檢點",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "吊掛作業前是否進行申請"
+        },
+        {
+          "seq": 2,
+          "category": "每日檢點",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "吊掛人員裝備、證照是否合格"
+        },
+        {
+          "seq": 3,
+          "category": "每日檢點",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "捲揚機吊架、固定架是否固定妥當"
+        },
+        {
+          "seq": 4,
+          "category": "每日檢點",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "開關箱應設置漏電斷路器；電線及馬達絕緣良好"
+        },
+        {
+          "seq": 5,
+          "category": "每日檢點",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "錨錠及吊掛用索具有異狀應修換"
+        },
+        {
+          "seq": 6,
+          "category": "每日檢點",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "捲揚機應設有防止過捲裝置或標示"
+        },
+        {
+          "seq": 7,
+          "category": "每日檢點",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "吊運作業中禁止人員進入吊舉物下方及鋼索內側角"
+        },
+        {
+          "seq": 8,
+          "category": "每日檢點",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "吊掛重量不得超過該設備最高負荷，並予標示"
+        },
+        {
+          "seq": 9,
+          "category": "每日檢點",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "作業時應置信號指揮聯絡人員並統一信號指揮"
+        },
+        {
+          "seq": 10,
+          "category": "每日檢點",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "制動裝置、安全裝置、控制裝置及鋼索通過部分"
+        }
+      ]
+    },
+    {
+      "form_code": "F22",
+      "title": "移動式起重機作業安全自主檢查表",
+      "short_name": "移動式起重機作業",
+      "form_type": "single",
+      "item_count": 25,
+      "items": [
+        {
+          "seq": 1,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "強風、大雨等惡劣氣候下應禁止工作"
+        },
+        {
+          "seq": 2,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "操作式玻璃窗應潔淨而有良好視線"
+        },
+        {
+          "seq": 3,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "底盤伸縮腳架操作應正常"
+        },
+        {
+          "seq": 4,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "制動器、離合器、控制裝置及其他警報裝置之性能應檢點"
+        },
+        {
+          "seq": 5,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "地盤是否穩固，是否需增加墊片或鐵板"
+        },
+        {
+          "seq": 6,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "桁架及桁架聯結裝置應良好"
+        },
+        {
+          "seq": 7,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "操作人員或駕駛人員於起重機吊有荷重時，不得擅離操作位置或駕駛室；預離開駕駛座，需熄火並將鑰匙隨身攜出。"
+        },
+        {
+          "seq": 8,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "應於操作人員及吊掛作業者易見處，置有額定荷重之明顯標示"
+        },
+        {
+          "seq": 9,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "操作手、吊掛手應有合格證照"
+        },
+        {
+          "seq": 10,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "起重機具應經檢查合格方得使用"
+        },
+        {
+          "seq": 11,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "以吊物為限，不得乘載或吊升勞工從事作業"
+        },
+        {
+          "seq": 12,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "起重機具之作業應規定一定之運轉指揮信號，並指派專人負責辦理"
+        },
+        {
+          "seq": 13,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "(吊桿)副桿未經檢查許可不可使用"
+        },
+        {
+          "seq": 14,
+          "category": "物體飛落",
+          "hazard_code": "FALLING_OBJ",
+          "hazard_label": "物體飛落",
+          "text": "負載鋼索應良好"
+        },
+        {
+          "seq": 15,
+          "category": "物體飛落",
+          "hazard_code": "FALLING_OBJ",
+          "hazard_label": "物體飛落",
+          "text": "過捲預防設備功能應正常"
+        },
+        {
+          "seq": 16,
+          "category": "物體飛落",
+          "hazard_code": "FALLING_OBJ",
+          "hazard_label": "物體飛落",
+          "text": "過負荷警報裝置功能應正常"
+        },
+        {
+          "seq": 17,
+          "category": "物體飛落",
+          "hazard_code": "FALLING_OBJ",
+          "hazard_label": "物體飛落",
+          "text": "起重機之使用，應不得超過額定荷重"
+        },
+        {
+          "seq": 18,
+          "category": "物體飛落",
+          "hazard_code": "FALLING_OBJ",
+          "hazard_label": "物體飛落",
+          "text": "對於起重機具之運轉，應於運轉時採取防止吊掛物通過人員上方，及人員進入吊掛物下方之設備或措施"
+        },
+        {
+          "seq": 19,
+          "category": "物體飛落",
+          "hazard_code": "FALLING_OBJ",
+          "hazard_label": "物體飛落",
+          "text": "吊鉤應正常"
+        },
+        {
+          "seq": 20,
+          "category": "物體飛落",
+          "hazard_code": "FALLING_OBJ",
+          "hazard_label": "物體飛落",
+          "text": "吊鉤防滑舌片功能應正常"
+        },
+        {
+          "seq": 21,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "開關器應正常"
+        },
+        {
+          "seq": 22,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "配線、供電線不可破損"
+        },
+        {
+          "seq": 23,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "警報裝置、控制裝置等電器部份應正常"
+        },
+        {
+          "seq": 24,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "接近高架線路應保持安全距離，並由專人監督指揮"
+        },
+        {
+          "seq": 25,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "各分電盤應裝設高速型漏電斷路器(額定感度電流A，跳脫時間0.1秒以內)"
+        }
+      ]
+    },
+    {
+      "form_code": "F23",
+      "title": "車輛系營建機械作業安全自主檢查表",
+      "short_name": "車輛系營建機械作業",
+      "form_type": "single",
+      "item_count": 20,
+      "items": [
+        {
+          "seq": 1,
+          "category": "翻倒防止",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "車輛系營建機械如作業工作場所，有使該機械翻落表土崩塌等危險時，事先是否調查該作業場所之地質、地形狀況等，作業現場是否指派專人管理及監督勞工作業"
+        },
+        {
+          "seq": 2,
+          "category": "翻倒防止",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "車輛系營建機械之種類，及行經路線作業方法事先是否規劃"
+        },
+        {
+          "seq": 3,
+          "category": "作業前檢點",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "車輛系營建機械每日作業前是否定期實施檢點"
+        },
+        {
+          "seq": 4,
+          "category": "作業前檢點",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "1.煞車、離合器、操作裝置及作業裝置之有無異常"
+        },
+        {
+          "seq": 5,
+          "category": "作業前檢點",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "2.鋼索及鏈等之有無損傷"
+        },
+        {
+          "seq": 6,
+          "category": "作業前檢點",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "3.車輛機械應有足夠馬力及強度，或承其規定之荷重"
+        },
+        {
+          "seq": 7,
+          "category": "作業前檢點",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "制動器、連結裝置、各種儀器之有無異常"
+        },
+        {
+          "seq": 8,
+          "category": "作業前檢點",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "蓄電池、配線、控制裝置之有無異常"
+        },
+        {
+          "seq": 9,
+          "category": "作業前檢點",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "司機棚是否有良好視線及適當之通風、便於駕駛人上下車之設備"
+        },
+        {
+          "seq": 10,
+          "category": "作業前檢點",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "擋風玻璃及窗戶，其材料是否由透明物質製造，無產生尖銳碎片，並有由動力推動之雨刷器"
+        },
+        {
+          "seq": 11,
+          "category": "作業前檢點",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "夜間作業行駛，前照燈具是否正常，照明是否充足"
+        },
+        {
+          "seq": 12,
+          "category": "作業前檢點",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "車輛、機械是否隨車配置滅火器"
+        },
+        {
+          "seq": 13,
+          "category": "災害防止",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "操作手離開駕駛座，應熄火並隨身取走鑰匙"
+        },
+        {
+          "seq": 14,
+          "category": "災害防止",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "車輛系營建機械啟動時，所有人員應遠離機械(駕駛者除外)，並禁止人員進入作業半徑"
+        },
+        {
+          "seq": 15,
+          "category": "災害防止",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "車輛系營建機械作業時不可超出製造商規定之負荷、行使速率"
+        },
+        {
+          "seq": 16,
+          "category": "災害防止",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "不得使用動力鏟系挖掘機於鏟、鋏、吊斗等在負荷下行駛"
+        },
+        {
+          "seq": 17,
+          "category": "災害防止",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "車輛機械之作業或移動，有撞擊工作者之虞時，應置管制引導人員"
+        },
+        {
+          "seq": 18,
+          "category": "災害防止",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "不得使勞工搭載於堆高機之貨叉所承載貨物之托板、撬板及其他堆高機（乘坐席以外）部分"
+        },
+        {
+          "seq": 19,
+          "category": "災害防止",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "遠離帶電導體，以免感電"
+        },
+        {
+          "seq": 20,
+          "category": "災害防止",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "使用座式操作之配衡型堆高機及側舉型堆高機，應使擔任駕駛之勞工確實使用駕駛座安全帶。"
+        }
+      ]
+    },
+    {
+      "form_code": "F24",
+      "title": "堆高機作業安全自主檢查表",
+      "short_name": "堆高機作業",
+      "form_type": "single",
+      "item_count": 16,
+      "items": [
+        {
+          "seq": 1,
+          "category": "設備檢點",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "制動器、連結裝置、各種儀器之有無異常"
+        },
+        {
+          "seq": 2,
+          "category": "設備檢點",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "蓄電池、配線、控制裝置之有無異常"
+        },
+        {
+          "seq": 3,
+          "category": "設備檢點",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "離和器是否正常"
+        },
+        {
+          "seq": 4,
+          "category": "設備檢點",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "方向盤裝置是否正常"
+        },
+        {
+          "seq": 5,
+          "category": "設備檢點",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "積載裝置是否正常"
+        },
+        {
+          "seq": 6,
+          "category": "設備檢點",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "油壓裝置是否正常"
+        },
+        {
+          "seq": 7,
+          "category": "設備檢點",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "頂棚及桅桿是否穩固"
+        },
+        {
+          "seq": 8,
+          "category": "設備檢點",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "堆高機是否置備有後扶架"
+        },
+        {
+          "seq": 9,
+          "category": "設備檢點",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "堆高機之托板或撬板是否有明顯之損傷、變形或腐蝕者"
+        },
+        {
+          "seq": 10,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "推高機是否遠離帶電導體"
+        },
+        {
+          "seq": 11,
+          "category": "防護具",
+          "hazard_code": "PPE",
+          "hazard_label": "門禁與防護具",
+          "text": "使用座式操作之配衡型堆高機及側舉型堆高機，應使擔任駕駛之勞工確實使用駕駛座安全帶。但駕駛座配置有車輛傾倒時，防止駕駛者被堆高機壓傷之護欄或其他防護設施者，不在此限。"
+        },
+        {
+          "seq": 12,
+          "category": "災害防止",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "堆高機是否製造廠商之安全及最大使用荷重等操作"
+        },
+        {
+          "seq": 13,
+          "category": "災害防止",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "推高機於駕駛預離開駕駛座時，應將貨叉等放置地面，並熄火，取走鑰匙"
+        },
+        {
+          "seq": 14,
+          "category": "災害防止",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "堆高機所使用荷重是否超過該機關所能承受之最大荷重"
+        },
+        {
+          "seq": 15,
+          "category": "災害防止",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "推高機作業時，是否禁止人員進入作業半徑、附近是否有危害"
+        },
+        {
+          "seq": 16,
+          "category": "災害防止",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "堆高機操作手是否訓練合格"
+        }
+      ]
+    },
+    {
+      "form_code": "F25",
+      "title": "施工電梯安全自主檢查表",
+      "short_name": "施工電梯",
+      "form_type": "monthly",
+      "item_count": 8,
+      "items": [
+        {
+          "seq": 1,
+          "category": "每日檢點",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "終點極限開關、緊急停止裝置、制動器是否正常"
+        },
+        {
+          "seq": 2,
+          "category": "每日檢點",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "鋼索或吊鏈有無損傷"
+        },
+        {
+          "seq": 3,
+          "category": "每日檢點",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "導軌道狀況是否良好"
+        },
+        {
+          "seq": 4,
+          "category": "每日檢點",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "安全門動作及充道鐵門是否正常"
+        },
+        {
+          "seq": 5,
+          "category": "每日檢點",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "車箱升降是否穩定"
+        },
+        {
+          "seq": 6,
+          "category": "每日檢點",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "變速箱之機油是否適量設備是否清潔"
+        },
+        {
+          "seq": 7,
+          "category": "每日檢點",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "控制裝置及機動傳導裝置是否正常"
+        },
+        {
+          "seq": 8,
+          "category": "每日檢點",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "連鎖開關、調速機等安全裝置是否正常"
+        }
+      ]
+    },
+    {
+      "form_code": "F26",
+      "title": "高空工作車安全自主檢查表",
+      "short_name": "高空工作車",
+      "form_type": "monthly",
+      "item_count": 9,
+      "items": [
+        {
+          "seq": 1,
+          "category": "每日檢點",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "操作人員是否已接受相關安全衛生教育訓練"
+        },
+        {
+          "seq": 2,
+          "category": "每日檢點",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "作業前檢查制動裝置、操作裝置及作業裝置之性能使否正常"
+        },
+        {
+          "seq": 3,
+          "category": "每日檢點",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "移動路徑及作業區域應為平坦堅固不會沉陷"
+        },
+        {
+          "seq": 4,
+          "category": "每日檢點",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "不得超過高空工作車之積載荷重及能力"
+        },
+        {
+          "seq": 5,
+          "category": "每日檢點",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "不得使高空工作車為主要用途以外之用途。"
+        },
+        {
+          "seq": 6,
+          "category": "每日檢點",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "高空工作車工作台上之勞工應佩戴安全帶"
+        },
+        {
+          "seq": 7,
+          "category": "每日檢點",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "高空工作車之駕駛於離開駕駛座工作台下降至最低位置"
+        },
+        {
+          "seq": 8,
+          "category": "每日檢點",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "停止原動機並確實使用制動裝置制動"
+        },
+        {
+          "seq": 9,
+          "category": "每日檢點",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "規定一定之信號，並指定引導人員，依該信號引導高空工作車"
+        }
+      ]
+    },
+    {
+      "form_code": "F27",
+      "title": "固定式起重機安全自主檢查表",
+      "short_name": "固定式起重機",
+      "form_type": "single",
+      "item_count": 23,
+      "items": [
+        {
+          "seq": 1,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "作業人員是否穿著防滑性佳之安全鞋"
+        },
+        {
+          "seq": 2,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "因強風、大雨等惡劣氣候時是否禁止工作；強風時制動裝置是否放置空擋"
+        },
+        {
+          "seq": 3,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "操作人員是否於起重機吊有荷重時離開操作位置"
+        },
+        {
+          "seq": 4,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "對作業器具、工具、安全帽及安全帶是否檢查後方才使用"
+        },
+        {
+          "seq": 5,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "從事塔吊組、拆之移動式起重機具是否經檢查合格"
+        },
+        {
+          "seq": 6,
+          "category": "一般規定",
+          "hazard_code": "GENERAL",
+          "hazard_label": "一般管理",
+          "text": "固定式起重機操作手、吊掛手是否已有合格證照"
+        },
+        {
+          "seq": 7,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "攀登梯、階梯構材有否銹蝕、鬆動"
+        },
+        {
+          "seq": 8,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "構台補強是否足夠"
+        },
+        {
+          "seq": 9,
+          "category": "墜落防止",
+          "hazard_code": "FALL",
+          "hazard_label": "墜落",
+          "text": "人員安全帽、安全帶是否已確實使用"
+        },
+        {
+          "seq": 10,
+          "category": "飛落防止",
+          "hazard_code": "FALLING_OBJ",
+          "hazard_label": "物體飛落",
+          "text": "吊具、鋼索是否已有截斷、磨損、變形、扭結"
+        },
+        {
+          "seq": 11,
+          "category": "飛落防止",
+          "hazard_code": "FALLING_OBJ",
+          "hazard_label": "物體飛落",
+          "text": "過捲預防及過負荷預防裝置是否正常"
+        },
+        {
+          "seq": 12,
+          "category": "飛落防止",
+          "hazard_code": "FALLING_OBJ",
+          "hazard_label": "物體飛落",
+          "text": "吊鉤防止吊物脫落之防滑舌片裝置是否正常"
+        },
+        {
+          "seq": 13,
+          "category": "飛落防止",
+          "hazard_code": "FALLING_OBJ",
+          "hazard_label": "物體飛落",
+          "text": "吊物是否超過額定荷重"
+        },
+        {
+          "seq": 14,
+          "category": "飛落防止",
+          "hazard_code": "FALLING_OBJ",
+          "hazard_label": "物體飛落",
+          "text": "固定式起重機作業時是否嚴禁人員進入吊舉物之下方"
+        },
+        {
+          "seq": 15,
+          "category": "飛落防止",
+          "hazard_code": "FALLING_OBJ",
+          "hazard_label": "物體飛落",
+          "text": "鋼柱採4點方式吊掛"
+        },
+        {
+          "seq": 16,
+          "category": "機械安全",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "桁架、鞍架、伸臂等結構是否安裝穩固"
+        },
+        {
+          "seq": 17,
+          "category": "機械安全",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "齒輪、軸、制動裝置、捲胴、槽輪、離合器、控制裝置等機械性能是否正常"
+        },
+        {
+          "seq": 18,
+          "category": "機械安全",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "鋼索運行狀況"
+        },
+        {
+          "seq": 19,
+          "category": "機械安全",
+          "hazard_code": "MACHINE",
+          "hazard_label": "危險機械吊掛",
+          "text": "直行軌道及吊運車橫行之導軌狀況"
+        },
+        {
+          "seq": 20,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "開關器是否正常"
+        },
+        {
+          "seq": 21,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "配線、供電線有否破損"
+        },
+        {
+          "seq": 22,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "警報裝置、控制裝置等電器部份是否正常"
+        },
+        {
+          "seq": 23,
+          "category": "感電防止",
+          "hazard_code": "ELEC",
+          "hazard_label": "感電",
+          "text": "各分電盤是否裝設高速型漏電斷路器(額定感度電流A，跳脫時間0.1秒以內)"
+        }
+      ]
+    },
+    {
+      "form_code": "F28",
+      "title": "滅火器檢查表",
+      "short_name": "滅火器",
+      "form_type": "monthly",
+      "item_count": 7,
+      "items": [
+        {
+          "seq": 1,
+          "category": "每日檢點",
+          "hazard_code": "FIRE",
+          "hazard_label": "火災",
+          "text": "滅火器外觀標示含型式認可號碼"
+        },
+        {
+          "seq": 2,
+          "category": "每日檢點",
+          "hazard_code": "FIRE",
+          "hazard_label": "火災",
+          "text": "安全插銷無脫落、變形或損傷"
+        },
+        {
+          "seq": 3,
+          "category": "每日檢點",
+          "hazard_code": "FIRE",
+          "hazard_label": "火災",
+          "text": "外觀應無鏽蝕嚴重、軟管龜裂"
+        },
+        {
+          "seq": 4,
+          "category": "每日檢點",
+          "hazard_code": "FIRE",
+          "hazard_label": "火災",
+          "text": "壓力表指針 應落於綠色範圍"
+        },
+        {
+          "seq": 5,
+          "category": "每日檢點",
+          "hazard_code": "FIRE",
+          "hazard_label": "火災",
+          "text": "軟管接頭 是否完整"
+        },
+        {
+          "seq": 6,
+          "category": "每日檢點",
+          "hazard_code": "FIRE",
+          "hazard_label": "火災",
+          "text": "性能檢查日期 應在有效期內"
+        },
+        {
+          "seq": 7,
+          "category": "每日檢點",
+          "hazard_code": "FIRE",
+          "hazard_label": "火災",
+          "text": "更換檢查後 裝設更換檢修環"
+        }
+      ]
+    }
+  ]
+}

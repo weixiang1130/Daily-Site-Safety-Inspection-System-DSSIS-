@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>自主檢查表填報</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="topbar">
+  <h1>自主檢查表</h1>
+  <div class="spacer"></div>
+  <a href="/static/home.html" style="text-decoration:none"><button class="ghost">首頁</button></a>
+</div>
+
+<div class="wrap">
+
+  <!-- 步驟 1：基本資料 -->
+  <div class="card" id="step1">
+    <h2>1. 基本資料</h2>
+    <div class="row">
+      <div><label>工地</label><select id="site"></select></div>
+      <div><label>檢查日期</label><input type="date" id="date"></div>
+      <div><label>天氣</label>
+        <select id="weather">
+          <option>晴</option><option>陰</option><option>雨</option><option>強風</option>
+        </select></div>
+    </div>
+    <label>檢查表單（今日作業類別）</label>
+    <select id="form"></select>
+    <label>檢查地點／位置編號</label>
+    <input type="text" id="location" placeholder="例：地下室 B2 全區、5F 施工區、塔吊 TC-01">
+    <div style="margin-top:16px" class="right">
+      <button id="go">開始填報</button>
+    </div>
+  </div>
+
+  <!-- 步驟 2：逐項檢查 -->
+  <div class="card hidden" id="step2">
+    <h2 id="formTitle"></h2>
+    <div class="row" style="margin-bottom:8px">
+      <button class="ghost" id="allPass">全部標記為合格</button>
+      <button class="ghost" id="jumpUnset">跳到第一個未填</button>
+    </div>
+    <div id="items"></div>
+  </div>
+
+  <!-- 步驟 3：簽名 -->
+  <div class="card hidden" id="step3">
+    <h2>簽核</h2>
+    <label>簽核角色</label>
+    <select id="sigRole">
+      <option>檢查人員</option><option>作業主管</option><option>職安人員</option>
+      <option>主辦工程師</option><option>工程專案主管</option>
+    </select>
+    <label>簽名（請於下方以手指或滑鼠簽名）</label>
+    <canvas class="sig-pad" id="pad"></canvas>
+    <div class="row" style="margin-top:8px">
+      <button class="ghost" id="clearSig">清除重簽</button>
+      <button id="submit">確認送出並產生 PDF</button>
+    </div>
+    <p class="muted" style="margin-top:10px">
+      送出後系統會記錄簽名圖、簽署人、時間與 IP，並自動產生 PDF 存查。
+    </p>
+  </div>
+
+  <div class="card hidden" id="done">
+    <h2>已送出</h2>
+    <p id="doneMsg"></p>
+    <div class="row">
+      <a id="pdfLink" target="_blank" style="text-decoration:none">
+        <button style="width:100%">開啟 PDF</button></a>
+      <a href="/static/fill.html" style="text-decoration:none">
+        <button class="ghost" style="width:100%">再填一張</button></a>
+    </div>
+  </div>
+</div>
+
+<div class="progress hidden" id="prog">
+  <span class="muted" id="progText">0 / 0</span>
+  <div class="bar"><span id="progBar" style="width:0%"></span></div>
+  <button id="toSign" disabled>前往簽核</button>
+</div>
+
+<script src="/static/common.js"></script>
+<script>
+let me = null, formDef = null, vendors = [], state = {}, pad = null;
+
+const hazardOptions = HAZARDS.map(h => `<option value="${h[0]}">${h[1]}</option>`).join('');
+
+(async () => {
+  const r = await API.get('/api/me');
+  if (!r.user) { location.href = '/static/index.html'; return; }
+  me = r.user;
+
+  const [sites, forms, vs] = await Promise.all([
+    API.get('/api/sites'), API.get('/api/forms'), API.get('/api/vendors')
+  ]);
+  vendors = vs;
+  document.getElementById('site').innerHTML =
+    sites.map(s => `<option value="${s.id}" ${s.id === me.site_id ? 'selected' : ''}>${esc(s.name)}</option>`).join('');
+  document.getElementById('form').innerHTML =
+    forms.map(f => `<option value="${f.form_code}">${esc(f.title)}（${f.item_count} 項）</option>`).join('');
+  document.getElementById('date').value = today();
+})();
+
+document.getElementById('go').onclick = async () => {
+  const code = document.getElementById('form').value;
+  formDef = await API.get('/api/forms/' + code);
+  state = {};
+  renderItems();
+  document.getElementById('step1').classList.add('hidden');
+  document.getElementById('step2').classList.remove('hidden');
+  document.getElementById('prog').classList.remove('hidden');
+  document.getElementById('formTitle').textContent = formDef.title;
+  window.scrollTo(0, 0);
+};
+
+function vendorOptions() {
+  return '<option value="">— 選擇責任廠商 —</option>' +
+    vendors.map(v => `<option value="${v.id}">${esc(v.name)}</option>`).join('');
+}
+
+function renderItems() {
+  const box = document.getElementById('items');
+  let html = '', lastCat = null;
+  formDef.items.forEach(it => {
+    if (it.category !== lastCat) {
+      html += `<div class="cat-head">${esc(it.category)}</div>`;
+      lastCat = it.category;
+    }
+    html += `
+    <div class="item" id="it-${it.id}">
+      <div class="q"><b>${it.seq}.</b>${esc(it.text)}</div>
+      <div class="choices">
+        <button type="button" data-id="${it.id}" data-v="pass">合格</button>
+        <button type="button" data-id="${it.id}" data-v="fail">不合格</button>
+        <button type="button" data-id="${it.id}" data-v="na">不適用</button>
+      </div>
+      <div class="fail-box hidden" id="fb-${it.id}">
+        <label>缺失內容（可修改）</label>
+        <input type="text" id="desc-${it.id}" value="${esc(it.text.replace(/^是否/, '未').slice(0, 80))}">
+        <div class="row">
+          <div><label>災害類別</label>
+            <select id="hz-${it.id}">${hazardOptions}</select></div>
+          <div><label>嚴重度</label>
+            <select id="sv-${it.id}">
+              <option value="minor">輕微</option><option value="major">中度</option>
+              <option value="critical">重大</option><option value="stop_work">立即停工</option>
+            </select></div>
+        </div>
+        <div class="row">
+          <div><label>責任廠商</label>
+            <select id="vd-${it.id}">${vendorOptions()}</select></div>
+          <div><label>責任人</label>
+            <input type="text" id="rp-${it.id}" placeholder="姓名"></div>
+        </div>
+        <div class="row">
+          <div><label>改善方式</label>
+            <select id="at-${it.id}" onchange="toggleDue(${it.id})">
+              <option value="onsite">當場改善</option>
+              <option value="scheduled">限期改善</option>
+            </select></div>
+          <div id="duewrap-${it.id}" class="hidden"><label>改善期限</label>
+            <input type="date" id="due-${it.id}"></div>
+        </div>
+        <label>改善說明</label>
+        <input type="text" id="fx-${it.id}" placeholder="例：派員立即移除／已加裝護欄">
+        <div class="row">
+          <div><label>改善前照片</label>
+            <input type="file" accept="image/*" capture="environment"
+                   onchange="uploadPhoto(this, ${it.id}, 'before')"></div>
+          <div><label>改善後照片</label>
+            <input type="file" accept="image/*" capture="environment"
+                   onchange="uploadPhoto(this, ${it.id}, 'after')"></div>
+        </div>
+        <div class="muted" id="ph-${it.id}"></div>
+      </div>
+    </div>`;
+  });
+  box.innerHTML = html;
+
+  box.querySelectorAll('.choices button').forEach(b => {
+    b.onclick = () => setResult(parseInt(b.dataset.id), b.dataset.v);
+  });
+  // 預設災害類別 = 該檢查項目原本的災害分類
+  formDef.items.forEach(it => {
+    const sel = document.getElementById('hz-' + it.id);
+    if (sel) sel.value = it.hazard_code;
+  });
+  updateProgress();
+}
+
+function toggleDue(id) {
+  const scheduled = document.getElementById('at-' + id).value === 'scheduled';
+  document.getElementById('duewrap-' + id).classList.toggle('hidden', !scheduled);
+  if (scheduled && !document.getElementById('due-' + id).value) {
+    const d = new Date(); d.setDate(d.getDate() + 3);
+    document.getElementById('due-' + id).value = d.toISOString().slice(0, 10);
+  }
+}
+
+function setResult(id, v) {
+  state[id] = Object.assign(state[id] || {}, { result: v });
+  const el = document.getElementById('it-' + id);
+  el.querySelectorAll('.choices button').forEach(b => {
+    b.className = b.dataset.v === v ? 'sel-' + v : '';
+  });
+  el.classList.toggle('is-fail', v === 'fail');
+  document.getElementById('fb-' + id).classList.toggle('hidden', v !== 'fail');
+  updateProgress();
+}
+
+async function uploadPhoto(input, id, which) {
+  if (!input.files || !input.files[0]) return;
+  const fd = new FormData();
+  fd.append('file', input.files[0]);
+  try {
+    const r = await API.form('/api/upload/photo', fd);
+    state[id] = Object.assign(state[id] || {}, { ['photo_' + which]: r.path });
+    const tag = document.getElementById('ph-' + id);
+    tag.textContent = `已上傳：${state[id].photo_before ? '改善前 ✓ ' : ''}${state[id].photo_after ? '改善後 ✓' : ''}`;
+  } catch (e) { toast('照片上傳失敗：' + e.message); }
+}
+
+document.getElementById('allPass').onclick = () => {
+  formDef.items.forEach(it => { if (!state[it.id]) setResult(it.id, 'pass'); });
+  toast('未填項目已全部標記為合格');
+};
+
+document.getElementById('jumpUnset').onclick = () => {
+  const it = formDef.items.find(i => !state[i.id]);
+  if (!it) { toast('已全部填完'); return; }
+  document.getElementById('it-' + it.id).scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+
+function updateProgress() {
+  const total = formDef ? formDef.items.length : 0;
+  const done = Object.values(state).filter(s => s.result).length;
+  document.getElementById('progText').textContent = `${done} / ${total}`;
+  document.getElementById('progBar').style.width = total ? (done / total * 100) + '%' : '0%';
+  document.getElementById('toSign').disabled = done < total;
+}
+
+document.getElementById('toSign').onclick = () => {
+  document.getElementById('step3').classList.remove('hidden');
+  document.getElementById('step3').scrollIntoView({ behavior: 'smooth' });
+  if (!pad) pad = initSignaturePad(document.getElementById('pad'));
+};
+
+document.getElementById('clearSig').onclick = () => pad && pad.clear();
+
+document.getElementById('submit').onclick = async () => {
+  if (!pad || pad.isEmpty()) { toast('請先簽名'); return; }
+  const btn = document.getElementById('submit');
+  btn.disabled = true;
+
+  const results = [], findings = [];
+  formDef.items.forEach(it => {
+    const s = state[it.id] || {};
+    results.push({ item_id: it.id, result: s.result || 'na',
+                   remark: s.result === 'fail' ? (document.getElementById('fx-' + it.id).value || null) : null });
+    if (s.result === 'fail') {
+      const hz = document.getElementById('hz-' + it.id).value;
+      findings.push({
+        item_id: it.id,
+        description: document.getElementById('desc-' + it.id).value || it.text,
+        hazard_code: hz,
+        hazard_label: (HAZARDS.find(h => h[0] === hz) || [, '其他'])[1],
+        vendor_id: document.getElementById('vd-' + it.id).value || null,
+        responsible_person: document.getElementById('rp-' + it.id).value || null,
+        severity: document.getElementById('sv-' + it.id).value,
+        action_type: document.getElementById('at-' + it.id).value,
+        due_date: document.getElementById('due-' + it.id).value || null,
+        fix_note: document.getElementById('fx-' + it.id).value || null,
+        photo_before: s.photo_before || null,
+        photo_after: s.photo_after || null
+      });
+    }
+  });
+
+  try {
+    const res = await API.post('/api/inspections', {
+      site_id: parseInt(document.getElementById('site').value),
+      form_code: formDef.form_code,
+      inspect_date: document.getElementById('date').value,
+      location: document.getElementById('location').value,
+      weather: document.getElementById('weather').value,
+      results, findings,
+      signatures: [{
+        role: document.getElementById('sigRole').value,
+        signer_name: me.name,
+        image: pad.toDataURL()
+      }]
+    });
+    document.getElementById('step2').classList.add('hidden');
+    document.getElementById('step3').classList.add('hidden');
+    document.getElementById('prog').classList.add('hidden');
+    document.getElementById('done').classList.remove('hidden');
+    document.getElementById('doneMsg').textContent =
+      `單號 INSP-${String(res.inspection_id).padStart(6, '0')}，` +
+      `共開立 ${res.finding_ids.length} 筆缺失，資料已即時進入戰情儀表板。`;
+    document.getElementById('pdfLink').href = res.pdf_url;
+    window.scrollTo(0, 0);
+  } catch (e) {
+    toast('送出失敗：' + e.message);
+    btn.disabled = false;
+  }
+};
+</script>
+</body>
+</html>

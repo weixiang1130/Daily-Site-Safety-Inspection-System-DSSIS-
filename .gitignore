@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+
+# 資料庫
+*.db
+*.db-journal
+*.sqlite3
+*.mdf
+*.ldf
+
+# 使用者上傳內容（照片、簽名、產出的 PDF）—— 含個資，不得進版控
+uploads/
+
+# 環境設定
+.env
+.env.*
+!.env.example
+
+# 去識別化對照表 —— 等同還原金鑰，嚴禁進版控
+deid_rules.local.json
+*.internal
+*.internal.*
+docs.internal/
+
+# 編輯器 / 作業系統
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 公司內部文件（會議紀錄、原始表單範本、掃描件）不進版控
+*.docx
+*.doc
+*.pdf
+!docs/**/*.pdf
