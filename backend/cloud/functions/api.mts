@@ -305,7 +305,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
     if (p === "/api/coordinations" && method === "GET") {
       const days = parseInt(url.searchParams.get("days") || "30", 10);
       const rows = await db.sql`
-        SELECT c.id, c.work_date, c.status, c.pdf_key, s.name AS site,
+        SELECT c.id, c.work_date, c.status, c.pdf_key, c.site_id, s.name AS site,
                (SELECT COUNT(*)::int FROM coordination_attendees a
                  WHERE a.coordination_id = c.id) AS attendee_count
         FROM coordinations c JOIN sites s ON s.id = c.site_id
@@ -438,10 +438,29 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
         return json({ ok: true });
       }
 
-      // 刪除缺失。用於清除測試資料；正式缺失請走複驗結案而非刪除。
-      const delMatch = /^\/api\/admin\/findings\/(\d+)$/.exec(p);
-      if (delMatch && (method === "DELETE" || method === "POST")) {
-        await db.sql`DELETE FROM findings WHERE id = ${parseInt(delMatch[1], 10)}`;
+      // 刪除單據與缺失。用於清除測試資料；
+      // 正式缺失請走複驗結案而非刪除，以保留稽核軌跡。
+      // findings 對 inspections / coordinations 的外鍵沒有 ON DELETE CASCADE
+      // （正式資料不應被連帶刪除），因此這裡必須先手動清掉子紀錄。
+      const delFinding = /^\/api\/admin\/findings\/(\d+)$/.exec(p);
+      if (delFinding && (method === "DELETE" || method === "POST")) {
+        await db.sql`DELETE FROM findings WHERE id = ${parseInt(delFinding[1], 10)}`;
+        return json({ ok: true });
+      }
+
+      const delCoord = /^\/api\/admin\/coordinations\/(\d+)$/.exec(p);
+      if (delCoord && (method === "DELETE" || method === "POST")) {
+        const id = parseInt(delCoord[1], 10);
+        await db.sql`DELETE FROM findings WHERE coordination_id = ${id}`;
+        await db.sql`DELETE FROM coordinations WHERE id = ${id}`;
+        return json({ ok: true });
+      }
+
+      const delInsp = /^\/api\/admin\/inspections\/(\d+)$/.exec(p);
+      if (delInsp && (method === "DELETE" || method === "POST")) {
+        const id = parseInt(delInsp[1], 10);
+        await db.sql`DELETE FROM findings WHERE inspection_id = ${id}`;
+        await db.sql`DELETE FROM inspections WHERE id = ${id}`;
         return json({ ok: true });
       }
 
