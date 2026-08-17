@@ -127,3 +127,4 @@ repo 中的預設值一律為中性名稱。
 | 2026-08-17 | 資料庫由 SQLite 改為 SQL Server LocalDB，加入索引與 `/api/health` | 通過 |
 | 2026-08-17 | 全站套用企業品牌視覺；公司名稱改由 `BRAND_NAME` 環境變數提供，不進版控 | 新增 6 條規則，通過 |
 | 2026-08-17 | 新增雲端部署設定（Netlify 前端 + Python 後端反向代理）；儀表板改為預設需登入 | 通過 |
+| 2026-08-17 | 後端改寫為 Netlify Functions（TypeScript），整套跑在 Netlify；公司名稱仍走環境變數 | 通過 |
