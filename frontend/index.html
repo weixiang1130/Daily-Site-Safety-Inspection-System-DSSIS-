@@ -30,21 +30,9 @@
         <button type="submit" style="width:100%">登入</button>
       </div>
     </form>
-    <h3>原型測試帳號</h3>
-    <table>
-      <tbody>
-        <tr><td class="num">insp03 / insp1234</td><td class="muted">檢查人員</td></tr>
-        <tr><td class="num">safe01 / safe1234</td><td class="muted">職安人員</td></tr>
-        <tr><td class="num">pm01 / pm1234</td><td class="muted">工程專案主管</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <div class="card">
-    <h2>戰情室</h2>
-    <p class="muted" style="margin-top:0">大螢幕看板免登入即可開啟。</p>
-    <a href="/static/dashboard.html">
-      <button class="ghost" style="width:100%">開啟戰情儀表板</button></a>
+    <p class="muted" style="margin-top:var(--sp-5)">
+      忘記密碼或需要開通帳號，請洽職安管理單位。
+    </p>
   </div>
 </div>
 
@@ -63,7 +51,9 @@ document.getElementById('f').addEventListener('submit', async e => {
   e.preventDefault();
   try {
     await API.form('/api/login', new FormData(e.target));
-    location.href = '/static/home.html';
+    // 若是被其他頁面導來登入的，登入後回到原本要去的頁面
+    const next = new URLSearchParams(location.search).get('next');
+    location.href = (next && next.startsWith('/static/')) ? next : '/static/home.html';
   } catch (err) { toast('登入失敗：' + err.message); }
 });
 </script>

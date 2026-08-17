@@ -158,9 +158,14 @@ async function load() {
   document.getElementById('days').onchange = load;
   await load();
   setInterval(load, 60000);   // 每分鐘自動刷新
-})().catch(() => {
-  // 未開放免登入時（PUBLIC_DASHBOARD=false）導向登入頁
-  location.href = '/static/index.html';
+})().catch(err => {
+  // 未登入的情況 API.get 已自行導向登入頁；其他錯誤要顯示出來，
+  // 不能一律跳轉，否則畫面只會莫名其妙彈回登入頁而查不出原因。
+  if (String(err && err.message) === '未登入') return;
+  document.querySelector('.wrap').innerHTML =
+    `<div class="panel"><h3>載入失敗</h3>
+     <p class="muted">${esc(err && err.message || '未知錯誤')}</p>
+     <p class="muted">請重新整理；若持續發生，請聯絡系統管理員。</p></div>`;
 });
 </script>
 </body>

@@ -59,10 +59,16 @@ function injectArchFrame() {
   document.body.insertAdjacentHTML('beforeend', ARCH_FRAME_SVG);
 }
 
+/** 未登入時導向登入頁，並帶上原本要去的頁面，登入後可直接回來。 */
+function gotoLogin() {
+  const next = encodeURIComponent(location.pathname + location.search);
+  location.href = `/static/index.html?next=${next}`;
+}
+
 const API = {
   async get(url) {
     const r = await fetch(url, { credentials: 'same-origin' });
-    if (r.status === 401) { location.href = '/static/index.html'; throw new Error('未登入'); }
+    if (r.status === 401) { gotoLogin(); throw new Error('未登入'); }
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
     return r.json();
   },
@@ -72,7 +78,7 @@ const API = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
-    if (r.status === 401) { location.href = '/static/index.html'; throw new Error('未登入'); }
+    if (r.status === 401) { gotoLogin(); throw new Error('未登入'); }
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
     return r.json();
   },
