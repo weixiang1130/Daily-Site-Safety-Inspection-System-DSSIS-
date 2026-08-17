@@ -1,4 +1,0 @@
-# PostgreSQL（雲端試辦環境）
-# psycopg 的 binary 版不需編譯，容器內可直接安裝。
--r requirements.txt
-psycopg[binary]>=3.1
