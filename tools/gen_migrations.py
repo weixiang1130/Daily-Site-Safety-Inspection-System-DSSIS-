@@ -8,6 +8,10 @@ Netlify 會在部署時自動套用 netlify/database/migrations/ 下的 SQL。
     002_seed_forms    28 張檢查表模板與 541 個檢查項目
     003_seed_master   工地、廠商、使用者（密碼雜湊與 Python 版同格式）
 
+⚠ Migration 是不可變的。已存在的檔案不會被覆寫，因為 Netlify 會比對內容，
+   發現已套用的 migration 被改動時會讓部署直接失敗。
+   要調整既有資料，請新增一支編號更大的 migration。
+
 用法：
     python tools/gen_migrations.py
 """
@@ -38,13 +42,25 @@ def q(v):
 
 
 def write(name, sql):
+    """寫出 migration。已存在者一律不覆寫。
+
+    Migration 一旦被套用就必須視為不可變：Netlify 會比對內容雜湊，
+    發現已套用的 migration 被修改時會直接讓部署失敗。
+
+    003_seed-master 尤其危險——它含 PBKDF2 密碼雜湊，而每次產生都會用
+    新的隨機 salt，因此只要重跑本腳本，檔案內容就會變動並讓部署卡死。
+    要調整既有資料請新增一支編號更大的 migration，不要改舊的。
+    """
     d = os.path.join(MIG_DIR, name)
-    os.makedirs(d, exist_ok=True)
     path = os.path.join(d, "migration.sql")
+    if os.path.exists(path):
+        print(f"  {name}/migration.sql　已存在，略過（migration 不可變）")
+        return
+    os.makedirs(d, exist_ok=True)
     with open(path, "w", encoding="utf-8", newline="\n") as f:
         f.write(sql)
     kb = os.path.getsize(path) / 1024
-    print(f"  {name}/migration.sql　{kb:.1f} KB")
+    print(f"  {name}/migration.sql　{kb:.1f} KB　已建立")
 
 
 INIT_SQL = """-- 職安填報系統 —— 資料表定義

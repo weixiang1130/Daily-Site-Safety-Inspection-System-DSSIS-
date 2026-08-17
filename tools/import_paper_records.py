@@ -92,7 +92,7 @@ def realname(name, rev):
 
 # ---- 單據三：應變小組日報 ----
 DAILY_REPORT = {
-    "site": 2,                    # 示範工地 C
+    "site_code": "BD15",          # 工地代碼見 data/sites.local.json
     "work_date": "2026-08-03",
     "agreement": (
         "本日現場持續進行各項收尾及設備安裝工程，施工內容包含噴漆、高架地板安裝、"
@@ -125,7 +125,7 @@ DAILY_REPORT = {
 
 # ---- 單據一：每日協議、巡視及處理紀錄表 ----
 COORD_A = {
-    "site": 0,                    # 示範工地 A
+    "site_code": "BD15",          # 工地代碼見 data/sites.local.json
     "work_date": "2026-08-03",
     "agreement": (
         "1. 人員高處作業須穿著全身式安全帶，並將安全帶掛勾扣掛於堅固錨錠或安全母索。\n"
@@ -149,7 +149,7 @@ COORD_A = {
 
 # ---- 單據二：每日巡檢 ----
 COORD_B = {
-    "site": 1,                    # 示範工地 B
+    "site_code": "CE06",          # 工地代碼見 data/sites.local.json
     "work_date": "2026-08-05",
     "agreement": (
         "本日各承攬商作業範圍及風險已於協議會議中告知，"
@@ -193,8 +193,12 @@ def build(doc, sites, vendors, rev):
             item.update(action_type="onsite", fix_note=f[5])
         findings.append(item)
 
+    site = next((x for x in sites if x["code"] == doc["site_code"]), None)
+    if site is None:
+        raise SystemExit(f"找不到工地代碼 {doc['site_code']}，請先執行 tools/import_sites.py")
+
     return {
-        "site_id": sites[doc["site"]]["id"],
+        "site_id": site["id"],
         "meeting_date": doc["work_date"],
         "work_date": doc["work_date"],
         "weather": "晴",
@@ -245,8 +249,8 @@ def main():
 
     _, sites = call("/api/sites")
     _, vendors = call("/api/vendors")
-    if len(sites) < 3 or len(vendors) < 4:
-        raise SystemExit("主檔不足，請先確認 migration 已套用")
+    if len(vendors) < 4:
+        raise SystemExit("廠商主檔不足，請先確認 migration 已套用")
 
     total_findings = 0
     for name, doc in [("應變小組日報", DAILY_REPORT),
@@ -265,8 +269,8 @@ def main():
         # 結案率 0%、且已完成的限期改善項目被誤判為逾期。
         closed = closeout(r.get("finding_ids", []), payload["findings"])
 
-        print(f"✓ {name}　{doc['work_date']}　"
-              f"{sites[doc['site']]['name']}　"
+        site_name = next(x["name"] for x in sites if x["code"] == doc["site_code"])
+        print(f"✓ {name}　{doc['work_date']}　{site_name}　"
               f"COORD-{r['coordination_id']:06d}　缺失 {n} 筆（結案 {closed}）")
 
     s, d = call("/api/dashboard?days=30")
