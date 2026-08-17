@@ -420,7 +420,63 @@ td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .kpis { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
 .cols-2 { grid-template-columns: 1.2fr .8fr; }
 .cols-3 { grid-template-columns: repeat(3, 1fr); }
-@media (max-width: 1200px) { .cols-2, .cols-3 { grid-template-columns: 1fr; } }
+
+/* 戰情室：四項主指標 + 左右分欄。
+   大螢幕上整頁不需捲動，值班人員一眼就能判讀。 */
+.kpis-main {
+  grid-template-columns: repeat(4, 1fr);
+  margin-bottom: var(--sp-3);
+}
+.cols-main { grid-template-columns: 1.9fr 1fr; align-items: start; }
+.panel-stack { display: flex; flex-direction: column; gap: var(--sp-4); }
+
+/* 資料再多也不讓整頁長出捲軸，改為面板內自行捲動 */
+.panel-fill { max-height: 32vh; overflow-y: auto; }
+
+/* 戰情室是固定在牆上的大螢幕，整頁必須一屏顯示完、不需捲動，
+   因此收掉為閱讀型頁面設計的大留白。 */
+.theme-dark .wrap { padding: var(--sp-4) var(--sp-5) var(--sp-5); }
+.theme-dark .grid { gap: var(--sp-3); }
+.theme-dark .panel-stack { gap: var(--sp-3); }
+.theme-dark .panel { padding: var(--sp-3) var(--sp-4); }
+.theme-dark .panel > h3 { margin-bottom: var(--sp-3); }
+.theme-dark th, .theme-dark td { padding: 6px var(--sp-3); }
+.theme-dark .spark { height: 56px; }
+
+/* 橫條排行在大螢幕上收緊列高，讓右欄三個面板能與左欄等高共存 */
+.theme-dark .barlist { gap: var(--sp-2); }
+.theme-dark .barlist .r { grid-template-columns: 96px 1fr 34px; line-height: 1.25; }
+.theme-dark .barlist .r .track { height: 8px; }
+
+@media (max-width: 1200px) {
+  .cols-2, .cols-3, .cols-main { grid-template-columns: 1fr; }
+  .kpis-main { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* 次要指標壓成一行：需要時看得到，但不佔用主要視覺層級 */
+.metric-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-5);
+  padding: var(--sp-3) var(--sp-5);
+  margin-bottom: var(--sp-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+.metric-strip i {
+  font-style: normal;
+  font-family: var(--font-heading);
+  font-size: var(--fs-xs);
+  letter-spacing: var(--ls-label);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-right: var(--sp-2);
+}
 
 .panel {
   background: var(--bg-surface);
@@ -471,6 +527,12 @@ td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .kpi.ok .n       { color: var(--ok-600); }
 .kpi.accent .n   { color: var(--text-accent); }
 .kpi.critical { border-color: var(--critical-600); }
+
+/* 主指標數字加大，讓值班人員在數公尺外也讀得到 */
+.theme-dark .kpis-main .kpi { padding: var(--sp-4) var(--sp-4); }
+.kpis-main .kpi .n { font-size: 3.5rem; }
+.kpis-main .kpi .l { margin-top: var(--sp-2); }
+@media (max-width: 1200px) { .kpis-main .kpi .n { font-size: 2.5rem; } }
 
 /* 橫條排行 */
 .barlist { display: flex; flex-direction: column; gap: var(--sp-3); }
