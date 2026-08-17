@@ -156,9 +156,7 @@ async function load() {
   let sites = [];
   const r = await fetch('/api/sites', { credentials: 'same-origin' });
   if (r.ok) sites = await r.json();
-  document.getElementById('site').innerHTML =
-    '<option value="">全部工地</option>' +
-    sites.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
+  document.getElementById('site').innerHTML = siteOptions(sites, null, '全部工地');
 
   document.getElementById('site').onchange = load;
   document.getElementById('days').onchange = load;

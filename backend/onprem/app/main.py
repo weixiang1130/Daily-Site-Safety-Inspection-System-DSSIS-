@@ -665,8 +665,9 @@ def root():
 
 
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
-app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static"), html=True),
-          name="static")
+app.mount("/static", StaticFiles(
+    directory=os.path.join(os.path.dirname(os.path.dirname(BASE_DIR)), "frontend"),
+    html=True), name="static")
 
 
 @app.get("/api/branding")

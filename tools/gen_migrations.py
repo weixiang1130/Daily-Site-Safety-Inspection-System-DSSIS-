@@ -15,12 +15,13 @@ import json
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, 'backend', 'onprem'))
 
 from app.auth import hash_password          # noqa: E402
 from app.seed import SITES, USERS, VENDORS  # noqa: E402
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = ROOT
 MIG_DIR = os.path.join(BASE_DIR, "netlify", "database", "migrations")
 FORMS_JSON = os.path.join(BASE_DIR, "data", "forms.json")
 

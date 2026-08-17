@@ -19,13 +19,13 @@ INSERT INTO vendors (code, name) VALUES
 ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name;
 
 INSERT INTO users (username, password_hash, display_name, employee_no, role, site_id) VALUES
-  ('admin', 'pbkdf2_sha256$120000$d6b115d095e14cc81cf002fde295ec70$32dfcdbf1cccf489eb48294b0797200eeeea31e70917722623d8f11922c98a97', '系統管理員', NULL, 'admin', NULL),
-  ('pm01', 'pbkdf2_sha256$120000$08299b9038b18d3a2afa9d6b13693891$bb50d9a57d74b70c084a99c898ec4c9884e0be2ee95b651dedfebfd53c0d36ec', '王專案', 'EMP-001', 'manager', (SELECT id FROM sites WHERE code = 'SITE-A')),
-  ('safe01', 'pbkdf2_sha256$120000$d773de496e83d9e909fc96a2d2f494cd$c68c75b915bc13915b0ae8516659314a1d3e874de71d4017a589a74219de5250', '陳職安', 'EMP-007', 'safety', (SELECT id FROM sites WHERE code = 'SITE-A')),
-  ('eng01', 'pbkdf2_sha256$120000$5690325c42440f7ec6936ab18628f2ba$90e160d7fcf39827c7515329b87be12fd5062badffb067b339f5a54fd00dbc72', '林工程師', 'EMP-012', 'engineer', (SELECT id FROM sites WHERE code = 'SITE-A')),
-  ('insp01', 'pbkdf2_sha256$120000$e2c4203691b32d881cf32f28355b2147$55a1209a45058b33cae95987824fc8b221f9115915cc704d808dafc4758643fe', '張小明', 'EMP-081', 'inspector', (SELECT id FROM sites WHERE code = 'SITE-C')),
-  ('insp02', 'pbkdf2_sha256$120000$c11f01b3f57ca562c87c2e4f69c2b85c$d6b54e97a01312fe53f95ac3d275126e2a7d24f20e3850656c190bb04765c0a7', '李小華', 'EMP-137', 'inspector', (SELECT id FROM sites WHERE code = 'SITE-C')),
-  ('insp03', 'pbkdf2_sha256$120000$c57f1256626a8e497aa1a8990242aec0$47416a35d6782f2048d812f587a9ebb63415f1bb2bbc12cf5d89f8ceb89245bd', '吳大明', 'EMP-055', 'inspector', (SELECT id FROM sites WHERE code = 'SITE-B'))
+  ('admin', 'pbkdf2_sha256$120000$1f9c14bd0be8ca0058e3ff0caeb82f67$4a1117b432fa24a7d0d86fbb47dadb50ae8cb6393c27ccfbb76b535273d7813b', '系統管理員', NULL, 'admin', NULL),
+  ('pm01', 'pbkdf2_sha256$120000$39b488a04954ddb68496a29630cddca6$310704b818292ce95c5e5cd7db72b2aa5c6d822da7eef3e806255d72c2cbd46a', '王專案', 'EMP-001', 'manager', (SELECT id FROM sites WHERE code = 'SITE-A')),
+  ('safe01', 'pbkdf2_sha256$120000$03e45a1dbc31f910102dc13f502ed245$779d0ae5ad4adbf08c700c8e22f821c21843a42723ecdda8ef8ae516009dab39', '陳職安', 'EMP-007', 'safety', (SELECT id FROM sites WHERE code = 'SITE-A')),
+  ('eng01', 'pbkdf2_sha256$120000$cf457c1b654ae8a4d0ea08b248a648b3$8f345dc21c4f9e8614d64523567052569b0c89f9c7f4fb7d50f9643a30d6b495', '林工程師', 'EMP-012', 'engineer', (SELECT id FROM sites WHERE code = 'SITE-A')),
+  ('insp01', 'pbkdf2_sha256$120000$5e02dd5642130b2b1754a244f96f17cd$0fb218c111526625184c6e728b58051eec3114ba8e5f8d1b9c47cd7f573b9782', '張小明', 'EMP-081', 'inspector', (SELECT id FROM sites WHERE code = 'SITE-C')),
+  ('insp02', 'pbkdf2_sha256$120000$8daeca041af04f1f1147e2cba5702749$202bd9ed2bbaebbedd9dc2a83104f96c0477335e6d94f6199380088717e47cd8', '李小華', 'EMP-137', 'inspector', (SELECT id FROM sites WHERE code = 'SITE-C')),
+  ('insp03', 'pbkdf2_sha256$120000$0a49d4bde48183c1c27374527f939cae$c84ec1b14eea6a0b9c0d8814690343b2469f1e5bc3a4528a061818f31c0ddd96', '吳大明', 'EMP-055', 'inspector', (SELECT id FROM sites WHERE code = 'SITE-B'))
 ON CONFLICT (username) DO UPDATE SET
   display_name = EXCLUDED.display_name, role = EXCLUDED.role,
   employee_no = EXCLUDED.employee_no, site_id = EXCLUDED.site_id;

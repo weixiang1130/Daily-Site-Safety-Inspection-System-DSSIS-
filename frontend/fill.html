@@ -104,8 +104,7 @@ const hazardOptions = HAZARDS.map(h => `<option value="${h[0]}">${h[1]}</option>
     API.get('/api/sites'), API.get('/api/forms'), API.get('/api/vendors')
   ]);
   vendors = vs;
-  document.getElementById('site').innerHTML =
-    sites.map(s => `<option value="${s.id}" ${s.id === me.site_id ? 'selected' : ''}>${esc(s.name)}</option>`).join('');
+  document.getElementById('site').innerHTML = siteOptions(sites, me.site_id);
   document.getElementById('form').innerHTML =
     forms.map(f => `<option value="${f.form_code}">${esc(f.title)}（${f.item_count} 項）</option>`).join('');
   document.getElementById('date').value = today();

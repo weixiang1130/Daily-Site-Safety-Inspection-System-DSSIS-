@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>系統管理</title>
+<link rel="stylesheet" href="/static/brand.css">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="topbar">
+  <div class="brand" id="brand"></div>
+  <div class="spacer"></div>
+  <a href="/static/home.html"><button class="ghost">首頁</button></a>
+</div>
+
+<div class="wrap wide">
+  <div class="page-head">
+    <div class="eyebrow">Administration</div>
+    <h1>系統管理</h1>
+    <p class="lede">工地與廠商主檔、帳號密碼。僅系統管理員可使用。</p>
+  </div>
+
+  <div class="card">
+    <span class="chapter">01</span>
+    <h2>新增工地</h2>
+    <div class="row">
+      <div><label>事業處</label>
+        <input type="text" id="nsDept" list="deptList" placeholder="例：建築事業處">
+        <datalist id="deptList"></datalist></div>
+      <div><label>工地名稱</label><input type="text" id="nsName"></div>
+      <div><label>代碼</label><input type="text" id="nsCode" placeholder="留空自動產生"></div>
+      <div><label>&nbsp;</label><button id="addSite" style="width:100%">新增</button></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <span class="chapter">02</span>
+    <h2>工地清單</h2>
+    <p class="muted" style="margin-top:0">
+      改名直接編輯後按「儲存」；停用的工地不會出現在填報選單，但既有紀錄仍保留。
+    </p>
+    <div id="sites">載入中…</div>
+  </div>
+
+  <div class="card">
+    <span class="chapter">03</span>
+    <h2>廠商</h2>
+    <div class="row">
+      <div><label>廠商名稱</label><input type="text" id="nvName"></div>
+      <div><label>代碼</label><input type="text" id="nvCode" placeholder="留空自動產生"></div>
+      <div><label>&nbsp;</label><button id="addVendor" style="width:100%">新增</button></div>
+    </div>
+    <div id="vendors" style="margin-top:var(--sp-4)"></div>
+  </div>
+
+  <div class="card">
+    <span class="chapter">04</span>
+    <h2>變更密碼</h2>
+    <p class="muted" style="margin-top:0">
+      系統初始密碼公開於程式碼中，上線前請逐一更換。密碼至少 8 碼。
+    </p>
+    <div class="row">
+      <div><label>帳號</label><input type="text" id="pwUser"></div>
+      <div><label>新密碼</label><input type="text" id="pwNew"></div>
+      <div><label>&nbsp;</label><button id="setPw" style="width:100%">變更</button></div>
+    </div>
+  </div>
+</div>
+
+<script src="/static/common.js"></script>
+<script>
+let me = null;
+
+(async () => {
+  renderBrand('system_name');
+  const r = await API.get('/api/me');
+  if (!r.user) { location.href = '/static/index.html'; return; }
+  me = r.user;
+  if (me.role !== 'admin') {
+    document.querySelector('.wrap').innerHTML =
+      '<div class="card"><h2>權限不足</h2><p>本頁僅系統管理員可使用。</p></div>';
+    return;
+  }
+  await load();
+})();
+
+async function load() {
+  const sites = await API.get('/api/admin/sites');
+  const vendors = await API.get('/api/vendors');
+
+  const depts = [...new Set(sites.map(s => s.department).filter(Boolean))];
+  document.getElementById('deptList').innerHTML =
+    depts.map(d => `<option value="${esc(d)}">`).join('');
+
+  const groups = new Map();
+  for (const s of sites) {
+    const d = s.department || '（未分處）';
+    if (!groups.has(d)) groups.set(d, []);
+    groups.get(d).push(s);
+  }
+
+  document.getElementById('sites').innerHTML = [...groups.entries()].map(([d, rows]) => `
+    <div class="cat-head">${esc(d)}　<span class="muted">${rows.length} 個工地</span></div>
+    <div class="table-scroll"><table>
+      <thead><tr><th>代碼</th><th>工地名稱</th><th>事業處</th><th>啟用</th><th></th></tr></thead>
+      <tbody>${rows.map(s => `<tr>
+        <td class="num">${esc(s.code)}</td>
+        <td><input type="text" value="${esc(s.name)}" id="sn-${s.id}"></td>
+        <td><input type="text" value="${esc(s.department || '')}" id="sd-${s.id}"></td>
+        <td><input type="checkbox" id="sa-${s.id}" ${s.active ? 'checked' : ''}
+                   style="width:auto"></td>
+        <td><button class="ghost" onclick="saveSite(${s.id})">儲存</button></td>
+      </tr>`).join('')}</tbody>
+    </table></div>`).join('');
+
+  document.getElementById('vendors').innerHTML = `
+    <div class="table-scroll"><table>
+      <thead><tr><th>代碼</th><th>廠商名稱</th><th></th></tr></thead>
+      <tbody>${vendors.map(v => `<tr>
+        <td class="num">${esc(v.code)}</td>
+        <td><input type="text" value="${esc(v.name)}" id="vn-${v.id}"></td>
+        <td><button class="ghost" onclick="saveVendor(${v.id})">儲存</button></td>
+      </tr>`).join('')}</tbody>
+    </table></div>`;
+}
+
+async function saveSite(id) {
+  try {
+    await API.post(`/api/admin/sites/${id}`, {
+      name: document.getElementById('sn-' + id).value,
+      department: document.getElementById('sd-' + id).value || null,
+      active: document.getElementById('sa-' + id).checked,
+    });
+    toast('已儲存');
+  } catch (e) { toast('儲存失敗：' + e.message); }
+}
+
+async function saveVendor(id) {
+  try {
+    await API.post(`/api/admin/vendors/${id}`,
+      { name: document.getElementById('vn-' + id).value });
+    toast('已儲存');
+  } catch (e) { toast('儲存失敗：' + e.message); }
+}
+
+document.getElementById('addSite').onclick = async () => {
+  const name = document.getElementById('nsName').value.trim();
+  if (!name) { toast('請填工地名稱'); return; }
+  const code = document.getElementById('nsCode').value.trim()
+    || 'S' + Date.now().toString(36).toUpperCase().slice(-6);
+  try {
+    await API.post('/api/admin/sites', {
+      code, name, department: document.getElementById('nsDept').value.trim() || null,
+    });
+    document.getElementById('nsName').value = '';
+    document.getElementById('nsCode').value = '';
+    toast('已新增工地');
+    await load();
+  } catch (e) { toast('新增失敗：' + e.message); }
+};
+
+document.getElementById('addVendor').onclick = async () => {
+  const name = document.getElementById('nvName').value.trim();
+  if (!name) { toast('請填廠商名稱'); return; }
+  const code = document.getElementById('nvCode').value.trim()
+    || 'V' + Date.now().toString(36).toUpperCase().slice(-6);
+  try {
+    await API.post('/api/admin/vendors', { code, name });
+    document.getElementById('nvName').value = '';
+    document.getElementById('nvCode').value = '';
+    toast('已新增廠商');
+    await load();
+  } catch (e) { toast('新增失敗：' + e.message); }
+};
+
+document.getElementById('setPw').onclick = async () => {
+  const username = document.getElementById('pwUser').value.trim();
+  const password = document.getElementById('pwNew').value;
+  if (!username || password.length < 8) { toast('帳號必填，密碼至少 8 碼'); return; }
+  try {
+    await API.post('/api/admin/password', { username, password });
+    document.getElementById('pwNew').value = '';
+    toast(`已變更 ${username} 的密碼`);
+  } catch (e) { toast('變更失敗：' + e.message); }
+};
+</script>
+</body>
+</html>

@@ -42,6 +42,9 @@
       <a href="/static/findings.html"><button class="ghost" style="width:100%">缺失清單／複驗</button></a>
       <a href="/static/dashboard.html"><button class="ghost" style="width:100%">戰情儀表板</button></a>
     </div>
+    <div class="row hidden" id="adminRow" style="margin-top:var(--sp-3)">
+      <a href="/static/admin.html"><button class="ghost" style="width:100%">系統管理（工地／廠商／密碼）</button></a>
+    </div>
   </div>
 
   <div class="card">
@@ -63,6 +66,7 @@ let me = null;
   if (!r.user) { location.href = '/static/index.html'; return; }
   me = r.user;
   document.getElementById('who').textContent = `${me.name}（${me.username}）`;
+  if (me.role === 'admin') document.getElementById('adminRow').classList.remove('hidden');
 
   const d = await API.get('/api/dashboard?days=30');
   document.getElementById('mini').innerHTML = [

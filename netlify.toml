@@ -1,10 +1,13 @@
 # Netlify 設定
 #
 # 整套系統跑在 Netlify 上：
-#   前端    static/ → 建置為 dist/
-#   API     netlify/functions/api.mts（處理所有 /api/*）
+#   前端    frontend/ → 建置為 dist/static/
+#   API     backend/cloud/functions/api.mts（處理所有 /api/*）
 #   資料庫  Netlify Database（Postgres，部署時自動佈建與套用 migration）
 #   檔案    Netlify Blobs（照片、手寫簽名、產出的 PDF）
+#
+# 注意：migration 必須放在 netlify/database/migrations/，這是 Netlify 平台
+# 規定的固定路徑，因此未隨其他後端程式碼一起移到 backend/ 底下。
 #
 # 部署前請在 Site configuration → Environment variables 設定：
 #   SECRET_KEY        session 簽章金鑰（務必自行產生長隨機字串）
@@ -23,10 +26,10 @@
   NODE_VERSION = "20"
 
 [functions]
-  directory = "netlify/functions"
+  directory = "backend/cloud/functions"
   node_bundler = "esbuild"
   # PDF 產出所需的中文字型必須一併打包，否則函式在雲端找不到字型檔。
-  included_files = ["assets/fonts/**"]
+  included_files = ["backend/cloud/assets/fonts/**"]
 
 [[headers]]
   for = "/*"

@@ -14,14 +14,14 @@
    │  Netlify                              │
    │                                       │
    │  dist/            前端靜態檔           │
-   │  netlify/functions/api.mts   所有 API  │
+   │  backend/cloud/functions/api.mts   所有 API  │
    │  Netlify Database (Postgres) 資料      │
    │  Netlify Blobs    照片／簽名／PDF       │
    └──────────────────────────────────────┘
 ```
 
 Netlify Functions 只支援 Node.js / TypeScript，因此後端以 TypeScript 撰寫。
-`app/` 底下的 Python 版保留作為**公司內網（SQL Server）的部署目標**，
+`backend/onprem/` 底下的 Python 版保留作為**公司內網（SQL Server）的部署目標**，
 兩者共用同一份資料模型與 API 契約。
 
 > ⚠ 兩份實作要同步維護。改動 API 行為時兩邊都要改，否則會分岔。
@@ -73,7 +73,7 @@ Netlify Functions 讀的是**部署當下的環境變數快照**。
 部署完成後逐項確認：
 
 - [ ] `/api/health` 回傳 `ok: true`，且 `form_templates` 為 28、`form_items` 為 541
-- [ ] 登入頁樣式正常（`/static/index.html`）
+- [ ] 登入頁樣式正常（`/frontend/index.html`）
 - [ ] 用測試帳號能登入
 - [ ] 填一張自主檢查表 → 簽名 → 送出 → **PDF 能開啟且中文正常**
 - [ ] 拍照上傳成功，缺失清單裡點「前／後」能看到照片
@@ -111,13 +111,13 @@ Netlify Functions 讀的是**部署當下的環境變數快照**。
 
 ## 遷移到公司內網
 
-`app/`（Python + SQL Server）就是內網版本，見 [README.md](README.md) 的資料庫章節。
+`backend/onprem/`（Python + SQL Server）就是內網版本，見 [README.md](README.md) 的資料庫章節。
 兩邊資料表結構一致，資料可以直接匯出匯入：
 
 - 雲端：Postgres（Netlify Database）
 - 內網：SQL Server
 
-`netlify/database/migrations/001_init/migration.sql` 與 `app/db.py` 是同一套 schema
+`netlify/database/migrations/001_init/migration.sql` 與 `backend/onprem/app/db.py` 是同一套 schema
 的兩種方言，欄位與語意完全對應。
 
 ---
@@ -125,12 +125,12 @@ Netlify Functions 讀的是**部署當下的環境變數快照**。
 ## 常見問題
 
 **PDF 中文變成方框？**
-確認 `netlify.toml` 的 `[functions] included_files = ["assets/fonts/**"]` 存在，
-且 `assets/fonts/NotoSansTC-Regular.otf` 在 repo 中。字型未打包進函式時，
+確認 `netlify.toml` 的 `[functions] included_files = ["backend/cloud/assets/fonts/**"]` 存在，
+且 `backend/cloud/assets/fonts/NotoSansTC-Regular.otf` 在 repo 中。字型未打包進函式時，
 `/api/inspections/{id}/pdf` 會直接報錯而不是產生方框。
 
 **網頁英文字型跟品牌規範不一樣？**
-`static/fonts/` 裡還沒放字型檔，瀏覽器回退到系統字體。
+`frontend/fonts/` 裡還沒放字型檔，瀏覽器回退到系統字體。
 放入後即恢復，版面與色彩不受影響。詳見該資料夾的 README。
 與 PDF 字型無關，兩者是獨立的。
 

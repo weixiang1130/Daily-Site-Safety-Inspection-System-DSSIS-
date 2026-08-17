@@ -11,8 +11,11 @@ import os
 import shutil
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SRC = os.path.join(BASE_DIR, "static")
+SRC = os.path.join(BASE_DIR, "frontend")
 DIST = os.path.join(BASE_DIR, "dist")
+
+# 前端發布在 /static/ 底下（而非站台根目錄），因此原始碼資料夾改名為
+# frontend/ 之後，網址仍維持 /static/*，HTML 內的路徑不需要更動。
 
 ROOT_INDEX = """<!doctype html>
 <html lang="zh-Hant">
@@ -37,7 +40,7 @@ def main():
 
     shutil.copytree(SRC, os.path.join(DIST, "static"))
     n = sum(len(f) for _, _, f in os.walk(os.path.join(DIST, "static")))
-    print(f"[build] 複製 static/ → dist/static/（{n} 個檔案）")
+    print(f"[build] 複製 frontend/ → dist/static/（{n} 個檔案）")
 
     with open(os.path.join(DIST, "index.html"), "w", encoding="utf-8") as f:
         f.write(ROOT_INDEX)

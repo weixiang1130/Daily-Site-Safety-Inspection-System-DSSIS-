@@ -23,6 +23,11 @@ uploads/
 
 # 去識別化對照表 —— 等同還原金鑰，嚴禁進版控
 deid_rules.local.json
+
+# 含公司真實資料的本機主檔（工地名稱、人員名冊等），不進版控。
+# 這些資料由匯入工具在執行時送進站台，不隨程式碼發布。
+*.local.json
+data/*.local.*
 *.internal
 *.internal.*
 docs.internal/

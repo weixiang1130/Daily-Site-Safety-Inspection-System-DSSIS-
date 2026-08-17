@@ -33,7 +33,8 @@ RULES_EXAMPLE = os.path.join(BASE_DIR, "deid_rules.example.json")
 # 不掃描的路徑（二進位、產出物、工具自身）
 SKIP_PREFIXES = ("uploads/", ".git/", "__pycache__/")
 SKIP_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp", ".pdf", ".db", ".ico", ".zip")
-SKIP_FILES = {"tools/deidentify.py", "deid_rules.local.json", "DEIDENTIFICATION.md"}
+SKIP_FILES = {"tools/deidentify.py", "deid_rules.local.json",
+              "docs/DEIDENTIFICATION.md"}
 
 
 def load_rules():

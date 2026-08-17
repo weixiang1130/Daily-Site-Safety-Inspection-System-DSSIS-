@@ -9,8 +9,8 @@ import { getDatabase } from "@netlify/database";
 import { getDeployStore, getStore } from "@netlify/blobs";
 
 import {
-  clearSessionCookie, createSession, readSession, sessionCookieHeader,
-  verifyPassword, type SessionUser,
+  clearSessionCookie, createSession, hashPassword, readSession,
+  sessionCookieHeader, verifyPassword, type SessionUser,
 } from "../lib/auth.ts";
 import { buildCoordinationPdf, buildInspectionPdf, type SigInput } from "../lib/pdf.ts";
 
@@ -238,7 +238,8 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
 
     if (p === "/api/sites") {
       return json(await db.sql`
-        SELECT id, code, name FROM sites WHERE active = TRUE ORDER BY id`);
+        SELECT id, code, name, department FROM sites WHERE active = TRUE
+        ORDER BY department NULLS FIRST, sort_order, id`);
     }
 
     if (p === "/api/vendors") {
@@ -364,6 +365,89 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       return json({ ok: true });
     }
 
+    // ---- 管理功能（限管理員）----
+    // 工地、廠商與帳號的實際名稱都屬公司資料，一律在此以 API 維護，
+    // 不寫進 migration，避免真實資料進入公開版控。
+    if (p.startsWith("/api/admin/")) {
+      if (me.role !== "admin") return fail(403, "僅系統管理員可使用");
+
+      if (p === "/api/admin/sites" && method === "GET") {
+        return json(await db.sql`
+          SELECT id, code, name, department, sort_order, active
+          FROM sites ORDER BY department NULLS FIRST, sort_order, id`);
+      }
+
+      if (p === "/api/admin/sites" && method === "POST") {
+        const b = await req.json();
+        const [row] = await db.sql`
+          INSERT INTO sites (code, name, department, sort_order, active)
+          VALUES (${b.code}, ${b.name}, ${b.department ?? null},
+                  ${b.sort_order ?? 0}, TRUE)
+          ON CONFLICT (code) DO UPDATE SET
+            name = EXCLUDED.name, department = EXCLUDED.department,
+            sort_order = EXCLUDED.sort_order, active = TRUE
+          RETURNING id, code, name, department`;
+        return json({ ok: true, site: row });
+      }
+
+      const siteMatch = /^\/api\/admin\/sites\/(\d+)$/.exec(p);
+      if (siteMatch && (method === "PATCH" || method === "POST")) {
+        const b = await req.json();
+        const id = parseInt(siteMatch[1], 10);
+        await db.sql`
+          UPDATE sites SET
+            name = COALESCE(${b.name ?? null}, name),
+            department = COALESCE(${b.department ?? null}, department),
+            sort_order = COALESCE(${b.sort_order ?? null}, sort_order),
+            active = COALESCE(${b.active ?? null}, active)
+          WHERE id = ${id}`;
+        return json({ ok: true });
+      }
+
+      if (p === "/api/admin/vendors" && method === "POST") {
+        const b = await req.json();
+        const [row] = await db.sql`
+          INSERT INTO vendors (code, name, active) VALUES (${b.code}, ${b.name}, TRUE)
+          ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name, active = TRUE
+          RETURNING id, code, name`;
+        return json({ ok: true, vendor: row });
+      }
+
+      const vendorMatch = /^\/api\/admin\/vendors\/(\d+)$/.exec(p);
+      if (vendorMatch && (method === "PATCH" || method === "POST")) {
+        const b = await req.json();
+        await db.sql`
+          UPDATE vendors SET
+            name = COALESCE(${b.name ?? null}, name),
+            active = COALESCE(${b.active ?? null}, active)
+          WHERE id = ${parseInt(vendorMatch[1], 10)}`;
+        return json({ ok: true });
+      }
+
+      // 變更密碼。repo 的 migration 含預設密碼，上線前必須逐一更換。
+      if (p === "/api/admin/password" && method === "POST") {
+        const b = await req.json();
+        if (!b.username || !b.password || String(b.password).length < 8) {
+          return fail(400, "密碼至少 8 碼");
+        }
+        const hash = await hashPassword(String(b.password));
+        const rows = await db.sql`
+          UPDATE users SET password_hash = ${hash}
+          WHERE username = ${b.username} RETURNING id`;
+        if (!rows.length) return fail(404, "查無此帳號");
+        return json({ ok: true });
+      }
+
+      // 刪除缺失。用於清除測試資料；正式缺失請走複驗結案而非刪除。
+      const delMatch = /^\/api\/admin\/findings\/(\d+)$/.exec(p);
+      if (delMatch && (method === "DELETE" || method === "POST")) {
+        await db.sql`DELETE FROM findings WHERE id = ${parseInt(delMatch[1], 10)}`;
+        return json({ ok: true });
+      }
+
+      return fail(404, `找不到管理路由 ${p}`);
+    }
+
     if (p === "/api/upload/photo" && method === "POST") {
       const form = await req.formData();
       const file = form.get("file");
@@ -409,6 +493,9 @@ async function insertFinding(b: any, me: SessionUser, ids: {
   siteId?: number; inspectionId?: number; coordinationId?: number;
 } = {}): Promise<number> {
   const onsite = (b.action_type || "onsite") === "onsite";
+  // found_at 可指定，用於補登既有紙本紀錄。未指定時為現在時間。
+  // 沒有這個欄位的話，補登的歷史單據會全部堆在匯入當天，趨勢圖失真。
+  const foundAt = b.found_at || new Date().toISOString();
   const [row] = await db.sql`
     INSERT INTO findings
       (site_id, inspection_id, coordination_id, item_id, source, found_at, location,
@@ -417,12 +504,12 @@ async function insertFinding(b: any, me: SessionUser, ids: {
        photo_before, photo_after, created_by)
     VALUES (
       ${ids.siteId ?? b.site_id}, ${ids.inspectionId ?? null}, ${ids.coordinationId ?? null},
-      ${b.item_id ?? null}, ${b.source ?? "inspection"}, NOW(), ${b.location ?? null},
+      ${b.item_id ?? null}, ${b.source ?? "inspection"}, ${foundAt}, ${b.location ?? null},
       ${b.hazard_code ?? "OTHER"}, ${b.hazard_label ?? "其他"}, ${b.description},
       ${b.vendor_id ? Number(b.vendor_id) : null}, ${b.responsible_person ?? null},
       ${b.severity ?? "minor"}, ${b.action_type ?? "onsite"},
       ${!onsite && b.due_date ? b.due_date : null},
-      ${onsite ? new Date().toISOString() : null},
+      ${onsite ? foundAt : null},
       ${onsite ? (b.fix_note || "當場改善完成") : (b.fix_note ?? null)},
       ${onsite ? "fixed" : "open"},
       ${b.photo_before ?? null}, ${b.photo_after ?? null}, ${me.id})
@@ -537,8 +624,10 @@ async function createCoordination(req: Request, me: SessionUser): Promise<Respon
   const findingIds: number[] = [];
   for (const f of b.findings || []) {
     findingIds.push(await insertFinding(
-      { ...f, source: "coordination" }, me,
-      { siteId: co.site_id, coordinationId: co.id },
+      // 補登紙本時，缺失的發現時間預設跟隨該單的作業日期
+      { found_at: b.work_date ? `${b.work_date}T09:00:00+08:00` : undefined,
+        ...f, source: "coordination" },
+      me, { siteId: co.site_id, coordinationId: co.id },
     ));
   }
 

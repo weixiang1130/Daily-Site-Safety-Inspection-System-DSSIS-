@@ -106,8 +106,7 @@ const hazardOptions = HAZARDS.map(h => `<option value="${h[0]}">${h[1]}</option>
   me = r.user;
   const [sites, vs] = await Promise.all([API.get('/api/sites'), API.get('/api/vendors')]);
   vendors = vs;
-  document.getElementById('site').innerHTML = sites.map(s =>
-    `<option value="${s.id}" ${s.id === me.site_id ? 'selected' : ''}>${esc(s.name)}</option>`).join('');
+  document.getElementById('site').innerHTML = siteOptions(sites, me.site_id);
   document.getElementById('mdate').value = today();
   document.getElementById('wdate').value = today();
   addAttendee(); addAttendee();

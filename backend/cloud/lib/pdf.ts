@@ -9,7 +9,7 @@ import path from "node:path";
 import { PDFDocument, PDFFont, PDFPage, rgb } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 
-const FONT_RELATIVE = "assets/fonts/NotoSansTC-Regular.otf";
+const FONT_RELATIVE = "backend/cloud/assets/fonts/NotoSansTC-Regular.otf";
 
 const A4 = { w: 595.28, h: 841.89 };
 const M = { left: 42, right: 42, top: 50, bottom: 56 };
@@ -25,10 +25,15 @@ let fontCache: Uint8Array | null = null;
 
 async function loadFont(): Promise<Uint8Array> {
   if (fontCache) return fontCache;
+  // included_files 打包後的實際位置會隨 Netlify 的 bundler 版本而異，
+  // 逐一嘗試候選路徑，避免因單一路徑猜錯就整個 PDF 功能失效。
+  const basename = path.basename(FONT_RELATIVE);
   const candidates = [
     path.join(process.cwd(), FONT_RELATIVE),
     path.join(process.cwd(), "..", FONT_RELATIVE),
     path.resolve(FONT_RELATIVE),
+    path.join(process.cwd(), "assets/fonts", basename),
+    path.join(process.cwd(), basename),
   ];
   for (const p of candidates) {
     try {

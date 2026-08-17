@@ -138,6 +138,35 @@ function initSignaturePad(canvas) {
   };
 }
 
+/**
+ * 產生工地下拉選單的內容，依事業處分組。
+ * 公司有四十多個工地，不分組的話現場很難在選單裡找到自己的工地。
+ * @param {Array} sites  /api/sites 回傳的工地陣列
+ * @param {number|null} selectedId  預選的工地 id
+ * @param {string|null} allLabel  若提供，最前面加一個「全部」選項
+ */
+function siteOptions(sites, selectedId = null, allLabel = null) {
+  const groups = new Map();
+  for (const s of sites) {
+    const d = s.department || '其他';
+    if (!groups.has(d)) groups.set(d, []);
+    groups.get(d).push(s);
+  }
+  const opt = s =>
+    `<option value="${s.id}"${s.id === selectedId ? ' selected' : ''}>${esc(s.name)}</option>`;
+
+  let html = allLabel ? `<option value="">${esc(allLabel)}</option>` : '';
+  // 只有一個分組時不必顯示群組標題
+  if (groups.size <= 1) {
+    html += sites.map(opt).join('');
+  } else {
+    for (const [dept, rows] of groups) {
+      html += `<optgroup label="${esc(dept)}">${rows.map(opt).join('')}</optgroup>`;
+    }
+  }
+  return html;
+}
+
 const HAZARDS = [
   ['FALL', '墜落'], ['ELEC', '感電'], ['COLLAPSE', '倒塌崩塌'],
   ['FALLING_OBJ', '物體飛落'], ['COLLISION', '衝撞'], ['CAUGHT', '被夾被捲'],

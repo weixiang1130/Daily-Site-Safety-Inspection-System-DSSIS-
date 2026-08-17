@@ -60,8 +60,7 @@ let me = null;
   if (!r.user) { location.href = '/static/index.html'; return; }
   me = r.user;
   const sites = await API.get('/api/sites');
-  document.getElementById('site').innerHTML = '<option value="">全部工地</option>' +
-    sites.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
+  document.getElementById('site').innerHTML = siteOptions(sites, null, '全部工地');
   ['site', 'status', 'days', 'overdue'].forEach(id =>
     document.getElementById(id).onchange = load);
   load();
