@@ -104,6 +104,7 @@ const hazardOptions = HAZARDS.map(h => `<option value="${h[0]}">${h[1]}</option>
     API.get('/api/sites'), API.get('/api/forms'), API.get('/api/vendors')
   ]);
   vendors = vs;
+  installVendorDatalist(vendors);
   document.getElementById('site').innerHTML = siteOptions(sites, me.site_id);
   document.getElementById('form').innerHTML =
     forms.map(f => `<option value="${f.form_code}">${esc(f.title)}（${f.item_count} 項）</option>`).join('');
@@ -121,11 +122,6 @@ document.getElementById('go').onclick = async () => {
   document.getElementById('formTitle').textContent = formDef.title;
   window.scrollTo(0, 0);
 };
-
-function vendorOptions() {
-  return '<option value="">— 選擇責任廠商 —</option>' +
-    vendors.map(v => `<option value="${v.id}">${esc(v.name)}</option>`).join('');
-}
 
 function renderItems() {
   const box = document.getElementById('items');
@@ -157,7 +153,8 @@ function renderItems() {
         </div>
         <div class="row">
           <div><label>責任廠商</label>
-            <select id="vd-${it.id}">${vendorOptions()}</select></div>
+            <input type="text" id="vd-${it.id}" list="vendorList"
+                   placeholder="可直接輸入新廠商"></div>
           <div><label>責任人</label>
             <input type="text" id="rp-${it.id}" placeholder="姓名"></div>
         </div>
@@ -262,7 +259,8 @@ document.getElementById('submit').onclick = async () => {
   btn.disabled = true;
 
   const results = [], findings = [];
-  formDef.items.forEach(it => {
+  // 需在迴圈內 await 廠商名稱解析，因此不能用 forEach
+  for (const it of formDef.items) {
     const s = state[it.id] || {};
     results.push({ item_id: it.id, result: s.result || 'na',
                    remark: s.result === 'fail' ? (document.getElementById('fx-' + it.id).value || null) : null });
@@ -273,7 +271,7 @@ document.getElementById('submit').onclick = async () => {
         description: document.getElementById('desc-' + it.id).value || it.text,
         hazard_code: hz,
         hazard_label: (HAZARDS.find(h => h[0] === hz) || [, '其他'])[1],
-        vendor_id: document.getElementById('vd-' + it.id).value || null,
+        vendor_id: await resolveVendorId(document.getElementById('vd-' + it.id).value),
         responsible_person: document.getElementById('rp-' + it.id).value || null,
         severity: document.getElementById('sv-' + it.id).value,
         action_type: document.getElementById('at-' + it.id).value,
@@ -283,7 +281,7 @@ document.getElementById('submit').onclick = async () => {
         photo_after: s.photo_after || null
       });
     }
-  });
+  }
 
   try {
     const res = await API.post('/api/inspections', {

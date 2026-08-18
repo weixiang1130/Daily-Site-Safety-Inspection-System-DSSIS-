@@ -106,17 +106,13 @@ const hazardOptions = HAZARDS.map(h => `<option value="${h[0]}">${h[1]}</option>
   me = r.user;
   const [sites, vs] = await Promise.all([API.get('/api/sites'), API.get('/api/vendors')]);
   vendors = vs;
+  installVendorDatalist(vendors);
   document.getElementById('site').innerHTML = siteOptions(sites, me.site_id);
   document.getElementById('mdate').value = today();
   document.getElementById('wdate').value = today();
   addAttendee(); addAttendee();
   pad = initSignaturePad(document.getElementById('pad'));
 })();
-
-function vendorOptions() {
-  return '<option value="">— 廠商 —</option>' +
-    vendors.map(v => `<option value="${v.id}">${esc(v.name)}</option>`).join('');
-}
 
 function addAttendee() {
   const i = ++attSeq;
@@ -125,7 +121,7 @@ function addAttendee() {
   div.style.marginBottom = '8px';
   div.innerHTML = `
     <input type="text" id="aw-${i}" placeholder="作業項目">
-    <select id="av-${i}">${vendorOptions()}</select>
+    <input type="text" id="av-${i}" list="vendorList" placeholder="供應商（可直接輸入）">
     <input type="text" id="at-${i}" placeholder="職種">
     <input type="text" id="ap-${i}" placeholder="人員姓名">
     <input type="text" id="ac-${i}" placeholder="作業內容">`;
@@ -149,7 +145,9 @@ function addFinding() {
       <div><label>位置</label><input type="text" id="fl-${i}" placeholder="例：B2"></div>
     </div>
     <div class="row">
-      <div><label>責任廠商</label><select id="fv-${i}">${vendorOptions()}</select></div>
+      <div><label>責任廠商</label>
+        <input type="text" id="fv-${i}" list="vendorList"
+               placeholder="可直接輸入新廠商"></div>
       <div><label>責任人</label><input type="text" id="fp-${i}"></div>
     </div>
     <div class="row">
@@ -201,12 +199,12 @@ document.getElementById('submit').onclick = async () => {
   for (let i = 1; i <= attSeq; i++) {
     const w = document.getElementById('aw-' + i);
     if (!w) continue;
-    const vsel = document.getElementById('av-' + i);
+    const vname = document.getElementById('av-' + i).value.trim();
     if (!w.value && !document.getElementById('ap-' + i).value) continue;
     attendees.push({
       work_item: w.value,
-      vendor_id: vsel.value || null,
-      vendor_name: vsel.selectedOptions[0] ? vsel.selectedOptions[0].text.replace('— 廠商 —', '') : '',
+      vendor_id: await resolveVendorId(vname),
+      vendor_name: vname,
       trade: document.getElementById('at-' + i).value,
       person_name: document.getElementById('ap-' + i).value,
       work_content: document.getElementById('ac-' + i).value
@@ -224,7 +222,7 @@ document.getElementById('submit').onclick = async () => {
       hazard_label: (HAZARDS.find(h => h[0] === hz) || [, '其他'])[1],
       location: document.getElementById('fl-' + i).value,
       severity: document.getElementById('fs-' + i).value,
-      vendor_id: document.getElementById('fv-' + i).value || null,
+      vendor_id: await resolveVendorId(document.getElementById('fv-' + i).value),
       responsible_person: document.getElementById('fp-' + i).value,
       action_type: document.getElementById('fa-' + i).value,
       due_date: document.getElementById('fdue-' + i).value || null,

@@ -136,7 +136,42 @@ def list_sites(db: Session = Depends(get_db), user=Depends(need_login)):
 @app.get("/api/vendors")
 def list_vendors(db: Session = Depends(get_db), user=Depends(need_login)):
     return [{"id": v.id, "code": v.code, "name": v.name}
-            for v in db.query(Vendor).filter(Vendor.active == True).all()]  # noqa: E712
+            for v in db.query(Vendor).filter(Vendor.active == True)  # noqa: E712
+            .order_by(Vendor.name).all()]
+
+
+@app.post("/api/vendors/resolve")
+def resolve_vendor(payload: dict = Body(...), db: Session = Depends(get_db),
+                   user=Depends(need_login)):
+    """依名稱取得廠商，不存在就建立。
+
+    協力商在各工地差異很大且會隨工程階段更換，不可能由管理員預先維護齊全，
+    因此填報時允許現場直接輸入新廠商名稱。這裡必須建立正式的廠商資料
+    （而非存成自由文字），否則儀表板的「廠商缺失排行」會漏統計。
+    """
+    name = str(payload.get("name") or "").strip()
+    if not name:
+        raise HTTPException(400, "廠商名稱不可為空")
+    if len(name) > 128:
+        raise HTTPException(400, "廠商名稱過長")
+
+    # 比對時忽略大小寫與前後空白，避免同一家廠商因輸入差異被建成兩筆
+    existing = next(
+        (v for v in db.query(Vendor).all() if v.name.strip().lower() == name.lower()),
+        None)
+    if existing:
+        if not existing.active:
+            existing.active = True
+            db.commit()
+        return {"id": existing.id, "code": existing.code, "name": existing.name,
+                "created": False}
+
+    v = Vendor(code=f"TMP-{uuid.uuid4().hex[:12]}", name=name, active=True)
+    db.add(v)
+    db.commit()
+    v.code = f"V{v.id:03d}"
+    db.commit()
+    return {"id": v.id, "code": v.code, "name": v.name, "created": True}
 
 
 @app.get("/api/forms")

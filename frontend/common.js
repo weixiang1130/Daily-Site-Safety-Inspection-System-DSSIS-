@@ -173,6 +173,40 @@ function siteOptions(sites, selectedId = null, allLabel = null) {
   return html;
 }
 
+/* ---------------------------------------------------------------------------
+   廠商輸入
+   協力商在各工地差異很大、且會隨工程階段更換，無法由管理員預先建好完整清單。
+   因此填報時用可輸入的 datalist（既能從既有廠商挑選，也能直接打新名稱），
+   送出前再把名稱換成廠商 id —— 沒有的會自動建檔，
+   這樣儀表板的「廠商缺失排行」才不會漏掉現場臨時新增的廠商。
+   --------------------------------------------------------------------------- */
+let VENDOR_CACHE = [];
+
+/** 建立共用的 <datalist>，供所有廠商輸入欄位參照。 */
+function installVendorDatalist(vendors) {
+  VENDOR_CACHE = vendors.slice();
+  let dl = document.getElementById('vendorList');
+  if (!dl) {
+    dl = document.createElement('datalist');
+    dl.id = 'vendorList';
+    document.body.appendChild(dl);
+  }
+  dl.innerHTML = vendors.map(v => `<option value="${esc(v.name)}">`).join('');
+}
+
+/** 廠商名稱 → id。找不到就請後端建檔，並更新本地快取與 datalist。 */
+async function resolveVendorId(name) {
+  const n = String(name || '').trim();
+  if (!n) return null;
+  const hit = VENDOR_CACHE.find(v => v.name.trim().toLowerCase() === n.toLowerCase());
+  if (hit) return hit.id;
+
+  const v = await API.post('/api/vendors/resolve', { name: n });
+  VENDOR_CACHE.push({ id: v.id, code: v.code, name: v.name });
+  installVendorDatalist(VENDOR_CACHE);
+  return v.id;
+}
+
 const HAZARDS = [
   ['FALL', '墜落'], ['ELEC', '感電'], ['COLLAPSE', '倒塌崩塌'],
   ['FALLING_OBJ', '物體飛落'], ['COLLISION', '衝撞'], ['CAUGHT', '被夾被捲'],

@@ -244,7 +244,37 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
 
     if (p === "/api/vendors") {
       return json(await db.sql`
-        SELECT id, code, name FROM vendors WHERE active = TRUE ORDER BY id`);
+        SELECT id, code, name FROM vendors WHERE active = TRUE ORDER BY name`);
+    }
+
+    // 依名稱取得廠商，不存在就建立。
+    // 協力商在各工地差異很大且會隨工程階段更換，不可能由管理員預先維護齊全，
+    // 因此填報時允許現場直接輸入新廠商名稱。這裡必須建立正式的廠商資料
+    // （而非存成自由文字），否則儀表板的「廠商缺失排行」會漏統計。
+    if (p === "/api/vendors/resolve" && method === "POST") {
+      const b = await req.json();
+      const name = String(b.name || "").trim();
+      if (!name) return fail(400, "廠商名稱不可為空");
+      if (name.length > 128) return fail(400, "廠商名稱過長");
+
+      // 比對時忽略大小寫與前後空白，避免同一家廠商因輸入差異被建成兩筆
+      const found = await db.sql`
+        SELECT id, code, name FROM vendors WHERE LOWER(TRIM(name)) = LOWER(${name})`;
+      if (found.length) {
+        if (!found[0].active) {
+          await db.sql`UPDATE vendors SET active = TRUE WHERE id = ${found[0].id}`;
+        }
+        return json({ ...found[0], created: false });
+      }
+
+      const [row] = await db.sql`
+        INSERT INTO vendors (code, name, active)
+        VALUES ('TMP-' || gen_random_uuid()::text, ${name}, TRUE)
+        RETURNING id`;
+      const [vendor] = await db.sql`
+        UPDATE vendors SET code = 'V' || LPAD(id::text, 3, '0')
+        WHERE id = ${row.id} RETURNING id, code, name`;
+      return json({ ...vendor, created: true });
     }
 
     if (p === "/api/forms") {
