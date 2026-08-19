@@ -31,6 +31,10 @@
         <select id="weather"><option>晴</option><option>陰</option><option>雨</option>
         <option>強風</option></select></div>
     </div>
+    <!-- 現場共用同一組帳號，需要知道實際填寫的人是誰 -->
+    <label>紀錄人員<span class="req">＊</span></label>
+    <input type="text" id="recorder" placeholder="請填寫實際填寫本表的人員姓名"
+           autocomplete="name">
   </div>
 
   <div class="card">
@@ -238,6 +242,7 @@ document.getElementById('submit').onclick = async () => {
       meeting_date: document.getElementById('mdate').value,
       work_date: document.getElementById('wdate').value,
       weather: document.getElementById('weather').value,
+      recorder_name: document.getElementById('recorder').value,
       agreement_text: document.getElementById('agreement').value,
       handling_text: document.getElementById('handling').value,
       attendees, findings,

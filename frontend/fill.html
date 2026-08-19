@@ -36,6 +36,11 @@
     <select id="form"></select>
     <label>檢查地點／位置編號</label>
     <input type="text" id="location" placeholder="例：地下室 B2 全區、5F 施工區、塔吊 TC-01">
+    <!-- 現場共用同一組帳號，帳號名稱代表不了實際檢查人。
+         稽核與事故調查都需要知道是誰檢查的，因此請填報者自行填寫。 -->
+    <label>檢查人員<span class="req">＊</span></label>
+    <input type="text" id="inspector" placeholder="請填寫實際執行檢查的人員姓名"
+           autocomplete="name">
     <div style="margin-top:16px" class="right">
       <button id="go">開始填報</button>
     </div>
@@ -106,12 +111,27 @@ const hazardOptions = HAZARDS.map(h => `<option value="${h[0]}">${h[1]}</option>
   vendors = vs;
   installVendorDatalist(vendors);
   document.getElementById('site').innerHTML = siteOptions(sites, me.site_id);
+  try {
+    const last = localStorage.getItem('inspectorName');
+    if (last) document.getElementById('inspector').value = last;
+  } catch (e) { /* 無痕模式沒有 localStorage，略過即可 */ }
   document.getElementById('form').innerHTML =
     forms.map(f => `<option value="${f.form_code}">${esc(f.title)}（${f.item_count} 項）</option>`).join('');
   document.getElementById('date').value = today();
 })();
 
 document.getElementById('go').onclick = async () => {
+  // 檢查人員在進入逐項檢查前就要求填寫。等到最後才擋，
+  // 現場已經填完幾十項才被退回，會很挫折。
+  const inspector = document.getElementById('inspector');
+  if (!inspector.value.trim()) {
+    alert('請先填寫檢查人員姓名');
+    inspector.focus();
+    return;
+  }
+  // 同一個人通常連續多天填報，記住上次填的名字省去重打
+  try { localStorage.setItem('inspectorName', inspector.value.trim()); } catch (e) {}
+
   const code = document.getElementById('form').value;
   formDef = await API.get('/api/forms/' + code);
   state = {};
@@ -289,6 +309,7 @@ document.getElementById('submit').onclick = async () => {
       form_code: formDef.form_code,
       inspect_date: document.getElementById('date').value,
       location: document.getElementById('location').value,
+      inspector_name: document.getElementById('inspector').value,
       weather: document.getElementById('weather').value,
       results, findings,
       signatures: [{

@@ -15,6 +15,7 @@ import {
 import { buildCoordinationPdf, buildInspectionPdf, type SigInput } from "../lib/pdf.ts";
 import { pollWeatherStations } from "../lib/weather.ts";
 import { pollHeadcount } from "../lib/headcount.ts";
+import { cctvChannels, cctvEnabled, fetchSnapshot } from "../lib/cctv.ts";
 import { levelOf, stationLevel, LEVEL_LABEL, THRESHOLDS } from "../lib/hazard.ts";
 
 const db = getDatabase();
@@ -35,6 +36,8 @@ const BRANDING = {
   org_short: Netlify.env.get("BRAND_SHORT_NAME") || "示範營造",
   org_name_en: Netlify.env.get("BRAND_NAME_EN") || "Demo Construction",
   group_name: Netlify.env.get("BRAND_GROUP") || "",
+  // 戰情室預設聚焦的工地。現階段以單一主場站為主，其餘工地的填報仍會列出。
+  primary_site_code: Netlify.env.get("PRIMARY_SITE_CODE") || "",
 };
 
 /** 儀表板是否免登入。公開網際網路上務必維持 false。 */
@@ -224,6 +227,38 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       return json(await dashboard(url));
     }
 
+    // ---- 監視器畫面 ----
+    // 由後端代理的原因見 lib/cctv.ts：主機禁止被 iframe、又是 http，
+    // 前端無法直接取用。存取權限比照儀表板。
+    if (p === "/api/cctv/snapshot") {
+      if (!PUBLIC_DASHBOARD && !me) return fail(401, "請先登入");
+      if (!cctvEnabled()) return fail(404, "未設定監視器");
+
+      const allowed = cctvChannels();
+      const ch = parseInt(url.searchParams.get("channel") || "", 10);
+      // 只接受設定檔列出的頻道，避免這支路由變成可任意存取內網主機的跳板
+      if (!allowed.includes(ch)) return fail(400, "頻道不在允許範圍");
+
+      try {
+        const buf = await fetchSnapshot(ch);
+        return new Response(buf, {
+          headers: {
+            "Content-Type": "image/jpeg",
+            // 畫面每隔數秒更新，不能讓瀏覽器或 CDN 快取
+            "Cache-Control": "no-store",
+          },
+        });
+      } catch (e: any) {
+        console.error("[cctv] 取得畫面失敗", e);
+        return fail(502, `取得監視器畫面失敗：${e?.message || e}`);
+      }
+    }
+
+    if (p === "/api/cctv/channels") {
+      if (!PUBLIC_DASHBOARD && !me) return fail(401, "請先登入");
+      return json({ enabled: cctvEnabled(), channels: cctvEnabled() ? cctvChannels() : [] });
+    }
+
     // ---- 檔案 ----
     if (p.startsWith(FILE_PREFIX)) {
       if (!me) return fail(401, "請先登入");
@@ -309,7 +344,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       const rows = await db.sql`
         SELECT i.id, i.form_code, i.inspect_date, i.location, i.status, i.pdf_key,
                s.name AS site, i.site_id, ft.title AS form_title,
-               u.display_name AS inspector,
+               COALESCE(i.inspector_name, u.display_name) AS inspector,
                (SELECT COUNT(*)::int FROM inspection_results r
                  WHERE r.inspection_id = i.id) AS item_count,
                (SELECT COUNT(*)::int FROM inspection_results r
@@ -602,11 +637,13 @@ async function createInspection(req: Request, me: SessionUser): Promise<Response
   const [insp] = await db.sql`
     INSERT INTO inspections
       (site_id, form_code, inspect_date, location, weather, inspector_id,
-       status, submitted_at)
+       inspector_name, status, submitted_at)
     VALUES (${Number(b.site_id)}, ${b.form_code}, ${b.inspect_date || todayISO()},
             ${b.location ?? null}, ${b.weather ?? null}, ${me.id},
+            ${(b.inspector_name || "").trim() || null},
             'submitted', NOW())
-    RETURNING id, site_id, form_code, inspect_date, location, weather, submitted_at`;
+    RETURNING id, site_id, form_code, inspect_date, location, weather,
+              inspector_name, submitted_at`;
 
   for (const r of b.results || []) {
     await db.sql`
@@ -636,7 +673,10 @@ async function createInspection(req: Request, me: SessionUser): Promise<Response
 async function renderInspectionPdf(id: number): Promise<string | null> {
   const insp = (await db.sql`
     SELECT i.id, i.inspect_date, i.location, i.weather, i.submitted_at,
-           s.name AS site_name, ft.title AS form_title, u.display_name AS inspector_name
+           s.name AS site_name, ft.title AS form_title,
+           -- 共用帳號的情況下，帳號名稱代表不了實際檢查人，
+           -- 因此以填報時填寫的姓名優先
+           COALESCE(i.inspector_name, u.display_name) AS inspector_name
     FROM inspections i
     JOIN sites s ON s.id = i.site_id
     JOIN form_templates ft ON ft.form_code = i.form_code
@@ -676,11 +716,13 @@ async function createCoordination(req: Request, me: SessionUser): Promise<Respon
   const [co] = await db.sql`
     INSERT INTO coordinations
       (site_id, meeting_date, work_date, weather, agreement_text, patrol_text,
-       handling_text, status, submitted_at, created_by)
+       handling_text, recorder_name, status, submitted_at, created_by)
     VALUES (${Number(b.site_id)}, ${b.meeting_date || todayISO()},
             ${b.work_date || todayISO()}, ${b.weather ?? null},
             ${b.agreement_text ?? null}, ${b.patrol_text ?? null},
-            ${b.handling_text ?? null}, 'submitted', NOW(), ${me.id})
+            ${b.handling_text ?? null},
+            ${(b.recorder_name || "").trim() || null},
+            'submitted', NOW(), ${me.id})
     RETURNING id, site_id`;
 
   for (const a of b.attendees || []) {
@@ -794,6 +836,9 @@ async function servePdf(table: "inspections" | "coordinations", id: number) {
 async function dashboard(url: URL) {
   const days = parseInt(url.searchParams.get("days") || "30", 10);
   const siteId = url.searchParams.get("site_id");
+  // 選定主場站時，上方的即時數據與指標只看該工地，但下方清單仍要涵蓋所有
+  // 工地——現場只有一個戰情室，別的工地交了什麼、有沒有逾期也得看得到。
+  const listSiteId = url.searchParams.get("list_scope") === "all" ? null : siteId;
   const today = todayISO();
 
   const rows = await db.sql`
@@ -803,6 +848,16 @@ async function dashboard(url: URL) {
     WHERE f.found_at >= NOW() - (${days}::int * INTERVAL '1 day')
       AND (${siteId}::int IS NULL OR f.site_id = ${siteId}::int)`;
   const findings = rows.map((r: any) => ({ ...shapeFinding(r), raw: r }));
+
+  const listRows = listSiteId === siteId ? rows : await db.sql`
+    SELECT f.*, s.name AS site, v.name AS vendor FROM findings f
+    JOIN sites s ON s.id = f.site_id
+    LEFT JOIN vendors v ON v.id = f.vendor_id
+    WHERE f.found_at >= NOW() - (${days}::int * INTERVAL '1 day')
+      AND (${listSiteId}::int IS NULL OR f.site_id = ${listSiteId}::int)`;
+  const listFindings = listRows === rows
+    ? findings
+    : (listRows as any[]).map((r) => ({ ...shapeFinding(r), raw: r }));
 
   const insps = await db.sql`
     SELECT id, site_id FROM inspections
@@ -816,25 +871,27 @@ async function dashboard(url: URL) {
   // 兩種表單合在一起看，因為值班人員關心的是「今天有誰交了什麼」。
   const recentInspections = await db.sql`
     SELECT i.id, i.inspect_date AS on_date, i.pdf_key, s.name AS site,
-           ft.title AS title, u.display_name AS person,
+           ft.title AS title,
+           COALESCE(i.inspector_name, u.display_name) AS person,
            (SELECT COUNT(*)::int FROM inspection_results r
              WHERE r.inspection_id = i.id AND r.result = 'fail') AS fail_count
     FROM inspections i
     JOIN sites s ON s.id = i.site_id
     JOIN form_templates ft ON ft.form_code = i.form_code
     JOIN users u ON u.id = i.inspector_id
-    WHERE (${siteId}::int IS NULL OR i.site_id = ${siteId}::int)
+    WHERE (${listSiteId}::int IS NULL OR i.site_id = ${listSiteId}::int)
     ORDER BY i.inspect_date DESC, i.id DESC
-    LIMIT 12`;
+    LIMIT 20`;
 
   const recentCoordinations = await db.sql`
     SELECT c.id, c.work_date AS on_date, c.pdf_key, s.name AS site,
+           c.recorder_name,
            (SELECT COUNT(*)::int FROM coordination_attendees a
              WHERE a.coordination_id = c.id) AS attendee_count
     FROM coordinations c JOIN sites s ON s.id = c.site_id
-    WHERE (${siteId}::int IS NULL OR c.site_id = ${siteId}::int)
+    WHERE (${listSiteId}::int IS NULL OR c.site_id = ${listSiteId}::int)
     ORDER BY c.work_date DESC, c.id DESC
-    LIMIT 12`;
+    LIMIT 20`;
 
   const recentForms = [
     ...(recentInspections as any[]).map((r) => ({
@@ -853,14 +910,14 @@ async function dashboard(url: URL) {
       on_date: dateOnly(r.on_date),
       site: r.site,
       title: "每日協議、巡視及處理紀錄表",
-      person: "",
+      person: r.recorder_name || "",
       result: `${r.attendee_count} 家廠商`,
       ok: true,
       pdf_url: r.pdf_key ? `/api/coordinations/${r.id}/pdf` : null,
     })),
   ]
     .sort((a, b) => String(b.on_date).localeCompare(String(a.on_date)))
-    .slice(0, 12);
+    .slice(0, 20);
 
   const count = (fn: (f: any) => boolean) => findings.filter(fn).length;
   const closed = count((f) => f.status === "closed");
@@ -911,12 +968,13 @@ async function dashboard(url: URL) {
   const envRows = await db.sql`
     SELECT DISTINCT ON (r.device_id, r.metric)
            r.device_id, r.metric, r.value_num, r.reading_at, r.site_id,
-           s.name AS site, r.raw_payload
+           s.name AS site, s.code AS site_code, r.raw_payload
     FROM device_readings r
     LEFT JOIN sites s ON s.id = r.site_id
     WHERE r.device_type = 'env'
       AND r.reading_at >= NOW() - INTERVAL '3 hours'
-      AND (${siteId}::int IS NULL OR r.site_id = ${siteId}::int)
+      -- 用清單範圍而非指標範圍：主場站的數據放大顯示，其餘工地仍以一行帶過
+      AND (${listSiteId}::int IS NULL OR r.site_id = ${listSiteId}::int)
     ORDER BY r.device_id, r.metric, r.reading_at DESC`;
 
   const envByStation = new Map<string, any>();
@@ -925,7 +983,8 @@ async function dashboard(url: URL) {
     if (!station) {
       let name = row.site || row.device_id;
       try { name = JSON.parse(row.raw_payload || "{}").station || name; } catch { /* 保留預設 */ }
-      station = { device_id: row.device_id, site: row.site, station: name,
+      station = { device_id: row.device_id, site: row.site,
+                  site_code: row.site_code, station: name,
                   reading_at: minuteISO(row.reading_at), metrics: {} };
       envByStation.set(row.device_id, station);
     }
@@ -990,13 +1049,13 @@ async function dashboard(url: URL) {
     by_vendor: tally((f) => f.vendor).slice(0, 10),
     trend,
     sites: siteRows,
-    overdue_list: findings.filter((f) => f.overdue).map((f) => ({
+    overdue_list: listFindings.filter((f) => f.overdue).map((f) => ({
       no: f.no, site: f.site, description: f.description, vendor: f.vendor || "",
       person: f.responsible_person, due_date: f.due_date,
       days_over: Math.floor(
         (Date.now() - new Date(f.due_date!).getTime()) / 86_400_000),
     })).sort((a, b) => b.days_over - a.days_over).slice(0, 20),
-    recent: [...findings]
+    recent: [...listFindings]
       .sort((a, b) => new Date(b.found_at).getTime() - new Date(a.found_at).getTime())
       .slice(0, 15)
       .map((f) => ({

@@ -20,9 +20,9 @@ async function loadBranding() {
 
 /** 在 #brand 容器渲染版頭品牌標記。 */
 async function renderBrand(subtitleKey = 'system_name') {
-  const el = document.getElementById('brand');
-  if (!el) return;
   const b = await loadBranding();
+  const el = document.getElementById('brand');
+  if (!el) return b;
   const org = b.org_short || b.org_name || '';
   el.innerHTML = `
     <span class="mark"></span>
@@ -35,6 +35,7 @@ async function renderBrand(subtitleKey = 'system_name') {
       t.dataset.suffix = 'done';
     }
   }
+  return b;   // 呼叫端有時需要品牌設定本身（例如戰情室的主場站代碼）
 }
 
 // 建築框景：施工架立面線稿，作為版面右下角的框景元素。

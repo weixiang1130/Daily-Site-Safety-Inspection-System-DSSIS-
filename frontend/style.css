@@ -384,151 +384,231 @@ td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 }
 
 /* ---------------------------------------------------------------------------
-   戰情室（深色）
+   戰情室
+   ---------------------------------------------------------------------------
+   與填報頁共用同一套色彩、字體與元件，只有版面規則相反：
+   牆上的畫面沒有人會去滑，因此整頁固定一屏、不出現捲軸，清單改為自動換頁。
    --------------------------------------------------------------------------- */
-.war-head {
+
+body.war {
+  height: 100dvh;
+  overflow: hidden;
   display: flex;
-  align-items: center;
-  gap: var(--sp-5);
-  padding: var(--sp-4) var(--sp-6);
-  background: var(--bg-surface);
-  border-bottom: 1px solid var(--border-strong);
+  flex-direction: column;
+  /* 字級同時看寬度與高度，取較小者。只看寬度的話，顯示縮放 125％
+     或視窗不是全高時會把版面擠爆。 */
+  font-size: clamp(12px, min(0.62vw + 6px, 1.15vh + 6px), 22px);
 }
-.war-head .brand .name { font-size: var(--fs-h1); }
-.war-head .spacer { flex: 1; }
-.war-head select {
-  width: auto;
-  padding: 6px var(--sp-3);
-  background: var(--bg-sunken);
-  color: var(--text-primary);
-  border-color: var(--border-strong);
-  font-size: var(--fs-sm);
-}
-.war-head .clock {
-  font-family: var(--font-mono);
-  font-size: 1.375rem;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-accent);
-}
-.war-head .stamp {
+.war .topbar { flex: none; }
+.war .topbar select { width: auto; padding: 4px var(--sp-3); font-size: var(--fs-sm); }
+.war .topbar .stamp {
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
   color: var(--text-muted);
 }
-
-.grid { display: grid; gap: var(--sp-4); }
-.kpis { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
-.cols-2 { grid-template-columns: 1.2fr .8fr; }
-.cols-3 { grid-template-columns: repeat(3, 1fr); }
-
-/* 戰情室：四項主指標 + 左右分欄。
-   大螢幕上整頁不需捲動，值班人員一眼就能判讀。 */
-.kpis-main {
-  grid-template-columns: repeat(4, 1fr);
-  margin-bottom: var(--sp-3);
+.war .topbar .clock {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 1.25rem;
+  color: var(--text-accent);
 }
-/* 三欄：缺失動態｜填報表單｜統計。戰情室吃滿寬螢幕後，
-   兩欄會讓表格欄位被拉得過寬而不易掃讀。 */
-.cols-main { grid-template-columns: 1.5fr 1.25fr 1fr; align-items: start; }
-.panel-stack { display: flex; flex-direction: column; gap: var(--sp-4); }
+.war .topbar button { padding: 4px var(--sp-3); font-size: var(--fs-sm); }
 
-/* 戰情室固定為一屏：整頁填滿視窗，主區依剩餘空間伸縮，
-   內容再多也是面板內部自己捲動，不會把整頁撐長。
-   先前用固定 vh 上限微調，只要資料量一變就會失準，改為結構性保證。 */
-.theme-dark, .theme-dark body {
-  height: 100dvh;
-  overflow: hidden;
-}
-.theme-dark body { display: flex; flex-direction: column; }
-.theme-dark .war-head { flex: none; }
-.theme-dark .wrap {
+.war-body {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  /* 用 auto 而非 hidden：固定高度的區塊（KPI、環境列、逾期清單）若在
-     極矮的視窗下加起來超過畫面，hidden 會把主區直接裁掉而讀不到，
-     auto 至少還捲得到。正常尺寸下兩者行為相同。 */
-  overflow-y: auto;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4) var(--sp-4);
 }
-.theme-dark .kpis-main,
-.theme-dark .metric-strip,
-.theme-dark .env-strip { flex: none; }
 
-/* 逾期清單可以被壓縮，內部自己捲動。
-   若設成 flex: none，它會把主區（缺失動態、填報表單）擠到剩最低高度，
-   在 1080 以下的螢幕就變成整頁捲動而失去一屏的意義。 */
-.theme-dark #overduePanel {
-  flex: 0 1 auto;
-  min-height: 0;
+/* 每個區塊都是一張卡片，和填報頁的 .card 同一個語彙，只是留白收緊 */
+.band {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--sp-3) var(--sp-4);
+}
+.band-head {
   display: flex;
-  flex-direction: column;
+  align-items: baseline;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+.band-head .spacer { flex: 1; }
+.band-head h2 { font-size: var(--fs-h2); margin: 0; }
+.band-head h3 { font-size: var(--fs-h3); margin: 0; }
+.band .small { font-size: var(--fs-xs); }
+
+/* 現場即時：左邊數據、右邊監視畫面 */
+.band-live {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(200px, 19vw, 400px);
+  gap: var(--sp-4);
+  align-items: start;
+}
+.live-main { min-width: 0; display: flex; flex-direction: column; gap: var(--sp-3); }
+
+/* 數值磚：牆上要在數公尺外讀得到，因此數字大、標籤小 */
+.tiles { display: grid; gap: var(--sp-2); }
+.tiles-env { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.tiles-people { grid-template-columns: 1.7fr 1fr 1fr; }
+.tiles-kpi { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+
+.tile {
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  padding: var(--sp-2) var(--sp-3);
+  min-width: 0;
+}
+.tile .t-label {
+  font-family: var(--font-heading);
+  font-size: var(--fs-xs);
+  letter-spacing: var(--ls-label);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tile .t-value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 2.1rem;
+  line-height: 1.15;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tile .t-value u {
+  text-decoration: none;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  margin-left: 3px;
+}
+/* 在場人數是緊急應變的第一個問題，給它最大的字 */
+.tile-hero { border-left-color: var(--accent); }
+.tile-hero .t-value { font-size: 3rem; }
+
+.tile.ok       { border-left-color: var(--ok-600); }
+.tile.notice   { border-left-color: var(--text-secondary); }
+.tile.warn     { border-left-color: var(--warn-600); }
+.tile.warn     .t-value { color: var(--warn-600); }
+.tile.critical { border-left-color: var(--critical-600); background: var(--critical-100); }
+.tile.critical .t-value { color: var(--critical-600); font-weight: 700; }
+/* 危害等級是結論，用文字而非數字，字級略收 */
+.tile-verdict .t-value { font-family: var(--font-heading); font-size: 1.6rem; }
+
+/* 其他工地：主場站以外的測站只以一行帶過 */
+.other-sites {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-4);
+}
+.other-sites:empty { display: none; }
+.other-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
 }
 
-/* align-items 必須是 stretch。父層 .cols-main 的 align-items: start 是為
-   一般頁面設計的，但在戰情室會讓面板依內容長高（實測 1732px 塞在 260px 的
-   容器裡），多出來的部分被外層裁掉而根本看不到。stretch 才會讓面板填滿列高，
-   內容再由 .panel-fill 自己捲動。 */
-.theme-dark .cols-main { flex: 1; min-height: 260px; align-items: stretch; }
-.theme-dark .cols-main > .panel { min-height: 0; display: flex; flex-direction: column; }
-.theme-dark .panel-stack { min-height: 0; overflow-y: auto; }
+/* 測站整體危害等級徽章 */
+.env-level {
+  font-family: var(--font-heading);
+  font-size: var(--fs-xs);
+  letter-spacing: var(--ls-label);
+  padding: 1px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.env-level.l0 { color: var(--ok-600);         border: 1px solid var(--ok-600); }
+.env-level.l1 { color: var(--text-secondary); border: 1px solid var(--border-strong); }
+.env-level.l2 { color: var(--warn-600);       border: 1px solid var(--warn-600); }
+.env-level.l3,
+.env-level.l4 { color: #fff; background: var(--critical-600); font-weight: 700; }
 
-/* 面板內表格自行捲動 */
-.panel-fill { flex: 1; min-height: 0; overflow-y: auto; }
+/* 監視畫面 */
+.cam { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; }
+.cam-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-family: var(--font-heading);
+  font-size: var(--fs-xs);
+  letter-spacing: var(--ls-label);
+  color: var(--text-muted);
+}
+.cam-view {
+  aspect-ratio: 16 / 9;
+  background: #1a1a1a;
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.cam-view img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
-/* 逾期清單也不可無限長 */
-.theme-dark #overduePanel .table-scroll { flex: 1; min-height: 0; max-height: 22vh; overflow-y: auto; }
-/* 工地一多，環境列會換行往下長，必須跟著設限 */
-.theme-dark .env-strip { max-height: 16vh; overflow-y: auto; }
-
-/* 一屏鎖定只適用於大螢幕。小螢幕版面已改為單欄，內容本來就比視窗高，
-   若仍鎖定會把下半部裁掉，因此還原為正常捲動。 */
-@media (max-width: 1200px) {
-  .theme-dark, .theme-dark body { height: auto; overflow: visible; }
-  .theme-dark body { display: block; }
-  .theme-dark .wrap { display: block; overflow: visible; }
-  .theme-dark .cols-main { min-height: 0; }
-  .theme-dark .panel-stack { overflow: visible; }
-  .panel-fill { max-height: 60vh; }
-  .theme-dark #overduePanel .table-scroll { max-height: none; }
+/* 長官關注的排行：橫條列，並排在醒目位置 */
+.band-rank {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--sp-5);
+}
+.rank { min-width: 0; }
+.rank h3 {
+  font-family: var(--font-heading);
+  font-size: var(--fs-xs);
+  letter-spacing: var(--ls-label);
+  color: var(--text-muted);
+  margin: 0 0 var(--sp-2);
+}
+.barlist { display: flex; flex-direction: column; gap: var(--sp-2); }
+.barlist .r {
+  display: grid;
+  grid-template-columns: 7em 1fr 2.5em;
+  align-items: center;
+  gap: var(--sp-3);
+  line-height: 1.25;
+}
+.barlist .r .lbl {
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.barlist .r .track { height: 10px; background: var(--bg-sunken); }
+.barlist .r .track i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width var(--ease-slow);
+}
+.barlist .r .v {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--text-primary);
 }
 
-/* 戰情室掛在牆上、從遠處看，因此與一般頁面的取捨相反：
-   要吃滿整個螢幕寬度，字級也要隨螢幕變大。
+/* 表格列高收緊：牆上一頁能多看幾筆，比寬鬆的留白重要 */
+.war table th,
+.war table td { padding: 5px var(--sp-3); }
+.war table th { font-size: var(--fs-xs); }
 
-   字級用根元素的 font-size 統一縮放——版面內的字級都是 rem，
-   改這一個值就整體等比放大，不必逐條調整而漏掉某些元素。
-
-   同時看寬度與高度，取較小者：只看寬度的話，Windows 顯示縮放 125%／150%
-   或視窗不是全高時，字會大到把版面擠爆。1920×1080 約 20.6px、
-   1536×864（1920 的 125%）約 17.7px、2560 以上封頂 26px。 */
-.theme-dark { font-size: clamp(13px, min(0.78vw + 6px, 1.35vh + 6px), 26px); }
-.theme-dark .wrap.wide { max-width: none; }
-/* .wrap 的 margin:0 auto 在 flex 交叉軸上會抑制 stretch，
-   使版面縮到內容寬度再置中，兩側因此留下空白。要吃滿寬度就得取消。 */
-.theme-dark .wrap { margin-inline: 0; }
-
-/* 間距是固定 px，字放大後若不跟著調整會顯得擁擠 */
-.theme-dark {
-  --sp-3: 14px;
-  --sp-4: 20px;
-  --sp-5: 28px;
-  --sp-6: 36px;
+/* 清單輪播區：吃掉剩下的高度，內部不捲動，改由程式換頁 */
+.band-rota { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.rota-body { flex: 1; min-height: 0; overflow: hidden; }
+.dots { display: flex; gap: 6px; align-items: center; }
+.dots i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--border-strong);
 }
-
-/* 整頁必須一屏顯示完、不需捲動，因此收掉為閱讀型頁面設計的大留白。 */
-.theme-dark .wrap { padding: var(--sp-4) var(--sp-5) var(--sp-5); }
-.theme-dark .grid { gap: var(--sp-3); }
-.theme-dark .panel-stack { gap: var(--sp-3); }
-.theme-dark .panel { padding: var(--sp-3) var(--sp-4); }
-.theme-dark .panel > h3 { margin-bottom: var(--sp-3); }
-.theme-dark th, .theme-dark td { padding: 6px var(--sp-3); }
-.theme-dark .spark { height: 5em; }
-
-/* 橫條排行在大螢幕上收緊列高，讓右欄三個面板能與左欄等高共存 */
-.theme-dark .barlist { gap: var(--sp-2); }
-.theme-dark .barlist .r { grid-template-columns: 7em 1fr 2.5em; line-height: 1.25; }
-.theme-dark .barlist .r .track { height: 10px; }
+.dots i.on { background: var(--accent); }
 
 /* 戰情室的表格一律單行顯示，過長就截斷。
    牆上是用來掃讀的：讓一列折成三四行，看得到的筆數反而更少。
@@ -541,228 +621,37 @@ table.fixed th {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.cols-recent  th:nth-child(1) { width: 15%; }
-.cols-recent  th:nth-child(2) { width: 20%; }
+.cols-recent  th:nth-child(1) { width: 12%; }
+.cols-recent  th:nth-child(2) { width: 16%; }
 .cols-recent  th:nth-child(4) { width: 16%; }
+.cols-recent  th:nth-child(5) { width: 10%; }
 
-.cols-forms   th:nth-child(1) { width: 12%; }
-.cols-forms   th:nth-child(2) { width: 22%; }
-.cols-forms   th:nth-child(4) { width: 24%; }
+.cols-forms   th:nth-child(1) { width: 10%; }
+.cols-forms   th:nth-child(2) { width: 16%; }
+.cols-forms   th:nth-child(4) { width: 12%; }
+.cols-forms   th:nth-child(5) { width: 16%; }
 
-.cols-overdue th:nth-child(1) { width: 12%; }
-.cols-overdue th:nth-child(2) { width: 15%; }
-.cols-overdue th:nth-child(4) { width: 18%; }
-.cols-overdue th:nth-child(5) { width: 12%; }
-.cols-overdue th:nth-child(6) { width: 9%; }
+.cols-overdue th:nth-child(1) { width: 11%; }
+.cols-overdue th:nth-child(2) { width: 14%; }
+.cols-overdue th:nth-child(4) { width: 17%; }
+.cols-overdue th:nth-child(5) { width: 11%; }
+.cols-overdue th:nth-child(6) { width: 8%; }
 
-/* 矮螢幕（1080 實體螢幕開 125% 顯示縮放 = 864 CSS 高，很常見）：
-   上方固定區塊會把主區壓到最低高度，表格只剩幾列可看。
-   這裡收緊固定區塊的高度，把空間讓給缺失動態與填報表單。 */
-@media (max-height: 900px) {
-  .theme-dark .metric-strip,
-  .theme-dark .env-strip,
-  .theme-dark #overduePanel { margin-bottom: var(--sp-3) !important; }
-  .theme-dark .kpis-main .kpi { padding: 0.6em 1em; }
-  .theme-dark .kpis-main .kpi .n { font-size: 2.6rem; }
-  .theme-dark #overduePanel .table-scroll { max-height: 11vh; }
-  .theme-dark .env-strip { max-height: 12vh; }
+/* 窄螢幕（筆電、平板）：磚塊改為多列，並還原正常捲動。
+   一屏的前提是大螢幕；在小螢幕硬壓成一屏，只會每一格都讀不到。 */
+@media (max-width: 1400px) {
+  .tiles-kpi { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .band-rank { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4); }
 }
-
-/* 螢幕變窄時只調整欄寬比例，不隱藏任何面板——
-   戰情室少一塊資訊，值班人員就得自己去別的頁面查，等於沒有戰情室。 */
-@media (max-width: 1600px) {
-  .cols-main { grid-template-columns: 1.3fr 1.15fr 0.9fr; }
+@media (max-width: 1100px) {
+  body.war { height: auto; overflow: visible; display: block; }
+  .band-live { grid-template-columns: 1fr; }
+  .tiles-env { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .tiles-people { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .band-rank { grid-template-columns: 1fr; }
+  .band-rota { flex: none; }
+  .rota-body { overflow-x: auto; }
 }
-
-@media (max-width: 1200px) {
-  .cols-2, .cols-3, .cols-main { grid-template-columns: 1fr; }
-  .kpis-main { grid-template-columns: repeat(2, 1fr); }
-}
-
-/* 次要指標壓成一行：需要時看得到，但不佔用主要視覺層級 */
-.metric-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-5);
-  padding: var(--sp-3) var(--sp-5);
-  margin-bottom: var(--sp-4);
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  font-family: var(--font-mono);
-  font-size: var(--fs-sm);
-  font-variant-numeric: tabular-nums;
-  color: var(--text-primary);
-}
-.metric-strip i {
-  font-style: normal;
-  font-family: var(--font-heading);
-  font-size: var(--fs-xs);
-  letter-spacing: var(--ls-label);
-  text-transform: uppercase;
-  color: var(--text-muted);
-  margin-right: var(--sp-2);
-}
-
-.panel {
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: var(--sp-4) var(--sp-5);
-}
-.panel > h3 {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  margin: 0 0 var(--sp-4);
-  font-family: var(--font-heading);
-  font-size: var(--fs-xs);
-  font-weight: 500;
-  letter-spacing: var(--ls-label);
-  text-transform: uppercase;
-  color: var(--text-secondary);
-}
-.panel > h3::before {
-  content: "";
-  width: 3px; height: 12px;
-  background: var(--accent);
-  flex: none;
-}
-
-/* KPI 磚：等寬大數字是本品牌的視覺重心 */
-.kpi { padding: var(--sp-5) var(--sp-4); }
-.kpi .n {
-  font-family: var(--font-mono);
-  font-size: var(--fs-metric);
-  font-weight: 500;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.03em;
-  color: var(--text-primary);
-}
-.kpi .l {
-  font-family: var(--font-heading);
-  font-size: var(--fs-xs);
-  letter-spacing: var(--ls-label);
-  text-transform: uppercase;
-  color: var(--text-muted);
-  margin-top: var(--sp-3);
-}
-.kpi.critical .n { color: var(--critical-600); }
-.kpi.warn .n     { color: var(--warn-600); }
-.kpi.ok .n       { color: var(--ok-600); }
-.kpi.accent .n   { color: var(--text-accent); }
-.kpi.critical { border-color: var(--critical-600); }
-
-/* 主指標數字加大，讓值班人員在數公尺外也讀得到 */
-.theme-dark .kpis-main .kpi { padding: 0.85em 1em; }
-.kpis-main .kpi .n { font-size: 3.2rem; line-height: 1.05; }
-.kpis-main .kpi .l { margin-top: var(--sp-2); }
-@media (max-width: 1200px) { .kpis-main .kpi .n { font-size: 2.5rem; } }
-
-/* 橫條排行 */
-.barlist { display: flex; flex-direction: column; gap: var(--sp-3); }
-.barlist .r {
-  display: grid;
-  grid-template-columns: 108px 1fr 40px;
-  align-items: center;
-  gap: var(--sp-3);
-}
-.barlist .r .lbl {
-  font-size: var(--fs-sm);
-  color: var(--text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.barlist .r .track { height: 10px; background: var(--bg-sunken); }
-.barlist .r .track i {
-  display: block; height: 100%;
-  background: var(--accent);
-  transition: width var(--ease-slow);
-}
-.barlist .r .v {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-  color: var(--text-primary);
-}
-
-/* 工地環境（微型氣象站）
-   全寬單列。只顯示超標項目與熱指數，全部正常的站收合成一個字，
-   讓牆面第一眼就看得出「哪個工地現在有狀況」。 */
-.env-strip {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--sp-4);
-  padding: var(--sp-3) var(--sp-5);
-  margin-bottom: var(--sp-4);
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-}
-.env-strip-label {
-  flex: none;
-  font-family: var(--font-heading);
-  font-size: var(--fs-xs);
-  letter-spacing: var(--ls-label);
-  text-transform: uppercase;
-  color: var(--text-muted);
-  padding-top: 2px;
-}
-.env-strip-body {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-2) var(--sp-6);
-  flex: 1;
-}
-
-.env-item {
-  display: inline-flex;
-  align-items: baseline;
-  gap: var(--sp-3);
-  font-size: var(--fs-sm);
-}
-.env-item > b {
-  font-weight: 500;
-  color: var(--text-secondary);
-  font-size: var(--fs-sm);
-}
-
-.env-metric {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  font-size: var(--fs-sm);
-  color: var(--text-primary);
-  white-space: nowrap;
-}
-.env-metric i {
-  font-style: normal;
-  font-family: var(--font-heading);
-  font-size: var(--fs-xs);
-  letter-spacing: var(--ls-label);
-  color: var(--text-muted);
-  margin-right: 4px;
-}
-.env-metric u { text-decoration: none; color: var(--text-muted); font-size: var(--fs-xs); }
-.env-metric.ok       { color: var(--ok-600); }
-.env-metric.notice   { color: var(--text-primary); }
-.env-metric.warn     { color: var(--warn-600); }
-.env-metric.critical { color: var(--critical-600); font-weight: 700; }
-
-/* 測站整體危害等級徽章。只在超過正常時才出現，見 dashboard.html。 */
-.env-level {
-  font-family: var(--font-heading);
-  font-size: var(--fs-xs);
-  letter-spacing: var(--ls-label);
-  padding: 1px 7px;
-  border-radius: 999px;
-  white-space: nowrap;
-}
-.env-level.l1 { color: var(--text-secondary); border: 1px solid var(--border-strong); }
-.env-level.l2 { color: var(--warn-600);     border: 1px solid var(--warn-600); }
-.env-level.l3,
-.env-level.l4 { color: var(--text-inverse); background: var(--critical-600); font-weight: 700; }
 
 /* 工地號誌 */
 .light { display: inline-block; width: 9px; height: 9px; flex: none; }
@@ -771,7 +660,7 @@ table.fixed th {
 .light.green  { background: var(--ok-600); }
 
 /* 趨勢柱 */
-.spark { display: flex; align-items: flex-end; gap: 3px; height: 96px; }
+.spark { display: flex; align-items: flex-end; gap: 3px; height: 5em; }
 .spark div {
   flex: 1;
   min-height: 2px;

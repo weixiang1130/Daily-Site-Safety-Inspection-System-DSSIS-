@@ -58,6 +58,18 @@ export const THRESHOLDS: Record<string, Threshold> = {
     basis: "環境部空氣品質指標 AQI（PM10 24 小時值）",
     caveat: "為即時濃度，AQI 分界原以 24 小時平均值定義",
   },
+
+  // 溫濕度不單獨分級：熱指數已經同時涵蓋兩者，且熱指數才是能直接對應到
+  // 「加強休息、調整工時、停止作業」的指標。這裡只是為了讓戰情室有一致的
+  // 標籤與單位可用，breaks 留空代表永遠是正常。
+  temperature: {
+    label: "溫度", unit: "°C", breaks: [],
+    basis: "僅供參考，熱危害判定以熱指數為準",
+  },
+  humidity: {
+    label: "濕度", unit: "%", breaks: [],
+    basis: "僅供參考，熱危害判定以熱指數為準",
+  },
 };
 
 /** 依門檻表判定單一指標的等級。未列管的指標一律回 0。 */

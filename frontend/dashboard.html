@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-Hant" class="theme-dark">
+<html lang="zh-Hant">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,9 +7,9 @@
 <link rel="stylesheet" href="/static/brand.css">
 <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
+<body class="war">
 
-<div class="war-head">
+<div class="topbar">
   <div class="brand" id="brand"></div>
   <select id="site" aria-label="選擇工地"></select>
   <select id="days" aria-label="選擇統計區間">
@@ -20,234 +20,391 @@
   <div class="spacer"></div>
   <span class="stamp" id="stamp"></span>
   <span class="clock" id="clock"></span>
+  <a href="/static/home.html"><button class="ghost">回首頁</button></a>
 </div>
 
-<div class="wrap wide">
+<div class="war-body">
 
-  <!-- 主指標：只留四項需要當下判斷的數字 -->
-  <div class="grid kpis-main" id="kpis"></div>
-
-  <!-- 次要指標壓成一行，需要時才看 -->
-  <div class="metric-strip" id="strip"></div>
-
-  <!-- 工地環境：只列出需要注意的數值，正常的站收合成一個字 -->
-  <div class="env-strip hidden" id="envPanel">
-    <span class="env-strip-label">工地環境</span>
-    <div class="env-strip-body" id="env"></div>
-  </div>
-
-  <!-- 逾期清單只在真的有逾期時出現；沒有逾期時上方 KPI 已足夠說明 -->
-  <div class="panel hidden" id="overduePanel" style="margin-bottom:var(--sp-4)">
-    <h3>逾期未改善　需立即處理</h3>
-    <div class="table-scroll" id="overdue"></div>
-  </div>
-
-  <div class="grid cols-main">
-    <div class="panel">
-      <h3>最新缺失動態</h3>
-      <div class="table-scroll panel-fill" id="recent"></div>
+  <!-- 現場即時：環境、人數、監視畫面 -->
+  <section class="band band-live">
+    <div class="live-main">
+      <div class="band-head">
+        <h2 id="siteName">現場即時</h2>
+        <span class="env-level" id="siteLevel"></span>
+        <span class="spacer"></span>
+        <span class="muted small" id="envTime"></span>
+      </div>
+      <div class="tiles tiles-env" id="envTiles"></div>
+      <div class="other-sites" id="otherSites"></div>
+      <div class="tiles tiles-people" id="peopleTiles"></div>
     </div>
 
-    <div class="panel">
-      <h3>最新填報表單</h3>
-      <div class="table-scroll panel-fill" id="forms"></div>
-    </div>
+    <aside class="cam hidden" id="camPanel">
+      <div class="cam-head"><span>現場監視</span><span class="muted small" id="camLabel"></span></div>
+      <div class="cam-view"><img id="camImg" alt="現場監視畫面"></div>
+    </aside>
+  </section>
 
-    <div class="panel-stack">
-      <div class="panel">
-        <h3>災害類別分布</h3>
-        <div class="barlist" id="hazard"></div>
-      </div>
-      <div class="panel">
-        <h3>廠商缺失排行</h3>
-        <div class="barlist" id="vendor"></div>
-      </div>
-      <div class="panel">
-        <h3>近 14 日趨勢</h3>
-        <div class="spark" id="trend"></div>
-        <div class="spark-labels" id="trendLabels"></div>
-      </div>
+  <!-- 缺失管理指標 -->
+  <section class="band band-kpi">
+    <div class="tiles tiles-kpi" id="kpis"></div>
+  </section>
+
+  <!-- 長官關注的兩項排行 -->
+  <section class="band band-rank">
+    <div class="rank">
+      <h3>災害類別分布</h3>
+      <div class="barlist" id="hazard"></div>
     </div>
-  </div>
+    <div class="rank">
+      <h3>廠商缺失排行</h3>
+      <div class="barlist" id="vendor"></div>
+    </div>
+    <div class="rank">
+      <h3>近 14 日缺失趨勢</h3>
+      <div class="spark" id="trend"></div>
+      <div class="spark-labels" id="trendLabels"></div>
+    </div>
+  </section>
+
+  <!-- 清單區：自動換頁，不使用捲軸 -->
+  <section class="band band-rota">
+    <div class="band-head">
+      <h3 id="rotaTitle">最新動態</h3>
+      <span class="rota-count muted small" id="rotaCount"></span>
+      <span class="spacer"></span>
+      <div class="dots" id="rotaDots"></div>
+    </div>
+    <div class="rota-body" id="rota"></div>
+  </section>
+
 </div>
 
 <script src="/static/common.js"></script>
 <script>
+// ---------------------------------------------------------------------------
+// 戰情室
+//
+// 兩個和一般頁面不同的原則：
+//   1. 整頁不出現捲軸。牆上的畫面沒有人會去滑，看不到就等於沒有。
+//      清單一律自動換頁（見 Rota）。
+//   2. 以主場站為主體。上方即時區塊只看主場站，下方清單仍涵蓋所有工地，
+//      因為現場只有一個戰情室。
+// ---------------------------------------------------------------------------
+
+let PRIMARY_CODE = '';     // 主場站代碼，由 /api/branding 提供
+let SITES = [];
+
 function tick() {
   document.getElementById('clock').textContent =
     new Date().toLocaleTimeString('zh-TW', { hour12: false });
 }
 setInterval(tick, 1000); tick();
 
+// 環境大磚的顯示順序，比照現場既有的看板，讓工地人員不必重新學習
+const ENV_ORDER = ['pm25', 'pm10', 'noise', 'temperature', 'humidity', 'heat_index'];
+const LEVEL_CLASS = ['ok', 'notice', 'warn', 'critical', 'critical'];
+
+function tile(label, value, unit, cls) {
+  return `<div class="tile ${cls || ''}">
+    <div class="t-label">${esc(label)}</div>
+    <div class="t-value">${esc(String(value))}<u>${esc(unit || '')}</u></div>
+  </div>`;
+}
+
+function renderEnvironment(list, spec) {
+  const primary = list.find(s => s.site_code === PRIMARY_CODE) || list[0] || null;
+  const others = list.filter(s => s !== primary);
+
+  const nameEl = document.getElementById('siteName');
+  const lvlEl = document.getElementById('siteLevel');
+  const tilesEl = document.getElementById('envTiles');
+
+  if (!primary) {
+    nameEl.textContent = '現場即時';
+    lvlEl.className = 'env-level hidden';
+    tilesEl.innerHTML = '<p class="empty-state">尚無環境監測資料</p>';
+    document.getElementById('otherSites').innerHTML = '';
+    return;
+  }
+
+  nameEl.textContent = primary.site || primary.station;
+  lvlEl.className = 'env-level l' + primary.level;
+  lvlEl.textContent = primary.level_label;
+  document.getElementById('envTime').textContent =
+    primary.reading_at ? '量測於 ' + primary.reading_at.replace('T', ' ') : '';
+
+  // 主場站顯示全部數值，不做篩選——這是現場最關心的一塊
+  const cells = ENV_ORDER
+    .filter(k => primary.metrics[k] != null)
+    .map(k => {
+      const s = spec[k] || {};
+      return tile(s.label || k, primary.metrics[k], s.unit,
+                  LEVEL_CLASS[(primary.levels || {})[k] || 0]);
+    });
+
+  // 危害等級是我們自己算的，和廠商平台回報的不同，放在最後做為結論
+  cells.push(tile('危害等級', primary.level_label, '',
+                  LEVEL_CLASS[primary.level] + ' tile-verdict'));
+  tilesEl.innerHTML = cells.join('');
+
+  document.getElementById('otherSites').innerHTML = others.length
+    ? '<span class="muted small">其他工地</span>' + others.map(s => `
+        <span class="other-item">
+          <b>${esc(s.site || s.station)}</b>
+          <span class="env-level l${s.level}">${esc(s.level_label)}</span>
+        </span>`).join('')
+    : '';
+}
+
+function renderPeople(hc) {
+  // 在場人數是緊急應變的第一個問題，因此獨立放大
+  document.getElementById('peopleTiles').innerHTML = hc ? [
+    tile('現場在場人數', hc.headcount_present ?? '—', '人', 'tile-hero'),
+    tile('今日進場', hc.headcount_in ?? '—', '人次', ''),
+    tile('今日出場', hc.headcount_out ?? '—', '人次', ''),
+  ].join('') : tile('現場在場人數', '—', '', 'tile-hero');
+}
+
+function renderKpis(k) {
+  document.getElementById('kpis').innerHTML = [
+    tile('逾期未改善', k.overdue, '件', k.overdue ? 'critical' : 'ok'),
+    tile('今日新增缺失', k.findings_today, '件', ''),
+    tile('未結案', k.open, '件', k.open ? 'warn' : 'ok'),
+    tile('結案率', k.closed_rate, '%', 'ok'),
+    tile('當場改善', k.onsite_fixed, '件', ''),
+    tile('限期改善', k.scheduled, '件', ''),
+    tile('改善時效中位數', k.median_fix_hours == null ? '—' : k.median_fix_hours, '小時', ''),
+    tile('今日已交巡檢單', k.inspections_today, '張', ''),
+  ].join('');
+}
+
+function barlist(el, rows) {
+  const max = Math.max(1, ...rows.map(r => r.count));
+  document.getElementById(el).innerHTML = rows.length
+    ? rows.slice(0, 6).map(r => `
+      <div class="r"><div class="lbl">${esc(r.label)}</div>
+      <div class="track"><i style="width:${r.count / max * 100}%"></i></div>
+      <div class="v">${r.count}</div></div>`).join('')
+    : '<p class="empty-state">尚無資料</p>';
+}
+
+// ---------------------------------------------------------------------------
+// 清單輪播
+//
+// 牆上不放捲軸，改為自動換頁：先把同一份清單分頁看完，再換下一份清單。
+// 每頁幾列由容器實際高度決定，換螢幕、換解析度都不必調參數。
+// ---------------------------------------------------------------------------
+const Rota = {
+  views: [], view: 0, page: 0, rowH: 0, headH: 0, timer: null,
+
+  set(views) {
+    this.views = views.filter(v => v.rows.length);
+    if (this.view >= this.views.length) { this.view = 0; this.page = 0; }
+    this.render();
+    if (!this.timer) this.timer = setInterval(() => this.next(), 10000);
+  },
+
+  perPage() {
+    const box = document.getElementById('rota');
+    if (!this.rowH) return 6;                       // 首次渲染前的暫用值
+    // 表頭高度和資料列不同，要各別量，否則在矮視窗會少算好幾列
+    return Math.max(1, Math.floor((box.clientHeight - this.headH) / this.rowH));
+  },
+
+  next() {
+    const v = this.views[this.view];
+    if (!v) return;
+    const pages = Math.max(1, Math.ceil(v.rows.length / this.perPage()));
+    this.page += 1;
+    if (this.page >= pages) {
+      this.page = 0;
+      this.view = (this.view + 1) % this.views.length;
+    }
+    this.render();
+  },
+
+  render() {
+    const box = document.getElementById('rota');
+    const v = this.views[this.view];
+    if (!v) {
+      document.getElementById('rotaTitle').textContent = '最新動態';
+      document.getElementById('rotaCount').textContent = '';
+      document.getElementById('rotaDots').innerHTML = '';
+      box.innerHTML = '<p class="empty-state">尚無資料</p>';
+      return;
+    }
+
+    const per = this.perPage();
+    const pages = Math.max(1, Math.ceil(v.rows.length / per));
+    if (this.page >= pages) this.page = 0;
+    const slice = v.rows.slice(this.page * per, this.page * per + per);
+
+    document.getElementById('rotaTitle').textContent = v.title;
+    document.getElementById('rotaCount').textContent =
+      `${v.rows.length} 筆　第 ${this.page + 1}／${pages} 頁`;
+    document.getElementById('rotaDots').innerHTML = this.views.map((_, i) =>
+      `<i class="${i === this.view ? 'on' : ''}"></i>`).join('');
+
+    box.innerHTML = `<table class="fixed ${v.cls}">
+      <thead><tr>${v.head.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead>
+      <tbody>${slice.map(v.row).join('')}</tbody></table>`;
+
+    // 量一次實際列高與表頭高，之後的分頁都以此為準
+    if (!this.rowH) {
+      const tr = box.querySelector('tbody tr');
+      const th = box.querySelector('thead');
+      if (tr) {
+        this.rowH = tr.getBoundingClientRect().height;
+        this.headH = th ? th.getBoundingClientRect().height : 0;
+        this.render();
+      }
+    }
+  },
+};
+
+function buildRota(d) {
+  const views = [];
+
+  views.push({
+    title: '最新缺失動態', cls: 'cols-recent',
+    head: ['時間', '工地', '缺失內容', '責任廠商', '狀態'],
+    rows: d.recent,
+    row: r => `<tr>
+      <td class="num">${esc(r.found_at.replace('T', ' ').slice(5))}</td>
+      <td title="${esc(r.site)}">${esc(r.site)}</td>
+      <td title="${esc(r.hazard_label)}：${esc(r.description)}">${esc(r.description)}</td>
+      <td>${esc(r.vendor)}</td>
+      <td><span class="tag ${r.status === 'closed' ? 'closed'
+        : r.status === 'fixed' ? 'fixed' : 'open'}">${
+        esc(STATUS_LABEL[r.status] || r.status)}</span></td></tr>`,
+  });
+
+  views.push({
+    title: '最新填報表單', cls: 'cols-forms',
+    head: ['日期', '工地', '表單', '填報人', '結果'],
+    rows: d.recent_forms || [],
+    row: f => {
+      const name = f.pdf_url
+        ? `<a href="${esc(f.pdf_url)}" target="_blank">${esc(f.title)}</a>`
+        : esc(f.title);
+      return `<tr>
+        <td class="num">${esc(String(f.on_date).slice(5))}</td>
+        <td title="${esc(f.site)}">${esc(f.site)}</td>
+        <td title="${esc(f.title)}">${name}</td>
+        <td>${esc(f.person || '—')}</td>
+        <td><span class="tag ${f.ok ? 'closed' : 'open'}">${esc(f.result)}</span></td>
+      </tr>`;
+    },
+  });
+
+  // 逾期只有在真的有的時候才進入輪播，沒有就不要佔一輪
+  views.push({
+    title: '逾期未改善　需立即處理', cls: 'cols-overdue',
+    head: ['單號', '工地', '缺失內容', '責任廠商／人', '期限', '逾期'],
+    rows: d.overdue_list,
+    row: o => `<tr>
+      <td class="num">${esc(o.no)}</td>
+      <td title="${esc(o.site)}">${esc(o.site)}</td>
+      <td title="${esc(o.description)}">${esc(o.description)}</td>
+      <td>${esc(o.vendor)}${o.person ? '／' + esc(o.person) : ''}</td>
+      <td class="num">${esc(o.due_date || '')}</td>
+      <td><span class="tag overdue">${o.days_over} 天</span></td></tr>`,
+  });
+
+  Rota.set(views);
+}
+
+// ---------------------------------------------------------------------------
+// 監視畫面
+//
+// 主機禁止被 iframe、又只有 http，因此由後端代理快照（見 lib/cctv.ts）。
+// 定時換圖即可，串流不在這一版範圍。
+// ---------------------------------------------------------------------------
+const Cam = {
+  channels: [], idx: 0,
+
+  async init() {
+    let info = null;
+    try { info = await (await fetch('/api/cctv/channels',
+      { credentials: 'same-origin' })).json(); } catch (e) { return; }
+    if (!info || !info.enabled || !info.channels.length) return;
+
+    this.channels = info.channels;
+    document.getElementById('camPanel').classList.remove('hidden');
+    this.show();
+    // 換圖比清單快一些，畫面才有「活著」的感覺
+    setInterval(() => this.show(), 6000);
+  },
+
+  show() {
+    const ch = this.channels[this.idx % this.channels.length];
+    const img = document.getElementById('camImg');
+    // 帶時間戳避免瀏覽器沿用快取而畫面凍結
+    img.src = `/api/cctv/snapshot?channel=${ch}&t=${Date.now()}`;
+    document.getElementById('camLabel').textContent =
+      this.channels.length > 1 ? `鏡頭 ${ch}` : '';
+    // 多支鏡頭時輪流顯示
+    if (this.channels.length > 1) this.idx += 1;
+  },
+};
+
 async function load() {
   const site = document.getElementById('site').value;
   const days = document.getElementById('days').value;
-  const d = await API.get(`/api/dashboard?days=${days}${site ? '&site_id=' + site : ''}`);
-  const k = d.kpi;
+
+  // 選的是主場站時，下方清單仍要看得到其他工地的填報
+  const primary = SITES.find(s => s.code === PRIMARY_CODE);
+  const isPrimary = primary && String(primary.id) === String(site);
+  const q = `/api/dashboard?days=${days}`
+    + (site ? '&site_id=' + site : '')
+    + (isPrimary ? '&list_scope=all' : '');
+
+  const d = await API.get(q);
 
   document.getElementById('stamp').textContent =
     '更新於 ' + d.generated_at.replace('T', ' ').slice(0, 16);
 
-  // 逾期為 0 時不強調紅色，避免顏色失去警示意義
-  document.getElementById('kpis').innerHTML = [
-    [k.overdue ? 'critical' : 'ok', k.overdue, '逾期未改善'],
-    ['accent', k.findings_today, '今日新增缺失'],
-    [k.open ? 'warn' : 'ok', k.open, '未結案'],
-    ['ok', k.closed_rate + '%', '結案率'],
-  ].map(([c, n, l]) => `
-    <div class="panel kpi ${c}"><div class="n">${n}</div><div class="l">${l}</div></div>`
-  ).join('');
-
-  // 在場人數放在最前面：緊急應變時要先知道現場還有多少人
-  const hc = d.headcount;
-  document.getElementById('strip').innerHTML = [
-    ...(hc ? [
-      ['現場在場人數', hc.headcount_present ?? '—'],
-      ['今日進場', hc.headcount_in ?? '—'],
-      ['今日出場', hc.headcount_out ?? '—'],
-    ] : []),
-    ['區間缺失', k.findings_range],
-    ['當場改善', k.onsite_fixed],
-    ['限期改善', k.scheduled],
-    ['改善時效中位數', k.median_fix_hours == null ? '—' : k.median_fix_hours + ' 小時'],
-    ['今日已交巡檢單', k.inspections_today],
-  ].map(([l, v]) => `<span><i>${esc(l)}</i>${v}</span>`).join('');
-
-  // 有逾期才顯示清單
-  const panel = document.getElementById('overduePanel');
-  panel.classList.toggle('hidden', d.overdue_list.length === 0);
-  if (d.overdue_list.length) {
-    document.getElementById('overdue').innerHTML = `
-      <table class="fixed cols-overdue"><thead><tr><th>單號</th><th>工地</th><th>缺失內容</th>
-      <th>責任廠商／人</th><th>期限</th><th>逾期</th></tr></thead><tbody>
-      ${d.overdue_list.map(o => `<tr>
-        <td class="num">${esc(o.no)}</td><td>${esc(o.site)}</td>
-        <td>${esc(o.description)}</td>
-        <td>${esc(o.vendor)}${o.person ? '／' + esc(o.person) : ''}</td>
-        <td class="num">${esc(o.due_date || '')}</td>
-        <td><span class="tag overdue">${o.days_over} 天</span></td>
-      </tr>`).join('')}</tbody></table>`;
-  }
-
-  const barlist = (el, rows) => {
-    const max = Math.max(1, ...rows.map(r => r.count));
-    document.getElementById(el).innerHTML = rows.length
-      ? rows.slice(0, 5).map(r => `
-        <div class="r"><div class="lbl">${esc(r.label)}</div>
-        <div class="track"><i style="width:${r.count / max * 100}%"></i></div>
-        <div class="v">${r.count}</div></div>`).join('')
-      : '<p class="muted">尚無資料</p>';
-  };
+  renderEnvironment(d.environment || [], d.environment_spec || {});
+  renderPeople(d.headcount);
+  renderKpis(d.kpi);
   barlist('hazard', d.by_hazard);
   barlist('vendor', d.by_vendor);
 
-  const max = Math.max(1, ...d.trend.map(t => t.count));
+  const maxT = Math.max(1, ...d.trend.map(t => t.count));
   document.getElementById('trend').innerHTML = d.trend.map(t =>
-    `<div style="height:${t.count / max * 100}%" title="${t.date}：${t.count} 件"></div>`).join('');
+    `<div style="height:${t.count / maxT * 100}%" title="${t.date}：${t.count} 件"></div>`).join('');
   document.getElementById('trendLabels').innerHTML =
     `<span>${d.trend[0].date.slice(5)}</span>` +
     `<span>${d.trend[d.trend.length - 1].date.slice(5)}</span>`;
-
-  renderEnvironment(d.environment || [], d.environment_spec || {});
-
-  // 工地交出表單後要在牆上立刻看到，否則現場沒有回饋
-  const forms = d.recent_forms || [];
-  // PDF 連結掛在表單名稱上，省下一整欄；填報人放在 title 供滑鼠停留查看
-  document.getElementById('forms').innerHTML = forms.length ? `
-    <table class="fixed cols-forms"><thead><tr><th>日期</th><th>工地</th>
-    <th>表單</th><th>結果</th></tr></thead><tbody>
-    ${forms.map(f => {
-      const tip = esc(f.title) + (f.person ? '／' + esc(f.person) : '');
-      const name = f.pdf_url
-        ? `<a href="${esc(f.pdf_url)}" target="_blank" title="${tip}">${esc(f.title)}</a>`
-        : `<span title="${tip}">${esc(f.title)}</span>`;
-      return `<tr>
-      <td class="num">${esc(String(f.on_date).slice(5))}</td>
-      <td title="${esc(f.site)}">${esc(f.site)}</td>
-      <td>${name}</td>
-      <td><span class="tag ${f.ok ? 'closed' : 'open'}">${esc(f.result)}</span></td>
-    </tr>`; }).join('')}</tbody></table>`
-    : '<p class="empty-state">尚無填報紀錄</p>';
-
-  // 大螢幕上只呈現最近動態，不做完整日誌；詳細清單在缺失頁面查詢
-  const recent = d.recent.slice(0, 16);
-  // 欄位刻意精簡：災害類別與責任廠商在右欄已有統計，牆上重複顯示只會把
-  // 每一列擠成三四行而難以掃讀。完整欄位在缺失頁面查詢。
-  document.getElementById('recent').innerHTML = recent.length ? `
-    <table class="fixed cols-recent"><thead><tr><th>時間</th><th>工地</th>
-    <th>缺失內容</th><th>狀態</th></tr></thead><tbody>
-    ${recent.map(r => `<tr>
-      <td class="num">${esc(r.found_at.replace('T', ' ').slice(5))}</td>
-      <td title="${esc(r.site)}">${esc(r.site)}</td>
-      <td title="${esc(r.hazard_label)}／${esc(r.vendor)}：${esc(r.description)}">${esc(r.description)}</td>
-      <td><span class="tag ${r.status === 'closed' ? 'closed' : r.status === 'fixed' ? 'fixed' : 'open'}">
-        ${STATUS_LABEL[r.status] || r.status}</span></td>
-    </tr>`).join('')}</tbody></table>`
-    : '<p class="empty-state">區間內無缺失紀錄</p>';
-}
-
-// 顯示順序：能直接觸發管理動作的排前面。
-// 門檻與分級一律由後端 lib/hazard.ts 判定並隨 API 回傳，此處只負責呈現，
-// 避免前後端各有一套標準而顯示與告警依據不一致。
-const ENV_ORDER = ['heat_index','noise','pm25','pm10','temperature','humidity'];
-
-// 0 正常｜1 注意｜2 警戒｜3 危險｜4 極度危險
-const LEVEL_CLASS = ['ok','notice','warn','critical','critical'];
-
-function renderEnvironment(list, spec) {
-  const panel = document.getElementById('envPanel');
-  panel.classList.toggle('hidden', list.length === 0);
-  if (!list.length) return;
-
-  document.getElementById('env').innerHTML = list.map(st => {
-    const levels = st.levels || {};
-
-    // 牆面要回答的是「哪裡有危險」，不是完整報表：
-    // 只列出達到注意以上的項目；熱指數因為是唯一能直接觸發停工／加強休息
-    // 的指標，一律顯示。
-    const shown = ENV_ORDER.filter(k => {
-      if (st.metrics[k] == null) return false;
-      return k === 'heat_index' || (levels[k] || 0) > 0;
-    });
-
-    const cells = shown.length
-      ? shown.map(k => {
-          const v = st.metrics[k];
-          const unit = (spec[k] && spec[k].unit) || '';
-          const label = (spec[k] && spec[k].label) || k;
-          return `<span class="env-metric ${LEVEL_CLASS[levels[k] || 0]}">
-            <i>${esc(label)}</i>${v}<u>${esc(unit)}</u></span>`;
-        }).join('')
-      : '<span class="env-metric ok">正常</span>';
-
-    // 整站等級只在超過正常時才標示，否則牆上到處都是徽章反而失去警示作用
-    const badge = st.level > 0
-      ? `<span class="env-level l${st.level}">${esc(st.level_label)}</span>` : '';
-
-    return `<span class="env-item">
-      <b>${esc(st.site || st.station)}</b>${badge}${cells}</span>`;
-  }).join('');
+  buildRota(d);
 }
 
 (async () => {
-  renderBrand('war_room_name');
+  const brand = await renderBrand('war_room_name');
+  PRIMARY_CODE = (brand && brand.primary_site_code) || '';
 
   // 戰情室大螢幕可不登入直接開啟，因此這裡不使用會導向登入頁的 API.get
-  let sites = [];
   const r = await fetch('/api/sites', { credentials: 'same-origin' });
-  if (r.ok) sites = await r.json();
-  document.getElementById('site').innerHTML = siteOptions(sites, null, '全部工地');
+  if (r.ok) SITES = await r.json();
+
+  const primary = SITES.find(s => s.code === PRIMARY_CODE);
+  document.getElementById('site').innerHTML =
+    siteOptions(SITES, primary ? primary.id : null, '全部工地');
 
   document.getElementById('site').onchange = load;
   document.getElementById('days').onchange = load;
+
   await load();
-  setInterval(load, 60000);   // 每分鐘自動刷新
+  Cam.init();
+  setInterval(load, 60000);              // 每分鐘更新一次
+  window.addEventListener('resize', () => { Rota.rowH = 0; Rota.headH = 0; Rota.render(); });
 })().catch(err => {
   // 未登入的情況 API.get 已自行導向登入頁；其他錯誤要顯示出來，
   // 不能一律跳轉，否則畫面只會莫名其妙彈回登入頁而查不出原因。
   if (String(err && err.message) === '未登入') return;
-  document.querySelector('.wrap').innerHTML =
-    `<div class="panel"><h3>載入失敗</h3>
+  document.querySelector('.war-body').innerHTML =
+    `<div class="band"><h3>載入失敗</h3>
      <p class="muted">${esc(err && err.message || '未知錯誤')}</p>
      <p class="muted">請重新整理；若持續發生，請聯絡系統管理員。</p></div>`;
 });
