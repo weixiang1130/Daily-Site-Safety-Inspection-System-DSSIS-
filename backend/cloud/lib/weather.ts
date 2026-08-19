@@ -17,6 +17,7 @@
 // 未設定 WEATHER_API_URL 時本函式直接跳過，不影響其他功能。
 
 import { getDatabase } from "@netlify/database";
+import { heatIndexC, stationLevel } from "./hazard.ts";
 
 const db = getDatabase();
 
@@ -32,7 +33,9 @@ const METRIC_MAP: Record<string, string> = {
   "溫度": "temperature",
   "濕度": "humidity",
   "熱指數": "heat_index",
-  "危害等級": "hazard_level",
+  // 廠商的危害等級實測不可信（熱指數 49.4 仍回報 0），只留作佐證，
+  // 實際分級由 lib/hazard.ts 自行計算，見 deriveMetrics()
+  "危害等級": "vendor_hazard_level",
   "噪音時段日間": "noise_alarm_day",
   "噪音時段晚間": "noise_alarm_evening",
   "噪音時段夜間": "noise_alarm_night",
@@ -147,6 +150,36 @@ async function readStation(base: string, uid: string, mac: string): Promise<Read
   return out;
 }
 
+/**
+ * 由原始讀值推導出本系統自己的指標。
+ *
+ * 兩件事：
+ *   1. 廠商若未提供熱指數，只要有溫濕度就自行推算，不受制於對方
+ *   2. 依 lib/hazard.ts 的門檻算出 hazard_level，取代廠商不可信的值
+ *
+ * 衍生值沿用來源讀值的時間戳，才能與原始指標對齊在同一個時間點上。
+ */
+function deriveMetrics(readings: Reading[]): Reading[] {
+  if (!readings.length) return [];
+  const by: Record<string, number> = {};
+  for (const r of readings) by[r.metric] = r.value;
+  const at = readings[0].at;
+  const out: Reading[] = [];
+
+  if (by.heat_index == null && by.temperature != null && by.humidity != null) {
+    const hi = heatIndexC(by.temperature, by.humidity);
+    if (hi != null) {
+      by.heat_index = hi;
+      out.push({ metric: "heat_index", value: hi, at });
+    }
+  }
+
+  // vendor_hazard_level 不列入計算，否則等於把廠商的錯誤值又引回來
+  const { vendor_hazard_level: _ignored, ...judged } = by;
+  out.push({ metric: "hazard_level", value: stationLevel(judged), at });
+  return out;
+}
+
 /** "2026/08/19 10:00:00"（台北時間）→ 帶時區的 ISO 字串 */
 function taipeiToISO(s: string): string {
   const m = /(\d{4})\/(\d{2})\/(\d{2}) (\d{2}):(\d{2}):(\d{2})/.exec(s);
@@ -182,6 +215,7 @@ export async function pollWeatherStations(): Promise<string> {
     let readings: Reading[] = [];
     try {
       readings = await readStation(base, uid, st.mac);
+      readings = readings.concat(deriveMetrics(readings));
     } catch (e) {
       console.error(`[weather] ${st.name} 讀取失敗`, e);
       continue;

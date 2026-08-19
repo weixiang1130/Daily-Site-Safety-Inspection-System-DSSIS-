@@ -136,10 +136,10 @@ async function load() {
     `<span>${d.trend[0].date.slice(5)}</span>` +
     `<span>${d.trend[d.trend.length - 1].date.slice(5)}</span>`;
 
-  renderEnvironment(d.environment || []);
+  renderEnvironment(d.environment || [], d.environment_spec || {});
 
   // 大螢幕上只呈現最近動態，不做完整日誌；詳細清單在缺失頁面查詢
-  const recent = d.recent.slice(0, 10);
+  const recent = d.recent.slice(0, 16);
   document.getElementById('recent').innerHTML = recent.length ? `
     <table><thead><tr><th>時間</th><th>工地</th><th>災害類別</th>
     <th>缺失內容</th><th>責任廠商</th><th>狀態</th></tr></thead><tbody>
@@ -153,51 +153,46 @@ async function load() {
     : '<p class="empty-state">區間內無缺失紀錄</p>';
 }
 
-// 判定門檻。熱指數依美國 NWS 分級；PM2.5 依環境部空氣品質標準（24 小時值 35）；
-// 噪音依勞工作業場所 8 小時日時量平均 85 dB。
-const ENV_SPEC = {
-  heat_index:  {label:'熱指數', unit:'',       warn:32,  danger:41},
-  temperature: {label:'溫度',   unit:'°C',     warn:33,  danger:36},
-  humidity:    {label:'濕度',   unit:'%'},
-  pm25:        {label:'PM2.5',  unit:'μg/m³', warn:35,  danger:54},
-  pm10:        {label:'PM10',   unit:'μg/m³', warn:75,  danger:125},
-  noise:       {label:'噪音',   unit:'dB',     warn:85,  danger:90},
-};
-// 顯示順序：能直接觸發管理動作的排前面
+// 顯示順序：能直接觸發管理動作的排前面。
+// 門檻與分級一律由後端 lib/hazard.ts 判定並隨 API 回傳，此處只負責呈現，
+// 避免前後端各有一套標準而顯示與告警依據不一致。
 const ENV_ORDER = ['heat_index','noise','pm25','pm10','temperature','humidity'];
 
-function envLevel(key, v) {
-  const spec = ENV_SPEC[key];
-  if (!spec || v == null) return '';
-  if (spec.danger != null && v >= spec.danger) return 'critical';
-  if (spec.warn != null && v >= spec.warn) return 'warn';
-  return '';
-}
+// 0 正常｜1 注意｜2 警戒｜3 危險｜4 極度危險
+const LEVEL_CLASS = ['ok','notice','warn','critical','critical'];
 
-function renderEnvironment(list) {
+function renderEnvironment(list, spec) {
   const panel = document.getElementById('envPanel');
   panel.classList.toggle('hidden', list.length === 0);
   if (!list.length) return;
 
   document.getElementById('env').innerHTML = list.map(st => {
+    const levels = st.levels || {};
+
     // 牆面要回答的是「哪裡有危險」，不是完整報表：
-    // 只列出超標項目；熱指數因為是唯一能直接觸發停工／加強休息的指標，一律顯示。
+    // 只列出達到注意以上的項目；熱指數因為是唯一能直接觸發停工／加強休息
+    // 的指標，一律顯示。
     const shown = ENV_ORDER.filter(k => {
-      const v = st.metrics[k];
-      if (v == null) return false;
-      return k === 'heat_index' || envLevel(k, v) !== '';
+      if (st.metrics[k] == null) return false;
+      return k === 'heat_index' || (levels[k] || 0) > 0;
     });
 
     const cells = shown.length
       ? shown.map(k => {
-          const v = st.metrics[k], spec = ENV_SPEC[k];
-          return `<span class="env-metric ${envLevel(k, v)}">
-            <i>${esc(spec.label)}</i>${v}<u>${esc(spec.unit)}</u></span>`;
+          const v = st.metrics[k];
+          const unit = (spec[k] && spec[k].unit) || '';
+          const label = (spec[k] && spec[k].label) || k;
+          return `<span class="env-metric ${LEVEL_CLASS[levels[k] || 0]}">
+            <i>${esc(label)}</i>${v}<u>${esc(unit)}</u></span>`;
         }).join('')
       : '<span class="env-metric ok">正常</span>';
 
+    // 整站等級只在超過正常時才標示，否則牆上到處都是徽章反而失去警示作用
+    const badge = st.level > 0
+      ? `<span class="env-level l${st.level}">${esc(st.level_label)}</span>` : '';
+
     return `<span class="env-item">
-      <b>${esc(st.site || st.station)}</b>${cells}</span>`;
+      <b>${esc(st.site || st.station)}</b>${badge}${cells}</span>`;
   }).join('');
 }
 

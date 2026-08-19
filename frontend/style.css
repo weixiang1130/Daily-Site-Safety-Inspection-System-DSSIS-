@@ -473,20 +473,39 @@ td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
   .theme-dark #overduePanel .table-scroll { max-height: none; }
 }
 
-/* 戰情室是固定在牆上的大螢幕，整頁必須一屏顯示完、不需捲動，
-   因此收掉為閱讀型頁面設計的大留白。 */
+/* 戰情室掛在牆上、從遠處看，因此與一般頁面的取捨相反：
+   要吃滿整個螢幕寬度，字級也要隨螢幕變大。
+
+   字級用根元素的 font-size 統一縮放——版面內的字級都是 rem，
+   改這一個值就整體等比放大，不必逐條調整而漏掉某些元素。
+   1920 寬約 21px、2560 以上封頂 26px；下限 16px 保護小螢幕。 */
+.theme-dark { font-size: clamp(16px, 0.78vw + 6px, 26px); }
+.theme-dark .wrap.wide { max-width: none; }
+/* .wrap 的 margin:0 auto 在 flex 交叉軸上會抑制 stretch，
+   使版面縮到內容寬度再置中，兩側因此留下空白。要吃滿寬度就得取消。 */
+.theme-dark .wrap { margin-inline: 0; }
+
+/* 間距是固定 px，字放大後若不跟著調整會顯得擁擠 */
+.theme-dark {
+  --sp-3: 14px;
+  --sp-4: 20px;
+  --sp-5: 28px;
+  --sp-6: 36px;
+}
+
+/* 整頁必須一屏顯示完、不需捲動，因此收掉為閱讀型頁面設計的大留白。 */
 .theme-dark .wrap { padding: var(--sp-4) var(--sp-5) var(--sp-5); }
 .theme-dark .grid { gap: var(--sp-3); }
 .theme-dark .panel-stack { gap: var(--sp-3); }
 .theme-dark .panel { padding: var(--sp-3) var(--sp-4); }
 .theme-dark .panel > h3 { margin-bottom: var(--sp-3); }
 .theme-dark th, .theme-dark td { padding: 6px var(--sp-3); }
-.theme-dark .spark { height: 56px; }
+.theme-dark .spark { height: 5em; }
 
 /* 橫條排行在大螢幕上收緊列高，讓右欄三個面板能與左欄等高共存 */
 .theme-dark .barlist { gap: var(--sp-2); }
-.theme-dark .barlist .r { grid-template-columns: 96px 1fr 34px; line-height: 1.25; }
-.theme-dark .barlist .r .track { height: 8px; }
+.theme-dark .barlist .r { grid-template-columns: 7em 1fr 2.5em; line-height: 1.25; }
+.theme-dark .barlist .r .track { height: 10px; }
 
 @media (max-width: 1200px) {
   .cols-2, .cols-3, .cols-main { grid-template-columns: 1fr; }
@@ -660,8 +679,23 @@ td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 }
 .env-metric u { text-decoration: none; color: var(--text-muted); font-size: var(--fs-xs); }
 .env-metric.ok       { color: var(--ok-600); }
+.env-metric.notice   { color: var(--text-primary); }
 .env-metric.warn     { color: var(--warn-600); }
 .env-metric.critical { color: var(--critical-600); font-weight: 700; }
+
+/* 測站整體危害等級徽章。只在超過正常時才出現，見 dashboard.html。 */
+.env-level {
+  font-family: var(--font-heading);
+  font-size: var(--fs-xs);
+  letter-spacing: var(--ls-label);
+  padding: 1px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.env-level.l1 { color: var(--text-secondary); border: 1px solid var(--border-strong); }
+.env-level.l2 { color: var(--warn-600);     border: 1px solid var(--warn-600); }
+.env-level.l3,
+.env-level.l4 { color: var(--text-inverse); background: var(--critical-600); font-weight: 700; }
 
 /* 工地號誌 */
 .light { display: inline-block; width: 9px; height: 9px; flex: none; }

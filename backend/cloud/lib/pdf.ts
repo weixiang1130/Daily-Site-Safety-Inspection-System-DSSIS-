@@ -3,13 +3,17 @@
 // 使用 pdf-lib + fontkit 嵌入 Noto Sans TC（SIL OFL 1.1）。
 // pdf-lib 會自動子集化，因此產出的 PDF 只含實際用到的字，檔案不會變大。
 // 字型檔透過 netlify.toml 的 [functions] included_files 一併打包。
+//
+// 必須用 .ttf 而不是原始的 .otf：Noto Sans TC 的 OTF 是 CID-keyed CFF，
+// fontkit 對這種字型的子集化會弄壞 FDSelect 對應，導致中文全部變空白、
+// 只剩英數字畫得出來。.ttf 由 tools/build_pdf_font.py 轉出，細節見該檔。
 
 import fs from "node:fs/promises";
 import path from "node:path";
 import { PDFDocument, PDFFont, PDFPage, rgb } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 
-const FONT_RELATIVE = "backend/cloud/assets/fonts/NotoSansTC-Regular.otf";
+const FONT_RELATIVE = "backend/cloud/assets/fonts/NotoSansTC-Regular.ttf";
 
 const A4 = { w: 595.28, h: 841.89 };
 const M = { left: 42, right: 42, top: 50, bottom: 56 };

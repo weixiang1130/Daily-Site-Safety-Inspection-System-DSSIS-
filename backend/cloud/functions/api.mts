@@ -14,6 +14,7 @@ import {
 } from "../lib/auth.ts";
 import { buildCoordinationPdf, buildInspectionPdf, type SigInput } from "../lib/pdf.ts";
 import { pollWeatherStations } from "../lib/weather.ts";
+import { levelOf, stationLevel, LEVEL_LABEL, THRESHOLDS } from "../lib/hazard.ts";
 
 const db = getDatabase();
 
@@ -872,11 +873,25 @@ async function dashboard(url: URL) {
     if (t > station.reading_at!) station.reading_at = t;
   }
 
+  // 危害分級一律在後端判定。前端若自己再算一套，兩邊門檻遲早會不一致，
+  // 屆時牆上顯示的顏色和實際告警依據就對不起來。
+  for (const st of envByStation.values()) {
+    const { hazard_level: _own, vendor_hazard_level: _vendor, ...judged } = st.metrics;
+    st.levels = Object.fromEntries(
+      Object.entries(judged).map(([k, v]) => [k, levelOf(k, v as number)]),
+    );
+    st.level = stationLevel(judged);
+    st.level_label = LEVEL_LABEL[st.level];
+  }
+
   return {
     generated_at: new Date().toISOString(),
     range_days: days,
     environment: [...envByStation.values()]
-      .sort((a, b) => String(a.site || "").localeCompare(String(b.site || ""))),
+      // 危害等級高的排前面，值班人員第一眼就看到最需要處理的工地
+      .sort((a, b) => (b.level ?? 0) - (a.level ?? 0)
+        || String(a.site || "").localeCompare(String(b.site || ""))),
+    environment_spec: THRESHOLDS,
     kpi: {
       findings_today: count((f) => f.found_at!.slice(0, 10) === today),
       findings_range: findings.length,

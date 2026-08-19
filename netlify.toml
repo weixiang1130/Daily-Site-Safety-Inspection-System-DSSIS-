@@ -29,7 +29,8 @@
   directory = "backend/cloud/functions"
   node_bundler = "esbuild"
   # PDF 產出所需的中文字型必須一併打包，否則函式在雲端找不到字型檔。
-  included_files = ["backend/cloud/assets/fonts/**"]
+  # 只打包 .ttf：同目錄的 .otf 僅作為轉換來源，不需進函式（見 tools/build_pdf_font.py）。
+  included_files = ["backend/cloud/assets/fonts/*.ttf"]
 
 [[headers]]
   for = "/*"
