@@ -832,9 +832,39 @@ async function dashboard(url: URL) {
     };
   });
 
+  // 工地環境（微型氣象站）。只取有在線測站的工地，斷線的不佔版面。
+  const envRows = await db.sql`
+    SELECT DISTINCT ON (r.device_id, r.metric)
+           r.device_id, r.metric, r.value_num, r.reading_at, r.site_id,
+           s.name AS site, r.raw_payload
+    FROM device_readings r
+    LEFT JOIN sites s ON s.id = r.site_id
+    WHERE r.device_type = 'env'
+      AND r.reading_at >= NOW() - INTERVAL '3 hours'
+      AND (${siteId}::int IS NULL OR r.site_id = ${siteId}::int)
+    ORDER BY r.device_id, r.metric, r.reading_at DESC`;
+
+  const envByStation = new Map<string, any>();
+  for (const row of envRows as any[]) {
+    let station = envByStation.get(row.device_id);
+    if (!station) {
+      let name = row.site || row.device_id;
+      try { name = JSON.parse(row.raw_payload || "{}").station || name; } catch { /* 保留預設 */ }
+      station = { device_id: row.device_id, site: row.site, station: name,
+                  reading_at: minuteISO(row.reading_at), metrics: {} };
+      envByStation.set(row.device_id, station);
+    }
+    station.metrics[row.metric] = Number(row.value_num);
+    // 以最新的一筆時間為準
+    const t = minuteISO(row.reading_at)!;
+    if (t > station.reading_at!) station.reading_at = t;
+  }
+
   return {
     generated_at: new Date().toISOString(),
     range_days: days,
+    environment: [...envByStation.values()]
+      .sort((a, b) => String(a.site || "").localeCompare(String(b.site || ""))),
     kpi: {
       findings_today: count((f) => f.found_at!.slice(0, 10) === today),
       findings_range: findings.length,

@@ -430,8 +430,48 @@ td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .cols-main { grid-template-columns: 1.9fr 1fr; align-items: start; }
 .panel-stack { display: flex; flex-direction: column; gap: var(--sp-4); }
 
-/* 資料再多也不讓整頁長出捲軸，改為面板內自行捲動 */
-.panel-fill { max-height: 32vh; overflow-y: auto; }
+/* 戰情室固定為一屏：整頁填滿視窗，主區依剩餘空間伸縮，
+   內容再多也是面板內部自己捲動，不會把整頁撐長。
+   先前用固定 vh 上限微調，只要資料量一變就會失準，改為結構性保證。 */
+.theme-dark, .theme-dark body {
+  height: 100dvh;
+  overflow: hidden;
+}
+.theme-dark body { display: flex; flex-direction: column; }
+.theme-dark .war-head { flex: none; }
+.theme-dark .wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.theme-dark .kpis-main,
+.theme-dark .metric-strip,
+.theme-dark .env-strip,
+.theme-dark #overduePanel { flex: none; }
+
+.theme-dark .cols-main { flex: 1; min-height: 0; }
+.theme-dark .cols-main > .panel { min-height: 0; display: flex; flex-direction: column; }
+.theme-dark .panel-stack { min-height: 0; overflow-y: auto; }
+
+/* 面板內表格自行捲動 */
+.panel-fill { flex: 1; min-height: 0; overflow-y: auto; }
+
+/* 逾期清單也不可無限長 */
+.theme-dark #overduePanel .table-scroll { max-height: 22vh; overflow-y: auto; }
+
+/* 一屏鎖定只適用於大螢幕。小螢幕版面已改為單欄，內容本來就比視窗高，
+   若仍鎖定會把下半部裁掉，因此還原為正常捲動。 */
+@media (max-width: 1200px) {
+  .theme-dark, .theme-dark body { height: auto; overflow: visible; }
+  .theme-dark body { display: block; }
+  .theme-dark .wrap { display: block; overflow: visible; }
+  .theme-dark .cols-main { min-height: 0; }
+  .theme-dark .panel-stack { overflow: visible; }
+  .panel-fill { max-height: 60vh; }
+  .theme-dark #overduePanel .table-scroll { max-height: none; }
+}
 
 /* 戰情室是固定在牆上的大螢幕，整頁必須一屏顯示完、不需捲動，
    因此收掉為閱讀型頁面設計的大留白。 */
@@ -561,6 +601,67 @@ td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
   text-align: right;
   color: var(--text-primary);
 }
+
+/* 工地環境（微型氣象站）
+   全寬單列。只顯示超標項目與熱指數，全部正常的站收合成一個字，
+   讓牆面第一眼就看得出「哪個工地現在有狀況」。 */
+.env-strip {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-4);
+  padding: var(--sp-3) var(--sp-5);
+  margin-bottom: var(--sp-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.env-strip-label {
+  flex: none;
+  font-family: var(--font-heading);
+  font-size: var(--fs-xs);
+  letter-spacing: var(--ls-label);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding-top: 2px;
+}
+.env-strip-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-6);
+  flex: 1;
+}
+
+.env-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  font-size: var(--fs-sm);
+}
+.env-item > b {
+  font-weight: 500;
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+}
+
+.env-metric {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+.env-metric i {
+  font-style: normal;
+  font-family: var(--font-heading);
+  font-size: var(--fs-xs);
+  letter-spacing: var(--ls-label);
+  color: var(--text-muted);
+  margin-right: 4px;
+}
+.env-metric u { text-decoration: none; color: var(--text-muted); font-size: var(--fs-xs); }
+.env-metric.ok       { color: var(--ok-600); }
+.env-metric.warn     { color: var(--warn-600); }
+.env-metric.critical { color: var(--critical-600); font-weight: 700; }
 
 /* 工地號誌 */
 .light { display: inline-block; width: 9px; height: 9px; flex: none; }

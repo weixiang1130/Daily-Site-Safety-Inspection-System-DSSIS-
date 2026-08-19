@@ -30,6 +30,12 @@
   <!-- 次要指標壓成一行，需要時才看 -->
   <div class="metric-strip" id="strip"></div>
 
+  <!-- 工地環境：只列出需要注意的數值，正常的站收合成一個字 -->
+  <div class="env-strip hidden" id="envPanel">
+    <span class="env-strip-label">工地環境</span>
+    <div class="env-strip-body" id="env"></div>
+  </div>
+
   <!-- 逾期清單只在真的有逾期時出現；沒有逾期時上方 KPI 已足夠說明 -->
   <div class="panel hidden" id="overduePanel" style="margin-bottom:var(--sp-4)">
     <h3>逾期未改善　需立即處理</h3>
@@ -130,6 +136,8 @@ async function load() {
     `<span>${d.trend[0].date.slice(5)}</span>` +
     `<span>${d.trend[d.trend.length - 1].date.slice(5)}</span>`;
 
+  renderEnvironment(d.environment || []);
+
   // 大螢幕上只呈現最近動態，不做完整日誌；詳細清單在缺失頁面查詢
   const recent = d.recent.slice(0, 10);
   document.getElementById('recent').innerHTML = recent.length ? `
@@ -143,6 +151,54 @@ async function load() {
         ${STATUS_LABEL[r.status] || r.status}</span></td>
     </tr>`).join('')}</tbody></table>`
     : '<p class="empty-state">區間內無缺失紀錄</p>';
+}
+
+// 判定門檻。熱指數依美國 NWS 分級；PM2.5 依環境部空氣品質標準（24 小時值 35）；
+// 噪音依勞工作業場所 8 小時日時量平均 85 dB。
+const ENV_SPEC = {
+  heat_index:  {label:'熱指數', unit:'',       warn:32,  danger:41},
+  temperature: {label:'溫度',   unit:'°C',     warn:33,  danger:36},
+  humidity:    {label:'濕度',   unit:'%'},
+  pm25:        {label:'PM2.5',  unit:'μg/m³', warn:35,  danger:54},
+  pm10:        {label:'PM10',   unit:'μg/m³', warn:75,  danger:125},
+  noise:       {label:'噪音',   unit:'dB',     warn:85,  danger:90},
+};
+// 顯示順序：能直接觸發管理動作的排前面
+const ENV_ORDER = ['heat_index','noise','pm25','pm10','temperature','humidity'];
+
+function envLevel(key, v) {
+  const spec = ENV_SPEC[key];
+  if (!spec || v == null) return '';
+  if (spec.danger != null && v >= spec.danger) return 'critical';
+  if (spec.warn != null && v >= spec.warn) return 'warn';
+  return '';
+}
+
+function renderEnvironment(list) {
+  const panel = document.getElementById('envPanel');
+  panel.classList.toggle('hidden', list.length === 0);
+  if (!list.length) return;
+
+  document.getElementById('env').innerHTML = list.map(st => {
+    // 牆面要回答的是「哪裡有危險」，不是完整報表：
+    // 只列出超標項目；熱指數因為是唯一能直接觸發停工／加強休息的指標，一律顯示。
+    const shown = ENV_ORDER.filter(k => {
+      const v = st.metrics[k];
+      if (v == null) return false;
+      return k === 'heat_index' || envLevel(k, v) !== '';
+    });
+
+    const cells = shown.length
+      ? shown.map(k => {
+          const v = st.metrics[k], spec = ENV_SPEC[k];
+          return `<span class="env-metric ${envLevel(k, v)}">
+            <i>${esc(spec.label)}</i>${v}<u>${esc(spec.unit)}</u></span>`;
+        }).join('')
+      : '<span class="env-metric ok">正常</span>';
+
+    return `<span class="env-item">
+      <b>${esc(st.site || st.station)}</b>${cells}</span>`;
+  }).join('');
 }
 
 (async () => {
