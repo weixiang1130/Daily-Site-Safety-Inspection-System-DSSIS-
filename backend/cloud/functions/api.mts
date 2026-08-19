@@ -13,6 +13,7 @@ import {
   sessionCookieHeader, verifyPassword, type SessionUser,
 } from "../lib/auth.ts";
 import { buildCoordinationPdf, buildInspectionPdf, type SigInput } from "../lib/pdf.ts";
+import { pollWeatherStations } from "../lib/weather.ts";
 
 const db = getDatabase();
 
@@ -492,6 +493,17 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
         await db.sql`DELETE FROM findings WHERE inspection_id = ${id}`;
         await db.sql`DELETE FROM inspections WHERE id = ${id}`;
         return json({ ok: true });
+      }
+
+      // 手動觸發微型氣象站抓取。
+      // 排程函式無法以 HTTP 呼叫，部署後要立即驗證或排錯時用這支。
+      if (p === "/api/admin/weather-poll" && method === "POST") {
+        try {
+          const msg = await pollWeatherStations();
+          return json({ ok: true, message: msg });
+        } catch (e: any) {
+          return fail(500, `抓取失敗：${e?.message || e}`);
+        }
       }
 
       return fail(404, `找不到管理路由 ${p}`);
