@@ -53,16 +53,23 @@ async function post(base: string, cmd: string, body: string): Promise<string> {
   return r.text();
 }
 
-/** 登入取得 session（UserIdx）。 */
+/**
+ * 登入取得 session（UserIdx）。
+ *
+ * 帳密不是分開的欄位，而是合併後 base64：key = base64(帳號 + SOH + 密碼)。
+ * 與 channel 參數用的是同一個 SOH 分隔字元。
+ */
 async function login(base: string): Promise<string> {
-  const body = new URLSearchParams({
-    user: env("WEATHER_API_USER"),
-    password: env("WEATHER_API_PASS"),
-    val: String(Math.random()),
-  }).toString();
+  const raw = `${env("WEATHER_API_USER")}${SEP}${env("WEATHER_API_PASS")}`;
+  // btoa 只吃 Latin-1，帳密若含非 ASCII 需先轉為位元組
+  const key = btoa(String.fromCharCode(...new TextEncoder().encode(raw)));
+  // 平台不對 key 做 URL 解碼，base64 尾端的 "=" 一旦被編成 %3D 就會回 ErrUser，
+  // 因此這裡手動組字串，不能用 URLSearchParams。
+  const body = `key=${key}&val=${Math.random()}`;
+
   const t = await post(base, "Login", body);
   const m = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/.exec(t);
-  if (!m) throw new Error("登入失敗，未取得 UserIdx");
+  if (!m) throw new Error(`登入失敗，未取得 UserIdx（回應：${t.slice(0, 120)}）`);
   return m[0];
 }
 
