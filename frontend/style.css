@@ -427,7 +427,9 @@ td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
   grid-template-columns: repeat(4, 1fr);
   margin-bottom: var(--sp-3);
 }
-.cols-main { grid-template-columns: 1.9fr 1fr; align-items: start; }
+/* 三欄：缺失動態｜填報表單｜統計。戰情室吃滿寬螢幕後，
+   兩欄會讓表格欄位被拉得過寬而不易掃讀。 */
+.cols-main { grid-template-columns: 1.5fr 1.25fr 1fr; align-items: start; }
 .panel-stack { display: flex; flex-direction: column; gap: var(--sp-4); }
 
 /* 戰情室固定為一屏：整頁填滿視窗，主區依剩餘空間伸縮，
@@ -444,14 +446,30 @@ td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
   min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  /* 用 auto 而非 hidden：固定高度的區塊（KPI、環境列、逾期清單）若在
+     極矮的視窗下加起來超過畫面，hidden 會把主區直接裁掉而讀不到，
+     auto 至少還捲得到。正常尺寸下兩者行為相同。 */
+  overflow-y: auto;
 }
 .theme-dark .kpis-main,
 .theme-dark .metric-strip,
-.theme-dark .env-strip,
-.theme-dark #overduePanel { flex: none; }
+.theme-dark .env-strip { flex: none; }
 
-.theme-dark .cols-main { flex: 1; min-height: 0; }
+/* 逾期清單可以被壓縮，內部自己捲動。
+   若設成 flex: none，它會把主區（缺失動態、填報表單）擠到剩最低高度，
+   在 1080 以下的螢幕就變成整頁捲動而失去一屏的意義。 */
+.theme-dark #overduePanel {
+  flex: 0 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* align-items 必須是 stretch。父層 .cols-main 的 align-items: start 是為
+   一般頁面設計的，但在戰情室會讓面板依內容長高（實測 1732px 塞在 260px 的
+   容器裡），多出來的部分被外層裁掉而根本看不到。stretch 才會讓面板填滿列高，
+   內容再由 .panel-fill 自己捲動。 */
+.theme-dark .cols-main { flex: 1; min-height: 260px; align-items: stretch; }
 .theme-dark .cols-main > .panel { min-height: 0; display: flex; flex-direction: column; }
 .theme-dark .panel-stack { min-height: 0; overflow-y: auto; }
 
@@ -459,7 +477,9 @@ td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .panel-fill { flex: 1; min-height: 0; overflow-y: auto; }
 
 /* 逾期清單也不可無限長 */
-.theme-dark #overduePanel .table-scroll { max-height: 22vh; overflow-y: auto; }
+.theme-dark #overduePanel .table-scroll { flex: 1; min-height: 0; max-height: 22vh; overflow-y: auto; }
+/* 工地一多，環境列會換行往下長，必須跟著設限 */
+.theme-dark .env-strip { max-height: 16vh; overflow-y: auto; }
 
 /* 一屏鎖定只適用於大螢幕。小螢幕版面已改為單欄，內容本來就比視窗高，
    若仍鎖定會把下半部裁掉，因此還原為正常捲動。 */
@@ -478,8 +498,11 @@ td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 
    字級用根元素的 font-size 統一縮放——版面內的字級都是 rem，
    改這一個值就整體等比放大，不必逐條調整而漏掉某些元素。
-   1920 寬約 21px、2560 以上封頂 26px；下限 16px 保護小螢幕。 */
-.theme-dark { font-size: clamp(16px, 0.78vw + 6px, 26px); }
+
+   同時看寬度與高度，取較小者：只看寬度的話，Windows 顯示縮放 125%／150%
+   或視窗不是全高時，字會大到把版面擠爆。1920×1080 約 20.6px、
+   1536×864（1920 的 125%）約 17.7px、2560 以上封頂 26px。 */
+.theme-dark { font-size: clamp(13px, min(0.78vw + 6px, 1.35vh + 6px), 26px); }
 .theme-dark .wrap.wide { max-width: none; }
 /* .wrap 的 margin:0 auto 在 flex 交叉軸上會抑制 stretch，
    使版面縮到內容寬度再置中，兩側因此留下空白。要吃滿寬度就得取消。 */
@@ -506,6 +529,50 @@ td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .theme-dark .barlist { gap: var(--sp-2); }
 .theme-dark .barlist .r { grid-template-columns: 7em 1fr 2.5em; line-height: 1.25; }
 .theme-dark .barlist .r .track { height: 10px; }
+
+/* 戰情室的表格一律單行顯示，過長就截斷。
+   牆上是用來掃讀的：讓一列折成三四行，看得到的筆數反而更少。
+   完整內容以 title 屬性保留，滑鼠停留即可查看。
+   table-layout: fixed 是 text-overflow 生效的前提，欄寬因此要明確給。 */
+table.fixed { table-layout: fixed; width: 100%; }
+table.fixed td,
+table.fixed th {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cols-recent  th:nth-child(1) { width: 15%; }
+.cols-recent  th:nth-child(2) { width: 20%; }
+.cols-recent  th:nth-child(4) { width: 16%; }
+
+.cols-forms   th:nth-child(1) { width: 12%; }
+.cols-forms   th:nth-child(2) { width: 22%; }
+.cols-forms   th:nth-child(4) { width: 24%; }
+
+.cols-overdue th:nth-child(1) { width: 12%; }
+.cols-overdue th:nth-child(2) { width: 15%; }
+.cols-overdue th:nth-child(4) { width: 18%; }
+.cols-overdue th:nth-child(5) { width: 12%; }
+.cols-overdue th:nth-child(6) { width: 9%; }
+
+/* 矮螢幕（1080 實體螢幕開 125% 顯示縮放 = 864 CSS 高，很常見）：
+   上方固定區塊會把主區壓到最低高度，表格只剩幾列可看。
+   這裡收緊固定區塊的高度，把空間讓給缺失動態與填報表單。 */
+@media (max-height: 900px) {
+  .theme-dark .metric-strip,
+  .theme-dark .env-strip,
+  .theme-dark #overduePanel { margin-bottom: var(--sp-3) !important; }
+  .theme-dark .kpis-main .kpi { padding: 0.6em 1em; }
+  .theme-dark .kpis-main .kpi .n { font-size: 2.6rem; }
+  .theme-dark #overduePanel .table-scroll { max-height: 11vh; }
+  .theme-dark .env-strip { max-height: 12vh; }
+}
+
+/* 螢幕變窄時只調整欄寬比例，不隱藏任何面板——
+   戰情室少一塊資訊，值班人員就得自己去別的頁面查，等於沒有戰情室。 */
+@media (max-width: 1600px) {
+  .cols-main { grid-template-columns: 1.3fr 1.15fr 0.9fr; }
+}
 
 @media (max-width: 1200px) {
   .cols-2, .cols-3, .cols-main { grid-template-columns: 1fr; }
@@ -588,8 +655,8 @@ td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .kpi.critical { border-color: var(--critical-600); }
 
 /* 主指標數字加大，讓值班人員在數公尺外也讀得到 */
-.theme-dark .kpis-main .kpi { padding: var(--sp-4) var(--sp-4); }
-.kpis-main .kpi .n { font-size: 3.5rem; }
+.theme-dark .kpis-main .kpi { padding: 0.85em 1em; }
+.kpis-main .kpi .n { font-size: 3.2rem; line-height: 1.05; }
 .kpis-main .kpi .l { margin-top: var(--sp-2); }
 @media (max-width: 1200px) { .kpis-main .kpi .n { font-size: 2.5rem; } }
 

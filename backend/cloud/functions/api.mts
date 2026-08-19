@@ -14,6 +14,7 @@ import {
 } from "../lib/auth.ts";
 import { buildCoordinationPdf, buildInspectionPdf, type SigInput } from "../lib/pdf.ts";
 import { pollWeatherStations } from "../lib/weather.ts";
+import { pollHeadcount } from "../lib/headcount.ts";
 import { levelOf, stationLevel, LEVEL_LABEL, THRESHOLDS } from "../lib/hazard.ts";
 
 const db = getDatabase();
@@ -507,6 +508,16 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
         }
       }
 
+      // 手動觸發人員進出人次抓取，用途同上
+      if (p === "/api/admin/headcount-poll" && method === "POST") {
+        try {
+          const msg = await pollHeadcount();
+          return json({ ok: true, message: msg });
+        } catch (e: any) {
+          return fail(500, `抓取失敗：${e?.message || e}`);
+        }
+      }
+
       return fail(404, `找不到管理路由 ${p}`);
     }
 
@@ -800,6 +811,57 @@ async function dashboard(url: URL) {
 
   const sites = await db.sql`SELECT id, name FROM sites WHERE active = TRUE ORDER BY id`;
 
+  // 最新交出來的表單。工地填完之後要在戰情室上馬上看得到結果，
+  // 否則現場沒有回饋，也無從知道自己交了沒。
+  // 兩種表單合在一起看，因為值班人員關心的是「今天有誰交了什麼」。
+  const recentInspections = await db.sql`
+    SELECT i.id, i.inspect_date AS on_date, i.pdf_key, s.name AS site,
+           ft.title AS title, u.display_name AS person,
+           (SELECT COUNT(*)::int FROM inspection_results r
+             WHERE r.inspection_id = i.id AND r.result = 'fail') AS fail_count
+    FROM inspections i
+    JOIN sites s ON s.id = i.site_id
+    JOIN form_templates ft ON ft.form_code = i.form_code
+    JOIN users u ON u.id = i.inspector_id
+    WHERE (${siteId}::int IS NULL OR i.site_id = ${siteId}::int)
+    ORDER BY i.inspect_date DESC, i.id DESC
+    LIMIT 12`;
+
+  const recentCoordinations = await db.sql`
+    SELECT c.id, c.work_date AS on_date, c.pdf_key, s.name AS site,
+           (SELECT COUNT(*)::int FROM coordination_attendees a
+             WHERE a.coordination_id = c.id) AS attendee_count
+    FROM coordinations c JOIN sites s ON s.id = c.site_id
+    WHERE (${siteId}::int IS NULL OR c.site_id = ${siteId}::int)
+    ORDER BY c.work_date DESC, c.id DESC
+    LIMIT 12`;
+
+  const recentForms = [
+    ...(recentInspections as any[]).map((r) => ({
+      kind: "inspection" as const,
+      on_date: dateOnly(r.on_date),
+      site: r.site,
+      title: r.title,
+      person: r.person,
+      // 缺失數就是這張表的結果：0 代表全數符合
+      result: r.fail_count > 0 ? `${r.fail_count} 項不符合` : "全數符合",
+      ok: r.fail_count === 0,
+      pdf_url: r.pdf_key ? `/api/inspections/${r.id}/pdf` : null,
+    })),
+    ...(recentCoordinations as any[]).map((r) => ({
+      kind: "coordination" as const,
+      on_date: dateOnly(r.on_date),
+      site: r.site,
+      title: "每日協議、巡視及處理紀錄表",
+      person: "",
+      result: `${r.attendee_count} 家廠商`,
+      ok: true,
+      pdf_url: r.pdf_key ? `/api/coordinations/${r.id}/pdf` : null,
+    })),
+  ]
+    .sort((a, b) => String(b.on_date).localeCompare(String(a.on_date)))
+    .slice(0, 12);
+
   const count = (fn: (f: any) => boolean) => findings.filter(fn).length;
   const closed = count((f) => f.status === "closed");
 
@@ -873,6 +935,24 @@ async function dashboard(url: URL) {
     if (t > station.reading_at!) station.reading_at = t;
   }
 
+  // 人員進出：只取最近一小時內的最新一筆，太舊的數字在牆上會誤導
+  const headRows = await db.sql`
+    SELECT DISTINCT ON (r.site_id, r.metric)
+           r.site_id, r.metric, r.value_num, r.reading_at, s.name AS site
+    FROM device_readings r
+    LEFT JOIN sites s ON s.id = r.site_id
+    WHERE r.device_type = 'people'
+      AND r.reading_at >= NOW() - INTERVAL '1 hour'
+      AND (${siteId}::int IS NULL OR r.site_id = ${siteId}::int)
+    ORDER BY r.site_id, r.metric, r.reading_at DESC`;
+
+  const headcount = (headRows as any[]).reduce((acc, r) => {
+    // 選了單一工地就是該工地的數字；全部工地則加總
+    acc[r.metric] = (acc[r.metric] || 0) + Number(r.value_num);
+    acc.reading_at = minuteISO(r.reading_at);
+    return acc;
+  }, {} as Record<string, any>);
+
   // 危害分級一律在後端判定。前端若自己再算一套，兩邊門檻遲早會不一致，
   // 屆時牆上顯示的顏色和實際告警依據就對不起來。
   for (const st of envByStation.values()) {
@@ -892,6 +972,8 @@ async function dashboard(url: URL) {
       .sort((a, b) => (b.level ?? 0) - (a.level ?? 0)
         || String(a.site || "").localeCompare(String(b.site || ""))),
     environment_spec: THRESHOLDS,
+    recent_forms: recentForms,
+    headcount: Object.keys(headcount).length ? headcount : null,
     kpi: {
       findings_today: count((f) => f.found_at!.slice(0, 10) === today),
       findings_range: findings.length,

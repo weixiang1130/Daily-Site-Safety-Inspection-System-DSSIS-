@@ -1,17 +1,19 @@
 // PDF 產出（存查用）。
 //
-// 使用 pdf-lib + fontkit 嵌入 Noto Sans TC（SIL OFL 1.1）。
-// pdf-lib 會自動子集化，因此產出的 PDF 只含實際用到的字，檔案不會變大。
+// 使用 pdf-lib 嵌入 Noto Sans TC（SIL OFL 1.1）。
 // 字型檔透過 netlify.toml 的 [functions] included_files 一併打包。
 //
-// 必須用 .ttf 而不是原始的 .otf：Noto Sans TC 的 OTF 是 CID-keyed CFF，
-// fontkit 對這種字型的子集化會弄壞 FDSelect 對應，導致中文全部變空白、
-// 只剩英數字畫得出來。.ttf 由 tools/build_pdf_font.py 轉出，細節見該檔。
+// **不可以開啟子集化。** fontkit 的子集化對這支字型是壞的，會掉字（實測數據
+// 見 tools/build_pdf_font.py 的說明）。字型已在建置階段縮到系統需要的範圍，
+// 這裡整份嵌入即可；代價是 PDF 約 1.8 MB，換來的是字一定畫得出來。
+//
+// 也不可以改用同目錄的 .otf——那是 CID-keyed CFF，pdf-lib 連不子集化都畫不對。
 
 import fs from "node:fs/promises";
 import path from "node:path";
 import { PDFDocument, PDFFont, PDFPage, rgb } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
+import { FONT_COVERAGE } from "./font-coverage.ts";
 
 const FONT_RELATIVE = "backend/cloud/assets/fonts/NotoSansTC-Regular.ttf";
 
@@ -53,10 +55,53 @@ async function loadFont(): Promise<Uint8Array> {
   );
 }
 
+
+/**
+ * 把字型收錄範圍外的字換成 □。
+ *
+ * 字型是建置階段縮好的，遇到沒收錄的字（罕用姓名、異體字）pdf-lib 會直接
+ * 畫不出來且不報錯。安全紀錄少一個字卻沒人發現是最糟的情況，因此寧可畫成
+ * □ 並留下警告，之後再依實際資料把字補進 tools/build_pdf_font.py 的收錄範圍。
+ */
+const missingChars = new Set<string>();
+
+function printable(s: string): string {
+  let out = "";
+  for (const ch of String(s ?? "")) {
+    const cp = ch.codePointAt(0)!;
+    if (cp === 0x0A || covered(cp)) { out += ch; continue; }
+    out += "□";
+    missingChars.add(ch);
+  }
+  return out;
+}
+
+function covered(cp: number): boolean {
+  // 區間已排序，用二分搜尋；一份 PDF 會呼叫上萬次，線性掃描太慢
+  let lo = 0, hi = FONT_COVERAGE.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const [a, b] = FONT_COVERAGE[mid];
+    if (cp < a) hi = mid - 1;
+    else if (cp > b) lo = mid + 1;
+    else return true;
+  }
+  return false;
+}
+
+/** 產出後呼叫一次，把這份文件遇到的缺字寫進記錄檔。 */
+function reportMissing(title: string): void {
+  if (!missingChars.size) return;
+  console.warn(`[pdf] ${title}：字型未收錄 ${[...missingChars].join("")}，`
+    + "已畫成 □。請將這些字補進 tools/build_pdf_font.py 的收錄範圍後重建字型。");
+  missingChars.clear();
+}
+
 /** 依實際字寬折行，中英混排都適用。 */
 function wrap(text: string, font: PDFFont, size: number, maxW: number): string[] {
   const out: string[] = [];
-  for (const raw of String(text ?? "").split("\n")) {
+  // 先換掉缺字再量寬，否則折行位置會依「畫不出來的字」計算而跑掉
+  for (const raw of printable(text).split("\n")) {
     let line = "";
     for (const ch of raw) {
       const test = line + ch;
@@ -85,7 +130,8 @@ class Doc {
     d.title = title;
     d.doc = await PDFDocument.create();
     d.doc.registerFontkit(fontkit);
-    d.font = await d.doc.embedFont(await loadFont(), { subset: true });
+    // subset: false 是刻意的，改成 true 會掉字，理由見檔頭
+    d.font = await d.doc.embedFont(await loadFont(), { subset: false });
     d.doc.setTitle(title);
     d.doc.setProducer("職安填報系統");
     d.newPage();
@@ -112,7 +158,7 @@ class Doc {
     const maxW = opts.maxW ?? CONTENT_W;
     for (const line of wrap(s, this.font, size, maxW)) {
       this.need(size + 4);
-      this.page.drawText(line, { x, y: this.y - size, size, font: this.font, color });
+      this.page.drawText(printable(line), { x, y: this.y - size, size, font: this.font, color });
       this.y -= size * 1.45;
     }
     this.y -= opts.gap ?? 0;
@@ -125,7 +171,7 @@ class Doc {
     this.page.drawRectangle({
       x: M.left, y: this.y - 11, width: 2.5, height: 11, color: ACCENT,
     });
-    this.page.drawText(s, {
+    this.page.drawText(printable(s), {
       x: M.left + 8, y: this.y - 10, size: 10.5, font: this.font, color: INK,
     });
     this.y -= 20;
@@ -174,7 +220,7 @@ class Doc {
       let x = M.left;
       wrapped.forEach((cellLines, ci) => {
         cellLines.forEach((line, li) => {
-          this.page.drawText(line, {
+          this.page.drawText(printable(line), {
             x: x + padX,
             y: top - padY - size - li * size * 1.35,
             size, font: this.font,
@@ -221,7 +267,7 @@ class Doc {
         x, y: top - boxH, width: boxW, height: boxH,
         borderColor: LINE, borderWidth: 0.5,
       });
-      this.page.drawText(s.role, {
+      this.page.drawText(printable(s.role), {
         x: x + 6, y: top - 14, size: 8, font: this.font, color: MUTED,
       });
       if (s.image) {
@@ -236,10 +282,10 @@ class Doc {
           // 簽名圖毀損時略過，仍保留姓名與時間
         }
       }
-      this.page.drawText(s.signer_name, {
+      this.page.drawText(printable(s.signer_name), {
         x: x + 6, y: top - boxH + 18, size: 8.5, font: this.font, color: INK,
       });
-      this.page.drawText(s.signed_at, {
+      this.page.drawText(printable(s.signed_at), {
         x: x + 6, y: top - boxH + 7, size: 7, font: this.font, color: MUTED,
       });
     }
@@ -250,13 +296,14 @@ class Doc {
     const stamp = new Date().toLocaleString("zh-TW", { timeZone: "Asia/Taipei", hour12: false });
     const pages = this.doc.getPages();
     pages.forEach((p, i) => {
-      p.drawText(`本文件由職安填報系統於 ${stamp} 產出，電子簽名紀錄存於系統資料庫`, {
+      p.drawText(printable(`本文件由職安填報系統於 ${stamp} 產出，電子簽名紀錄存於系統資料庫`), {
         x: M.left, y: 28, size: 7, font: this.font, color: MUTED,
       });
-      p.drawText(`第 ${i + 1} / ${pages.length} 頁`, {
+      p.drawText(printable(`第 ${i + 1} / ${pages.length} 頁`), {
         x: A4.w - M.right - 60, y: 28, size: 7, font: this.font, color: MUTED,
       });
     });
+    reportMissing(this.title);
   }
 }
 

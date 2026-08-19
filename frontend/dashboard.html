@@ -48,6 +48,11 @@
       <div class="table-scroll panel-fill" id="recent"></div>
     </div>
 
+    <div class="panel">
+      <h3>最新填報表單</h3>
+      <div class="table-scroll panel-fill" id="forms"></div>
+    </div>
+
     <div class="panel-stack">
       <div class="panel">
         <h3>災害類別分布</h3>
@@ -93,7 +98,14 @@ async function load() {
     <div class="panel kpi ${c}"><div class="n">${n}</div><div class="l">${l}</div></div>`
   ).join('');
 
+  // 在場人數放在最前面：緊急應變時要先知道現場還有多少人
+  const hc = d.headcount;
   document.getElementById('strip').innerHTML = [
+    ...(hc ? [
+      ['現場在場人數', hc.headcount_present ?? '—'],
+      ['今日進場', hc.headcount_in ?? '—'],
+      ['今日出場', hc.headcount_out ?? '—'],
+    ] : []),
     ['區間缺失', k.findings_range],
     ['當場改善', k.onsite_fixed],
     ['限期改善', k.scheduled],
@@ -106,7 +118,7 @@ async function load() {
   panel.classList.toggle('hidden', d.overdue_list.length === 0);
   if (d.overdue_list.length) {
     document.getElementById('overdue').innerHTML = `
-      <table><thead><tr><th>單號</th><th>工地</th><th>缺失內容</th>
+      <table class="fixed cols-overdue"><thead><tr><th>單號</th><th>工地</th><th>缺失內容</th>
       <th>責任廠商／人</th><th>期限</th><th>逾期</th></tr></thead><tbody>
       ${d.overdue_list.map(o => `<tr>
         <td class="num">${esc(o.no)}</td><td>${esc(o.site)}</td>
@@ -138,15 +150,36 @@ async function load() {
 
   renderEnvironment(d.environment || [], d.environment_spec || {});
 
+  // 工地交出表單後要在牆上立刻看到，否則現場沒有回饋
+  const forms = d.recent_forms || [];
+  // PDF 連結掛在表單名稱上，省下一整欄；填報人放在 title 供滑鼠停留查看
+  document.getElementById('forms').innerHTML = forms.length ? `
+    <table class="fixed cols-forms"><thead><tr><th>日期</th><th>工地</th>
+    <th>表單</th><th>結果</th></tr></thead><tbody>
+    ${forms.map(f => {
+      const tip = esc(f.title) + (f.person ? '／' + esc(f.person) : '');
+      const name = f.pdf_url
+        ? `<a href="${esc(f.pdf_url)}" target="_blank" title="${tip}">${esc(f.title)}</a>`
+        : `<span title="${tip}">${esc(f.title)}</span>`;
+      return `<tr>
+      <td class="num">${esc(String(f.on_date).slice(5))}</td>
+      <td title="${esc(f.site)}">${esc(f.site)}</td>
+      <td>${name}</td>
+      <td><span class="tag ${f.ok ? 'closed' : 'open'}">${esc(f.result)}</span></td>
+    </tr>`; }).join('')}</tbody></table>`
+    : '<p class="empty-state">尚無填報紀錄</p>';
+
   // 大螢幕上只呈現最近動態，不做完整日誌；詳細清單在缺失頁面查詢
   const recent = d.recent.slice(0, 16);
+  // 欄位刻意精簡：災害類別與責任廠商在右欄已有統計，牆上重複顯示只會把
+  // 每一列擠成三四行而難以掃讀。完整欄位在缺失頁面查詢。
   document.getElementById('recent').innerHTML = recent.length ? `
-    <table><thead><tr><th>時間</th><th>工地</th><th>災害類別</th>
-    <th>缺失內容</th><th>責任廠商</th><th>狀態</th></tr></thead><tbody>
+    <table class="fixed cols-recent"><thead><tr><th>時間</th><th>工地</th>
+    <th>缺失內容</th><th>狀態</th></tr></thead><tbody>
     ${recent.map(r => `<tr>
-      <td class="num">${esc(r.found_at.replace('T', ' '))}</td>
-      <td>${esc(r.site)}</td><td>${esc(r.hazard_label)}</td>
-      <td>${esc(r.description)}</td><td>${esc(r.vendor)}</td>
+      <td class="num">${esc(r.found_at.replace('T', ' ').slice(5))}</td>
+      <td title="${esc(r.site)}">${esc(r.site)}</td>
+      <td title="${esc(r.hazard_label)}／${esc(r.vendor)}：${esc(r.description)}">${esc(r.description)}</td>
       <td><span class="tag ${r.status === 'closed' ? 'closed' : r.status === 'fixed' ? 'fixed' : 'open'}">
         ${STATUS_LABEL[r.status] || r.status}</span></td>
     </tr>`).join('')}</tbody></table>`
