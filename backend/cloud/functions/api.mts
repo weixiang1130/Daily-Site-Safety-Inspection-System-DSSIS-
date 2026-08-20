@@ -836,9 +836,6 @@ async function servePdf(table: "inspections" | "coordinations", id: number) {
 async function dashboard(url: URL) {
   const days = parseInt(url.searchParams.get("days") || "30", 10);
   const siteId = url.searchParams.get("site_id");
-  // 選定主場站時，上方的即時數據與指標只看該工地，但下方清單仍要涵蓋所有
-  // 工地——現場只有一個戰情室，別的工地交了什麼、有沒有逾期也得看得到。
-  const listSiteId = url.searchParams.get("list_scope") === "all" ? null : siteId;
   const today = todayISO();
 
   const rows = await db.sql`
@@ -849,15 +846,6 @@ async function dashboard(url: URL) {
       AND (${siteId}::int IS NULL OR f.site_id = ${siteId}::int)`;
   const findings = rows.map((r: any) => ({ ...shapeFinding(r), raw: r }));
 
-  const listRows = listSiteId === siteId ? rows : await db.sql`
-    SELECT f.*, s.name AS site, v.name AS vendor FROM findings f
-    JOIN sites s ON s.id = f.site_id
-    LEFT JOIN vendors v ON v.id = f.vendor_id
-    WHERE f.found_at >= NOW() - (${days}::int * INTERVAL '1 day')
-      AND (${listSiteId}::int IS NULL OR f.site_id = ${listSiteId}::int)`;
-  const listFindings = listRows === rows
-    ? findings
-    : (listRows as any[]).map((r) => ({ ...shapeFinding(r), raw: r }));
 
   const insps = await db.sql`
     SELECT id, site_id FROM inspections
@@ -879,7 +867,7 @@ async function dashboard(url: URL) {
     JOIN sites s ON s.id = i.site_id
     JOIN form_templates ft ON ft.form_code = i.form_code
     JOIN users u ON u.id = i.inspector_id
-    WHERE (${listSiteId}::int IS NULL OR i.site_id = ${listSiteId}::int)
+    WHERE (${siteId}::int IS NULL OR i.site_id = ${siteId}::int)
     ORDER BY i.inspect_date DESC, i.id DESC
     LIMIT 20`;
 
@@ -889,7 +877,7 @@ async function dashboard(url: URL) {
            (SELECT COUNT(*)::int FROM coordination_attendees a
              WHERE a.coordination_id = c.id) AS attendee_count
     FROM coordinations c JOIN sites s ON s.id = c.site_id
-    WHERE (${listSiteId}::int IS NULL OR c.site_id = ${listSiteId}::int)
+    WHERE (${siteId}::int IS NULL OR c.site_id = ${siteId}::int)
     ORDER BY c.work_date DESC, c.id DESC
     LIMIT 20`;
 
@@ -973,8 +961,7 @@ async function dashboard(url: URL) {
     LEFT JOIN sites s ON s.id = r.site_id
     WHERE r.device_type = 'env'
       AND r.reading_at >= NOW() - INTERVAL '3 hours'
-      -- 用清單範圍而非指標範圍：主場站的數據放大顯示，其餘工地仍以一行帶過
-      AND (${listSiteId}::int IS NULL OR r.site_id = ${listSiteId}::int)
+      AND (${siteId}::int IS NULL OR r.site_id = ${siteId}::int)
     ORDER BY r.device_id, r.metric, r.reading_at DESC`;
 
   const envByStation = new Map<string, any>();
@@ -1049,13 +1036,13 @@ async function dashboard(url: URL) {
     by_vendor: tally((f) => f.vendor).slice(0, 10),
     trend,
     sites: siteRows,
-    overdue_list: listFindings.filter((f) => f.overdue).map((f) => ({
+    overdue_list: findings.filter((f) => f.overdue).map((f) => ({
       no: f.no, site: f.site, description: f.description, vendor: f.vendor || "",
       person: f.responsible_person, due_date: f.due_date,
       days_over: Math.floor(
         (Date.now() - new Date(f.due_date!).getTime()) / 86_400_000),
     })).sort((a, b) => b.days_over - a.days_over).slice(0, 20),
-    recent: [...listFindings]
+    recent: [...findings]
       .sort((a, b) => new Date(b.found_at).getTime() - new Date(a.found_at).getTime())
       .slice(0, 15)
       .map((f) => ({

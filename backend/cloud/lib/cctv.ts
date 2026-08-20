@@ -45,24 +45,74 @@ export async function fetchSnapshot(channel: number): Promise<ArrayBuffer> {
   const path = `/cgi-bin/snapshot.cgi?channel=${channel}`;
   const url = `${base}${path}`;
 
-  const first = await fetch(url);
-  if (first.ok) return await first.arrayBuffer();     // 有些機型不需驗證
+  // Netlify 函式本身只有 10 秒，而一次取像要兩趟（換 nonce、帶憑證），
+  // 遇到 401 還要再一趟。因此用一個總預算控制，寧可提早回報「逾時」，
+  // 也不要讓平台把函式砍掉——那樣前端只會拿到一個沒有訊息的錯誤。
+  const deadline = Date.now() + 8500;
+  const left = () => deadline - Date.now();
+
+  const get = (headers?: HeadersInit) => {
+    const ms = Math.min(5000, Math.max(0, left()));
+    if (ms < 300) throw new Error("取得畫面逾時（監視器主機回應太慢）");
+    return fetch(url, { headers, signal: AbortSignal.timeout(ms) });
+  };
+
+  let first: Response;
+  try {
+    first = await get();
+  } catch (e: any) {
+    // 連線層級的失敗（DNS、逾時、被拒）在這裡就要講清楚，
+    // 否則前端只拿得到一個沒有訊息的錯誤
+    throw new Error(`連不上監視器主機（${e?.name === "TimeoutError"
+      ? "逾時 8 秒" : e?.message || e}）`);
+  }
+
+  if (first.ok) return await ensureImage(first);      // 有些機型不需驗證
   if (first.status !== 401) {
     throw new Error(`監視器回應 ${first.status}`);
   }
 
   const challenge = first.headers.get("www-authenticate") || "";
+  if (!challenge) throw new Error("監視器要求驗證但未提供 WWW-Authenticate");
+  if (!env("CCTV_USER")) throw new Error("監視器需要驗證，但未設定 CCTV_USER");
+
   const auth = digestHeader(challenge, "GET", path,
     env("CCTV_USER"), env("CCTV_PASS"));
 
-  const second = await fetch(url, { headers: { Authorization: auth } });
-  if (!second.ok) throw new Error(`監視器驗證後仍回應 ${second.status}`);
-
-  const type = second.headers.get("content-type") || "";
-  if (!type.startsWith("image/")) {
-    throw new Error(`監視器回傳非影像內容（${type}）`);
+  const second = await get({ Authorization: auth });
+  if (second.status === 401) {
+    // nonce 可能已被主機作廢；重新取一次挑戰再試，仍失敗才視為帳密有問題。
+    // 但預算不夠時就不要再試，免得整支函式被平台砍掉而失去錯誤訊息。
+    if (left() < 2500) throw new Error("監視器拒絕驗證（時間不足，未重試）");
+    const retryChallenge = second.headers.get("www-authenticate") || challenge;
+    const retry = await get({
+      Authorization: digestHeader(retryChallenge, "GET", path,
+        env("CCTV_USER"), env("CCTV_PASS")),
+    });
+    if (retry.status === 401) throw new Error("監視器拒絕驗證，請確認帳號密碼");
+    if (!retry.ok) throw new Error(`監視器回應 ${retry.status}`);
+    return await ensureImage(retry);
   }
-  return await second.arrayBuffer();
+  if (!second.ok) throw new Error(`監視器回應 ${second.status}`);
+
+  return await ensureImage(second);
+}
+
+/** 確認拿到的真的是影像，而不是登入頁或錯誤訊息。 */
+async function ensureImage(r: Response): Promise<ArrayBuffer> {
+  const type = r.headers.get("content-type") || "";
+  const buf = await r.arrayBuffer();
+
+  // 有些機型驗證失敗時仍回 200，內容卻是 HTML 或純文字錯誤訊息。
+  // 直接把它當影像送到前端，畫面就只會是一片空白而查不出原因。
+  if (!type.startsWith("image/")) {
+    const head = new TextDecoder().decode(buf.slice(0, 120)).replace(/\s+/g, " ");
+    throw new Error(`監視器回傳非影像內容（${type || "無 content-type"}：${head}）`);
+  }
+  if (buf.byteLength < 1024) {
+    throw new Error(`監視器回傳的影像過小（${buf.byteLength} 位元組），可能不是有效畫面`);
+  }
+  return buf;
 }
 
 /** 依 RFC 2617 組出 Digest 的 Authorization 標頭。 */

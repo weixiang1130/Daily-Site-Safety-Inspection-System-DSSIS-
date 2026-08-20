@@ -548,7 +548,24 @@ body.war {
   border: 1px solid var(--border);
   overflow: hidden;
 }
+.cam-view { position: relative; }
 .cam-view img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* 取不到畫面時把原因寫在框裡。留白一片黑會被當成鏡頭壞了，
+   實際上多半是連線或權限問題，講清楚才知道要找誰處理。 */
+.cam-error {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: var(--sp-3);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--warn-600);
+  background: var(--bg-sunken);
+}
 
 /* 長官關注的排行：橫條列，並排在醒目位置 */
 .band-rank {

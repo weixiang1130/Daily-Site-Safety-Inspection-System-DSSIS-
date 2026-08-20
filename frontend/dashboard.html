@@ -40,8 +40,12 @@
     </div>
 
     <aside class="cam hidden" id="camPanel">
-      <div class="cam-head"><span>現場監視</span><span class="muted small" id="camLabel"></span></div>
-      <div class="cam-view"><img id="camImg" alt="現場監視畫面"></div>
+      <div class="cam-head"><span id="camTitle">現場監視</span>
+        <span class="muted small" id="camLabel"></span></div>
+      <div class="cam-view">
+        <img id="camImg" alt="現場監視畫面">
+        <p class="cam-error hidden" id="camError"></p>
+      </div>
     </aside>
   </section>
 
@@ -322,30 +326,75 @@ function buildRota(d) {
 // 定時換圖即可，串流不在這一版範圍。
 // ---------------------------------------------------------------------------
 const Cam = {
-  channels: [], idx: 0,
+  channels: [], idx: 0, timer: null,
+
+  /** 監視器只接主場站，標題寫清楚，免得以為它會跟著工地選單切換。 */
+  setTitle(env) {
+    const primary = env.find(s => s.site_code === PRIMARY_CODE);
+    document.getElementById('camTitle').textContent =
+      primary ? `現場監視　${primary.site || primary.station}` : '現場監視';
+  },
 
   async init() {
     let info = null;
-    try { info = await (await fetch('/api/cctv/channels',
-      { credentials: 'same-origin' })).json(); } catch (e) { return; }
+    try {
+      info = await (await fetch('/api/cctv/channels',
+        { credentials: 'same-origin' })).json();
+    } catch (e) { return; }
     if (!info || !info.enabled || !info.channels.length) return;
 
     this.channels = info.channels;
     document.getElementById('camPanel').classList.remove('hidden');
     this.show();
-    // 換圖比清單快一些，畫面才有「活著」的感覺
-    setInterval(() => this.show(), 6000);
+    // 一張快照約 385 KB，全部經由後端代理。牆上的畫面整天開著，
+    // 換得太勤會吃掉可觀的流量與函式呼叫次數，15 秒已足夠讓畫面「活著」。
+    this.timer = setInterval(() => this.show(), 15000);
   },
 
-  show() {
+  fail(msg) {
+    // 用 <img src> 載入時，失敗只會留下一片黑而看不出原因。
+    // 改成自己取回內容，取不到就把理由寫在畫面上，現場才知道要找誰處理。
+    const err = document.getElementById('camError');
+    document.getElementById('camImg').removeAttribute('src');
+    err.textContent = msg;
+    err.classList.remove('hidden');
+  },
+
+  async show() {
     const ch = this.channels[this.idx % this.channels.length];
-    const img = document.getElementById('camImg');
-    // 帶時間戳避免瀏覽器沿用快取而畫面凍結
-    img.src = `/api/cctv/snapshot?channel=${ch}&t=${Date.now()}`;
-    document.getElementById('camLabel').textContent =
-      this.channels.length > 1 ? `鏡頭 ${ch}` : '';
-    // 多支鏡頭時輪流顯示
     if (this.channels.length > 1) this.idx += 1;
+    document.getElementById('camLabel').textContent = `鏡頭 ${ch}`;
+
+    let r;
+    try {
+      r = await fetch(`/api/cctv/snapshot?channel=${ch}&t=${Date.now()}`,
+        { credentials: 'same-origin' });
+    } catch (e) {
+      this.fail('無法連線至系統：' + (e && e.message || e));
+      return;
+    }
+
+    if (!r.ok) {
+      let msg = `畫面取得失敗（HTTP ${r.status}）`;
+      try { const j = await r.json(); if (j.detail) msg = j.detail; } catch (e) {}
+      this.fail(msg);
+      return;
+    }
+
+    const blob = await r.blob();
+    if (!blob.type.startsWith('image/')) {
+      this.fail('回傳的不是影像內容');
+      return;
+    }
+
+    const url = URL.createObjectURL(blob);
+    const img = document.getElementById('camImg');
+    // 舊的 object URL 要釋放，否則長時間輪播會一路累積佔用記憶體
+    const old = img.dataset.objectUrl;
+    img.onload = () => { if (old) URL.revokeObjectURL(old); };
+    img.dataset.objectUrl = url;
+    img.src = url;
+    document.getElementById('camError').classList.add('hidden');
   },
 };
 
@@ -353,19 +402,16 @@ async function load() {
   const site = document.getElementById('site').value;
   const days = document.getElementById('days').value;
 
-  // 選的是主場站時，下方清單仍要看得到其他工地的填報
-  const primary = SITES.find(s => s.code === PRIMARY_CODE);
-  const isPrimary = primary && String(primary.id) === String(site);
-  const q = `/api/dashboard?days=${days}`
-    + (site ? '&site_id=' + site : '')
-    + (isPrimary ? '&list_scope=all' : '');
-
-  const d = await API.get(q);
+  // 預設不指定工地：缺失統計、排行與趨勢都看全公司，
+  // 而環境與人數仍以主場站為主（由 renderEnvironment 依工地代碼挑出）。
+  const d = await API.get(`/api/dashboard?days=${days}`
+    + (site ? '&site_id=' + site : ''));
 
   document.getElementById('stamp').textContent =
     '更新於 ' + d.generated_at.replace('T', ' ').slice(0, 16);
 
   renderEnvironment(d.environment || [], d.environment_spec || {});
+  Cam.setTitle(d.environment || []);
   renderPeople(d.headcount);
   renderKpis(d.kpi);
   barlist('hazard', d.by_hazard);
@@ -388,9 +434,9 @@ async function load() {
   const r = await fetch('/api/sites', { credentials: 'same-origin' });
   if (r.ok) SITES = await r.json();
 
-  const primary = SITES.find(s => s.code === PRIMARY_CODE);
+  // 預設「全部工地」：統計面看全公司，即時面（環境、人數、監視）仍以主場站為主
   document.getElementById('site').innerHTML =
-    siteOptions(SITES, primary ? primary.id : null, '全部工地');
+    siteOptions(SITES, null, '全部工地');
 
   document.getElementById('site').onchange = load;
   document.getElementById('days').onchange = load;
