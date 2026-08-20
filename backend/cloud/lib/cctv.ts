@@ -8,6 +8,17 @@
 // 因此改由後端代理：伺服器端完成驗證、取回 JPEG，再從本站的 https 網域送出。
 // 帳密只存在環境變數裡，不會出現在瀏覽器。
 //
+// 但雲端直連實測失敗（2026-08-20）：同一時刻由公司網路取像正常（401 挑戰
+// → 200，382 KB），由 Netlify（美東）卻在未帶憑證的第一次請求就被回 403。
+// 也就是主機或其前方防火牆有來源 IP／地區限制，而 Netlify 函式沒有固定
+// 對外 IP 可以加白名單。
+//
+// 因此改為以內網推送為主、雲端直連為輔：
+//   tools/push_snapshots.py  在公司網路內定時取像，POST 回本站
+//   本檔的 storeSnapshot()   把畫面存進 Blobs
+//   本檔的 latestSnapshot()  供儀表板讀取，過期才回退去直連
+// 這也符合本專案一貫的原則：資料由我們這邊保存，不受制於對方的存取限制。
+//
 // 主機是大華（Dahua）NVR，快照端點為
 //   GET /cgi-bin/snapshot.cgi?channel=N
 // 回應 image/jpeg。前端每隔數秒重新請求一次即可當成準即時畫面；
@@ -19,7 +30,38 @@
 //   CCTV_PASS       密碼
 //   CCTV_CHANNELS   要顯示的頻道，逗號分隔，例如 "4,7"。未設定時預設 1
 
+import { getStore, getDeployStore } from "@netlify/blobs";
+
 const env = (k: string) => Netlify.env.get(k) || "";
+
+/** 快照儲存區。預覽部署各自獨立，避免蓋掉正式畫面。 */
+function snapshotStore() {
+  const ctx = (globalThis as any).Netlify?.context?.deploy?.context;
+  return ctx === "production" ? getStore("cctv") : getDeployStore("cctv");
+}
+
+const keyOf = (channel: number) => `snapshot-${channel}.jpg`;
+
+/** 內網推上來的畫面存進 Blobs，覆蓋同一個鍵，只保留最新一張。 */
+export async function storeSnapshot(channel: number, data: ArrayBuffer): Promise<void> {
+  await snapshotStore().set(keyOf(channel), data, {
+    metadata: { captured_at: new Date().toISOString() },
+  });
+}
+
+export interface StoredSnapshot { data: ArrayBuffer; capturedAt: string; ageSec: number; }
+
+/** 取出最近一次推上來的畫面；沒有就回 null。 */
+export async function latestSnapshot(channel: number): Promise<StoredSnapshot | null> {
+  const got = await snapshotStore().getWithMetadata(keyOf(channel), { type: "arrayBuffer" });
+  if (!got?.data) return null;
+
+  const capturedAt = String((got.metadata as any)?.captured_at || "");
+  const ageSec = capturedAt
+    ? Math.round((Date.now() - new Date(capturedAt).getTime()) / 1000)
+    : Number.MAX_SAFE_INTEGER;
+  return { data: got.data as ArrayBuffer, capturedAt, ageSec };
+}
 
 export function cctvChannels(): number[] {
   const raw = env("CCTV_CHANNELS").trim();
@@ -68,6 +110,12 @@ export async function fetchSnapshot(channel: number): Promise<ArrayBuffer> {
   }
 
   if (first.ok) return await ensureImage(first);      // 有些機型不需驗證
+  if (first.status === 403) {
+    // 實測就是這一種：連得到但被拒絕，且發生在還沒帶帳密的第一次請求，
+    // 代表是來源 IP／地區限制，不是帳密問題。
+    throw new Error("監視器拒絕此來源（403）。雲端主機的對外 IP 不在允許範圍，"
+      + "請改由公司網路以 tools/push_snapshots.py 推送畫面");
+  }
   if (first.status !== 401) {
     throw new Error(`監視器回應 ${first.status}`);
   }

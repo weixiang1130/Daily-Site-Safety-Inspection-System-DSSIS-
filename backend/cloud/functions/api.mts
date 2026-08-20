@@ -15,7 +15,8 @@ import {
 import { buildCoordinationPdf, buildInspectionPdf, type SigInput } from "../lib/pdf.ts";
 import { pollWeatherStations } from "../lib/weather.ts";
 import { pollHeadcount } from "../lib/headcount.ts";
-import { cctvChannels, cctvEnabled, fetchSnapshot } from "../lib/cctv.ts";
+import { cctvChannels, cctvEnabled, fetchSnapshot,
+         latestSnapshot, storeSnapshot } from "../lib/cctv.ts";
 import { levelOf, stationLevel, LEVEL_LABEL, THRESHOLDS } from "../lib/hazard.ts";
 
 const db = getDatabase();
@@ -39,6 +40,10 @@ const BRANDING = {
   // 戰情室預設聚焦的工地。現階段以單一主場站為主，其餘工地的填報仍會列出。
   primary_site_code: Netlify.env.get("PRIMARY_SITE_CODE") || "",
 };
+
+/** 內網推上來的畫面超過這個秒數就算過期。推送間隔的兩倍多一些，
+    容得下一次漏推，又不會讓牆上長時間顯示舊畫面而沒人察覺。 */
+const SNAPSHOT_MAX_AGE_SEC = 180;
 
 /** 儀表板是否免登入。公開網際網路上務必維持 false。 */
 const PUBLIC_DASHBOARD = Netlify.env.get("PUBLIC_DASHBOARD") === "true";
@@ -239,17 +244,29 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       // 只接受設定檔列出的頻道，避免這支路由變成可任意存取內網主機的跳板
       if (!allowed.includes(ch)) return fail(400, "頻道不在允許範圍");
 
+      const imageHeaders = (ageSec?: number) => ({
+        "Content-Type": "image/jpeg",
+        // 畫面持續更新，不能讓瀏覽器或 CDN 快取
+        "Cache-Control": "no-store",
+        ...(ageSec == null ? {} : { "X-Snapshot-Age": String(ageSec) }),
+      });
+
+      // 先看內網推上來的畫面。監視器主機會擋掉雲端的對外 IP（實測 403），
+      // 所以推送才是主要路徑，直連只是備援。
+      const stored = await latestSnapshot(ch);
+      if (stored && stored.ageSec <= SNAPSHOT_MAX_AGE_SEC) {
+        return new Response(stored.data, { headers: imageHeaders(stored.ageSec) });
+      }
+
       try {
         const buf = await fetchSnapshot(ch);
-        return new Response(buf, {
-          headers: {
-            "Content-Type": "image/jpeg",
-            // 畫面每隔數秒更新，不能讓瀏覽器或 CDN 快取
-            "Cache-Control": "no-store",
-          },
-        });
+        return new Response(buf, { headers: imageHeaders(0) });
       } catch (e: any) {
         console.error("[cctv] 取得畫面失敗", e);
+        // 直連也失敗時，過期的畫面仍比空白有用，但要明講它是舊的
+        if (stored) {
+          return new Response(stored.data, { headers: imageHeaders(stored.ageSec) });
+        }
         return fail(502, `取得監視器畫面失敗：${e?.message || e}`);
       }
     }
@@ -257,6 +274,29 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
     if (p === "/api/cctv/channels") {
       if (!PUBLIC_DASHBOARD && !me) return fail(401, "請先登入");
       return json({ enabled: cctvEnabled(), channels: cctvEnabled() ? cctvChannels() : [] });
+    }
+
+    // 內網代理推送監視畫面。以權杖驗證，不用 session——推送程式跑在公司
+    // 網路內的機器上，不會有登入狀態。
+    if (p === "/api/v1/ingest/snapshot" && method === "POST") {
+      // 用專屬權杖而非設備廠商的權杖：推送程式是我們自己跑在公司網路內的
+      // 代理，不是外部廠商，權限範圍也只有上傳畫面這一件事。
+      const expected = Netlify.env.get("SITE_AGENT_TOKEN") || "";
+      const token = req.headers.get("x-agent-token") || "";
+      if (!expected || token !== expected) return fail(401, "代理權杖驗證失敗");
+
+      const ch = parseInt(url.searchParams.get("channel") || "", 10);
+      if (!cctvChannels().includes(ch)) return fail(400, "頻道不在允許範圍");
+
+      const type = req.headers.get("content-type") || "";
+      if (!type.startsWith("image/")) return fail(415, "請以 image/jpeg 傳送畫面");
+
+      const data = await req.arrayBuffer();
+      if (data.byteLength < 1024) return fail(400, "影像過小，可能不是有效畫面");
+      if (data.byteLength > 5_000_000) return fail(413, "影像過大");
+
+      await storeSnapshot(ch, data);
+      return json({ ok: true, channel: ch, bytes: data.byteLength });
     }
 
     // ---- 檔案 ----

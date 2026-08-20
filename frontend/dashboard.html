@@ -387,6 +387,14 @@ const Cam = {
       return;
     }
 
+    // 畫面是由內網代理推上來的，可能比現在舊。牆上必須看得出來它多舊，
+    // 否則停止推送後會一直顯示同一張而沒人察覺。
+    const age = parseInt(r.headers.get('X-Snapshot-Age') || '', 10);
+    if (Number.isFinite(age)) {
+      document.getElementById('camLabel').textContent =
+        `鏡頭 ${ch}　${age < 60 ? age + ' 秒前' : Math.round(age / 60) + ' 分鐘前'}`;
+    }
+
     const url = URL.createObjectURL(blob);
     const img = document.getElementById('camImg');
     // 舊的 object URL 要釋放，否則長時間輪播會一路累積佔用記憶體
