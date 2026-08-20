@@ -109,8 +109,8 @@ setInterval(tick, 1000); tick();
 const ENV_ORDER = ['pm25', 'pm10', 'noise', 'temperature', 'humidity', 'heat_index'];
 const LEVEL_CLASS = ['ok', 'notice', 'warn', 'critical', 'critical'];
 
-function tile(label, value, unit, cls) {
-  return `<div class="tile ${cls || ''}">
+function tile(label, value, unit, cls, tip) {
+  return `<div class="tile ${cls || ''}"${tip ? ` title="${esc(tip)}"` : ''}>
     <div class="t-label">${esc(label)}</div>
     <div class="t-value">${esc(String(value))}<u>${esc(unit || '')}</u></div>
   </div>`;
@@ -143,13 +143,18 @@ function renderEnvironment(list, spec) {
     .filter(k => primary.metrics[k] != null)
     .map(k => {
       const s = spec[k] || {};
+      // 判定依據與注意事項隨 API 一起送來，掛成 title 讓人查得到，
+      // 不必為了看一句說明去翻文件
+      const tip = [s.caveat, s.basis].filter(Boolean).join('　｜　');
       return tile(s.label || k, primary.metrics[k], s.unit,
-                  LEVEL_CLASS[(primary.levels || {})[k] || 0]);
+                  LEVEL_CLASS[(primary.levels || {})[k] || 0], tip);
     });
 
   // 危害等級是我們自己算的，和廠商平台回報的不同，放在最後做為結論
   cells.push(tile('危害等級', primary.level_label, '',
-                  LEVEL_CLASS[primary.level] + ' tile-verdict'));
+                  LEVEL_CLASS[primary.level] + ' tile-verdict',
+                  '取各項指標中最高者。任何一項達到危險都必須反映出來，'
+                  + '不能被其他正常的指標稀釋掉。'));
   tilesEl.innerHTML = cells.join('');
 
   document.getElementById('otherSites').innerHTML = others.length
@@ -415,8 +420,12 @@ async function load() {
   const d = await API.get(`/api/dashboard?days=${days}`
     + (site ? '&site_id=' + site : ''));
 
-  document.getElementById('stamp').textContent =
-    '更新於 ' + d.generated_at.replace('T', ' ').slice(0, 16);
+  // generated_at 是 UTC。直接印出來會和旁邊的時鐘差八小時，
+  // 值班人員只會覺得資料是八小時前的。
+  document.getElementById('stamp').textContent = '更新於 ' +
+    new Date(d.generated_at).toLocaleString('zh-TW',
+      { timeZone: 'Asia/Taipei', hour12: false,
+        month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 
   renderEnvironment(d.environment || [], d.environment_spec || {});
   Cam.setTitle(d.environment || []);
