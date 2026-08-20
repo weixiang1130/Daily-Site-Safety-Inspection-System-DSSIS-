@@ -610,6 +610,122 @@ body.war {
   color: var(--text-primary);
 }
 
+/* 熱危害警示
+   達第一級才出現。常態顯示的警示很快會被當成背景而失去作用，
+   因此等級越高、視覺越強，第三級起用實心底色。 */
+.heat-alert {
+  flex: none;
+  border: 1px solid var(--border-strong);
+  border-left: 5px solid var(--warn-600);
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+  padding: var(--sp-2) var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.heat-alert.l1 { border-left-color: var(--text-secondary); }
+.heat-alert.l2 { border-left-color: var(--warn-600); background: var(--warn-100); }
+.heat-alert.l3,
+.heat-alert.l4 {
+  border-left-color: var(--critical-600);
+  background: var(--critical-100);
+}
+/* 第四級是「原則上不應戶外作業」，用閃爍確保沒有人會忽略 */
+.heat-alert.l4 { animation: heat-pulse 1.6s ease-in-out infinite; }
+@keyframes heat-pulse {
+  0%, 100% { background: var(--critical-100); }
+  50%      { background: var(--bg-surface); }
+}
+
+.ha-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+.ha-level {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: var(--fs-h3);
+  color: var(--critical-600);
+  white-space: nowrap;
+}
+.heat-alert.l1 .ha-level { color: var(--text-primary); }
+.heat-alert.l2 .ha-level { color: var(--warn-600); }
+.ha-value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.ha-principle { font-size: var(--fs-sm); color: var(--text-primary); }
+
+.ha-row {
+  display: flex;
+  gap: var(--sp-3);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.ha-row > b {
+  flex: none;
+  font-family: var(--font-heading);
+  letter-spacing: var(--ls-label);
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.ha-sun > span { color: var(--critical-600); }
+
+/* 等級上升時的彈出提醒。牆上沒有人會去點，因此會自動收起。 */
+.heat-popup {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  margin: auto;
+  width: min(760px, 82vw);
+  height: fit-content;
+  max-height: 80vh;
+  overflow-y: auto;
+  background: var(--bg-surface);
+  border: 2px solid var(--critical-600);
+  border-radius: var(--radius);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, .28);
+  padding: var(--sp-5) var(--sp-6);
+  cursor: pointer;
+}
+.hp-title {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: var(--fs-h1);
+  color: var(--critical-600);
+  margin-bottom: var(--sp-2);
+}
+.hp-value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-h2);
+  color: var(--text-primary);
+}
+.hp-principle {
+  font-size: var(--fs-body);
+  margin: var(--sp-3) 0;
+  color: var(--text-primary);
+}
+.heat-popup ul {
+  margin: 0;
+  padding-left: 1.2em;
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+.hp-foot {
+  margin-top: var(--sp-4);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
 /* 表格列高收緊：牆上一頁能多看幾筆，比寬鬆的留白重要 */
 .war table th,
 .war table td { padding: 5px var(--sp-3); }

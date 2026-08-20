@@ -25,6 +25,9 @@
 
 <div class="war-body">
 
+  <!-- 熱危害警示：達第一級才出現，等級越高越醒目 -->
+  <section class="heat-alert hidden" id="heatAlert"></section>
+
   <!-- 現場即時：環境、人數、監視畫面 -->
   <section class="band band-live">
     <div class="live-main">
@@ -83,6 +86,9 @@
   </section>
 
 </div>
+
+<!-- 等級上升時的即時提醒。牆上沒有人會去點，因此會自動關閉。 -->
+<div class="heat-popup hidden" id="heatPopup" role="alert"></div>
 
 <script src="/static/common.js"></script>
 <script>
@@ -151,6 +157,8 @@ function renderEnvironment(list, spec) {
     });
 
   // 危害等級是我們自己算的，和廠商平台回報的不同，放在最後做為結論
+  renderHeatAlert(primary);
+
   cells.push(tile('危害等級', primary.level_label, '',
                   LEVEL_CLASS[primary.level] + ' tile-verdict',
                   '取各項指標中最高者。任何一項達到危險都必須反映出來，'
@@ -164,6 +172,62 @@ function renderEnvironment(list, spec) {
           <span class="env-level l${s.level}">${esc(s.level_label)}</span>
         </span>`).join('')
     : '';
+}
+
+// ---------------------------------------------------------------------------
+// 熱危害警示
+//
+// 只顯示「第三級」對現場沒有用——值班人員未必記得第三級要做什麼。
+// 因此把指引附表三的應辦措施直接寫在牆上，並在等級上升時主動彈出提醒。
+// ---------------------------------------------------------------------------
+let lastHeatLevel = null;
+
+function renderHeatAlert(primary) {
+  const box = document.getElementById('heatAlert');
+  const heat = primary && primary.heat;
+
+  // 未達第一級就不佔版面。常態顯示的警示很快就會被當成背景而失去作用。
+  if (!heat || heat.level < 1) {
+    box.classList.add('hidden');
+    lastHeatLevel = heat ? heat.level : null;
+    return;
+  }
+
+  box.className = `heat-alert l${heat.level}`;
+  const sun = heat.if_direct_sun;
+  box.innerHTML = `
+    <div class="ha-head">
+      <span class="ha-level">熱危害 ${esc(heat.name)}</span>
+      <span class="ha-value">熱指數 ${esc(String(heat.value))}</span>
+      <span class="ha-principle">${esc(heat.principle)}</span>
+    </div>
+    <div class="ha-row"><b>本級重點</b>
+      <span>${(heat.focus || []).map(esc).join('　·　')}</span></div>
+    <div class="ha-row"><b>操作要點</b>
+      <span>${heat.reminders.map(esc).join('　·　')}</span></div>
+    ${sun ? `<div class="ha-row ha-sun"><b>注意</b>
+      <span>陽光直接照射下作業或穿著不透氣防護衣物時，
+      依指引附表二備註三應提升為 ${esc(sun.name)}，並依該級採取措施</span></div>` : ''}`;
+
+  // 等級上升才彈出。維持在同一級時不重複打擾，否則很快就沒人看。
+  if (lastHeatLevel !== null && heat.level > lastHeatLevel) showHeatPopup(heat);
+  lastHeatLevel = heat.level;
+}
+
+function showHeatPopup(heat) {
+  const p = document.getElementById('heatPopup');
+  p.className = `heat-popup l${heat.level}`;
+  p.innerHTML = `
+    <div class="hp-title">熱危害風險等級提升至 ${esc(heat.name)}</div>
+    <div class="hp-value">熱指數 ${esc(String(heat.value))}</div>
+    <div class="hp-principle">${esc(heat.principle)}</div>
+    <ul>${heat.measures.map(m => `<li>${esc(m)}</li>`).join('')}</ul>
+    <div class="hp-foot">依《高氣溫作業熱危害預防指引》附表二、附表三</div>`;
+
+  clearTimeout(showHeatPopup.timer);
+  // 牆上沒有人會去關掉它，因此一定要自動收起，否則會永遠蓋住儀表板
+  showHeatPopup.timer = setTimeout(() => p.classList.add('hidden'), 40000);
+  p.onclick = () => p.classList.add('hidden');
 }
 
 function renderPeople(hc) {

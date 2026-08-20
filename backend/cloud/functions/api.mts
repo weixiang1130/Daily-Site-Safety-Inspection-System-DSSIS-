@@ -18,6 +18,7 @@ import { pollHeadcount } from "../lib/headcount.ts";
 import { cctvChannels, cctvEnabled, fetchSnapshot,
          latestSnapshot, storeSnapshot } from "../lib/cctv.ts";
 import { levelOf, stationLevel, LEVEL_LABEL, THRESHOLDS } from "../lib/hazard.ts";
+import { heatGuidance, escalated } from "../lib/heat-guidance.ts";
 
 const db = getDatabase();
 
@@ -1048,6 +1049,19 @@ async function dashboard(url: URL) {
     );
     st.level = stationLevel(judged);
     st.level_label = LEVEL_LABEL[st.level];
+
+    // 熱危害另外附上應辦措施。只顯示「第三級」對現場沒有用——值班人員
+    // 未必記得第三級要做什麼，牆上要直接講出現在該做哪幾件事。
+    const heat = heatGuidance(judged.heat_index as number | undefined);
+    if (heat) {
+      st.heat = {
+        ...heat,
+        value: judged.heat_index,
+        // 附表二備註 3：陽光直照或穿不透氣防護衣應提升一級。工地多屬前者，
+        // 但是否成立要由現場認定，因此並列而不直接取代判定結果。
+        if_direct_sun: heat.level < 4 ? escalated(heat.level) : null,
+      };
+    }
   }
 
   return {
