@@ -422,6 +422,11 @@ body.war {
   gap: var(--sp-3);
   padding: var(--sp-3) var(--sp-4) var(--sp-4);
 }
+/* 上半部依內容決定高度，下半部吃掉剩下的。
+   沒有明確指定的話，flex 會平均壓縮每一塊，畫面就變成整片擠扁。 */
+.heat-alert,
+.band-live,
+.band-kpi { flex: 0 0 auto; }
 
 /* 每個區塊都是一張卡片，和填報頁的 .card 同一個語彙，只是留白收緊 */
 .band {
@@ -567,13 +572,33 @@ body.war {
   background: var(--bg-sunken);
 }
 
-/* 長官關注的排行：橫條列，並排在醒目位置 */
-.band-rank {
+/* 下半部：清單與排行並排，一起吃掉剩餘高度。
+   先前兩者各佔一整條全寬區塊，五層堆疊搶同一份高度，畫面就被擠扁。 */
+.band-main {
+  flex: 1 1 auto;
+  min-height: 0;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--sp-5);
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  gap: var(--sp-3);
 }
-.rank { min-width: 0; }
+
+/* 長官關注的排行：橫條列，三項直向排列在右側 */
+.band-rank {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  min-height: 0;
+  overflow: hidden;
+}
+.rank {
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+}
+/* 趨勢圖不需要跟著長高，把空間讓給兩份排行 */
+.rank-trend { flex: 0 0 auto; }
 .rank h3 {
   font-family: var(--font-heading);
   font-size: var(--fs-xs);
@@ -581,7 +606,14 @@ body.war {
   color: var(--text-muted);
   margin: 0 0 var(--sp-2);
 }
-.barlist { display: flex; flex-direction: column; gap: var(--sp-2); }
+.barlist {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
 .barlist .r {
   display: grid;
   grid-template-columns: 7em 1fr 2.5em;
@@ -614,7 +646,6 @@ body.war {
    達第一級才出現。常態顯示的警示很快會被當成背景而失去作用，
    因此等級越高、視覺越強，第三級起用實心底色。 */
 .heat-alert {
-  flex: none;
   border: 1px solid var(--border-strong);
   border-left: 5px solid var(--warn-600);
   border-radius: var(--radius);
@@ -713,6 +744,12 @@ body.war {
   margin: var(--sp-3) 0;
   color: var(--text-primary);
 }
+.hp-reminders {
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  color: var(--text-secondary);
+  margin-bottom: var(--sp-3);
+}
 .heat-popup ul {
   margin: 0;
   padding-left: 1.2em;
@@ -732,7 +769,7 @@ body.war {
 .war table th { font-size: var(--fs-xs); }
 
 /* 清單輪播區：吃掉剩下的高度，內部不捲動，改由程式換頁 */
-.band-rota { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.band-rota { min-height: 0; display: flex; flex-direction: column; }
 .rota-body { flex: 1; min-height: 0; overflow: hidden; }
 .dots { display: flex; gap: 6px; align-items: center; }
 .dots i {
@@ -770,19 +807,41 @@ table.fixed th {
 .cols-overdue th:nth-child(5) { width: 11%; }
 .cols-overdue th:nth-child(6) { width: 8%; }
 
+/* 矮螢幕（1080 實體螢幕開 125% 顯示縮放＝864 CSS 高，很常見）。
+   上半部的固定區塊會把下半部壓到排行的橫條只剩十幾像素高而讀不出來，
+   因此收掉最不即時的一塊、並縮小數字字級，把高度讓給看得懂的內容。
+   趨勢是回顧性資訊，牆上少了它不影響當下判斷；排行被壓扁則是直接失效。 */
+@media (max-height: 950px) {
+  .rank-trend { display: none; }
+  .tile .t-value { font-size: 1.75rem; }
+  .tile-hero .t-value { font-size: 2.4rem; }
+  .tile { padding: 4px var(--sp-3); }
+}
+
+/* 太矮的螢幕（筆電 768）放不下一個戰情牆。
+   硬壓成一屏的結果是每一塊都被擠到讀不出來——那比捲動更糟。
+   因此低於這個高度就還原正常捲動，一屏只保證給牆上的大螢幕。 */
+@media (max-height: 800px) {
+  body.war { height: auto; overflow: visible; }
+  .band-main { min-height: 420px; }
+  .band-rank { overflow: visible; }
+  .barlist { overflow: visible; }
+}
+
 /* 窄螢幕（筆電、平板）：磚塊改為多列，並還原正常捲動。
    一屏的前提是大螢幕；在小螢幕硬壓成一屏，只會每一格都讀不到。 */
-@media (max-width: 1400px) {
+@media (max-width: 1200px) {
   .tiles-kpi { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .band-rank { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4); }
+  .band-main { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); }
 }
 @media (max-width: 1100px) {
   body.war { height: auto; overflow: visible; display: block; }
   .band-live { grid-template-columns: 1fr; }
   .tiles-env { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .tiles-people { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .band-rank { grid-template-columns: 1fr; }
-  .band-rota { flex: none; }
+  .band-main { grid-template-columns: 1fr; }
+  .band-rank { overflow: visible; }
+  .barlist { overflow: visible; }
   .rota-body { overflow-x: auto; }
 }
 
@@ -793,7 +852,7 @@ table.fixed th {
 .light.green  { background: var(--ok-600); }
 
 /* 趨勢柱 */
-.spark { display: flex; align-items: flex-end; gap: 3px; height: 5em; }
+.spark { display: flex; align-items: flex-end; gap: 3px; height: 4em; }
 .spark div {
   flex: 1;
   min-height: 2px;

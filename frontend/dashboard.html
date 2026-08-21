@@ -57,33 +57,35 @@
     <div class="tiles tiles-kpi" id="kpis"></div>
   </section>
 
-  <!-- 長官關注的兩項排行 -->
-  <section class="band band-rank">
-    <div class="rank">
-      <h3>災害類別分布</h3>
-      <div class="barlist" id="hazard"></div>
-    </div>
-    <div class="rank">
-      <h3>廠商缺失排行</h3>
-      <div class="barlist" id="vendor"></div>
-    </div>
-    <div class="rank">
-      <h3>近 14 日缺失趨勢</h3>
-      <div class="spark" id="trend"></div>
-      <div class="spark-labels" id="trendLabels"></div>
-    </div>
-  </section>
+  <!-- 下半部：清單與排行並排。
+       先前兩者各佔一整條，五層堆疊一起搶固定高度，畫面就被擠扁。 -->
+  <div class="band-main">
+    <section class="band band-rota">
+      <div class="band-head">
+        <h3 id="rotaTitle">最新動態</h3>
+        <span class="rota-count muted small" id="rotaCount"></span>
+        <span class="spacer"></span>
+        <div class="dots" id="rotaDots"></div>
+      </div>
+      <div class="rota-body" id="rota"></div>
+    </section>
 
-  <!-- 清單區：自動換頁，不使用捲軸 -->
-  <section class="band band-rota">
-    <div class="band-head">
-      <h3 id="rotaTitle">最新動態</h3>
-      <span class="rota-count muted small" id="rotaCount"></span>
-      <span class="spacer"></span>
-      <div class="dots" id="rotaDots"></div>
-    </div>
-    <div class="rota-body" id="rota"></div>
-  </section>
+    <section class="band band-rank">
+      <div class="rank">
+        <h3>災害類別分布</h3>
+        <div class="barlist" id="hazard"></div>
+      </div>
+      <div class="rank">
+        <h3>廠商缺失排行</h3>
+        <div class="barlist" id="vendor"></div>
+      </div>
+      <div class="rank rank-trend">
+        <h3>近 14 日缺失趨勢</h3>
+        <div class="spark" id="trend"></div>
+        <div class="spark-labels" id="trendLabels"></div>
+      </div>
+    </section>
+  </div>
 
 </div>
 
@@ -101,6 +103,10 @@
 //   2. 以主場站為主體。上方即時區塊只看主場站，下方清單仍涵蓋所有工地，
 //      因為現場只有一個戰情室。
 // ---------------------------------------------------------------------------
+
+// 提示文字用的換行。直接寫成跳脫字元容易在編輯過程被誤寫成真實換行，
+// 那會讓整段 script 因語法錯誤而完全不執行。
+const NEWLINE = String.fromCharCode(10);
 
 let PRIMARY_CODE = '';     // 主場站代碼，由 /api/branding 提供
 let SITES = [];
@@ -194,6 +200,9 @@ function renderHeatAlert(primary) {
   }
 
   box.className = `heat-alert l${heat.level}`;
+  // 操作要點是固定不變的數字（補水頻率、休息時間），佔一整行不划算，
+  // 改掛成提示；等級上升時的彈出提醒裡也會完整列出。
+  box.title = (heat.reminders || []).join(NEWLINE);
   const sun = heat.if_direct_sun;
   box.innerHTML = `
     <div class="ha-head">
@@ -203,8 +212,6 @@ function renderHeatAlert(primary) {
     </div>
     <div class="ha-row"><b>本級重點</b>
       <span>${(heat.focus || []).map(esc).join('　·　')}</span></div>
-    <div class="ha-row"><b>操作要點</b>
-      <span>${heat.reminders.map(esc).join('　·　')}</span></div>
     ${sun ? `<div class="ha-row ha-sun"><b>注意</b>
       <span>陽光直接照射下作業或穿著不透氣防護衣物時，
       依指引附表二備註三應提升為 ${esc(sun.name)}，並依該級採取措施</span></div>` : ''}`;
@@ -221,6 +228,8 @@ function showHeatPopup(heat) {
     <div class="hp-title">熱危害風險等級提升至 ${esc(heat.name)}</div>
     <div class="hp-value">熱指數 ${esc(String(heat.value))}</div>
     <div class="hp-principle">${esc(heat.principle)}</div>
+    ${(heat.reminders || []).length ? `<div class="hp-reminders">${
+      heat.reminders.map(esc).join('　·　')}</div>` : ''}
     <ul>${heat.measures.map(m => `<li>${esc(m)}</li>`).join('')}</ul>
     <div class="hp-foot">依《高氣溫作業熱危害預防指引》附表二、附表三</div>`;
 
@@ -253,13 +262,21 @@ function renderKpis(k) {
 }
 
 function barlist(el, rows) {
+  const box = document.getElementById(el);
   const max = Math.max(1, ...rows.map(r => r.count));
-  document.getElementById(el).innerHTML = rows.length
+  box.innerHTML = rows.length
     ? rows.slice(0, 6).map(r => `
       <div class="r"><div class="lbl">${esc(r.label)}</div>
       <div class="track"><i style="width:${r.count / max * 100}%"></i></div>
       <div class="v">${r.count}</div></div>`).join('')
     : '<p class="empty-state">尚無資料</p>';
+
+  // 先畫再修：塞不下的直接移掉。
+  // 事前用列高估算不可靠——第一次渲染時還沒有列可以量，換一台螢幕就會
+  // 算錯而多出半列被裁掉。量實際結果最準，也不必為每種螢幕調參數。
+  while (box.scrollHeight > box.clientHeight + 1 && box.children.length > 1) {
+    box.removeChild(box.lastElementChild);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -278,17 +295,30 @@ const Rota = {
     if (!this.timer) this.timer = setInterval(() => this.next(), 10000);
   },
 
-  perPage() {
+  /** 這個容器最多塞得下幾列。 */
+  capacity() {
     const box = document.getElementById('rota');
     if (!this.rowH) return 6;                       // 首次渲染前的暫用值
     // 表頭高度和資料列不同，要各別量，否則在矮視窗會少算好幾列
     return Math.max(1, Math.floor((box.clientHeight - this.headH) / this.rowH));
   },
 
+  /**
+   * 每頁實際放幾列。
+   *
+   * 不是直接用容量填滿——22 筆、容量 21 會變成第一頁 21 列、第二頁 1 列，
+   * 牆上輪到那一頁就只剩孤零零一行。改為算出頁數後平均分配。
+   */
+  perPage(total) {
+    const cap = this.capacity();
+    if (!total || total <= cap) return cap;
+    return Math.ceil(total / Math.ceil(total / cap));
+  },
+
   next() {
     const v = this.views[this.view];
     if (!v) return;
-    const pages = Math.max(1, Math.ceil(v.rows.length / this.perPage()));
+    const pages = Math.max(1, Math.ceil(v.rows.length / this.perPage(v.rows.length)));
     this.page += 1;
     if (this.page >= pages) {
       this.page = 0;
@@ -308,7 +338,7 @@ const Rota = {
       return;
     }
 
-    const per = this.perPage();
+    const per = this.perPage(v.rows.length);
     const pages = Math.max(1, Math.ceil(v.rows.length / per));
     if (this.page >= pages) this.page = 0;
     const slice = v.rows.slice(this.page * per, this.page * per + per);
