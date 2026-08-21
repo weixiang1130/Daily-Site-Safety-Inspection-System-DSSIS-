@@ -87,6 +87,10 @@ class Site(Base):
     code = Column(Unicode(32), unique=True, nullable=False)
     name = Column(Unicode(128), nullable=False)
     active = Column(Boolean, default=True)
+    # 事業處。雲端 migration 004 就加了，地端一直沒跟上，而共用前端的工地
+    # 下拉是依 department 分組的（frontend/common.js），少了它就分不了組。
+    department = Column(Unicode(64))
+    sort_order = Column(Integer, nullable=False, default=0)
 
 
 class Vendor(Base):
@@ -334,31 +338,40 @@ class DeviceReading(Base):
     )
 
 
-# 既有資料庫要補上的欄位。create_all() 只會建立缺少的「表」，不會替既有的
-# 表加欄位，因此舊的開發資料庫升級後會在寫入時直接炸掉。雲端那側有
-# netlify/database/migrations/，地端沒有遷移工具，就在啟動時補這一步。
-_ADDED_COLUMNS = [
-    ("inspections", "inspector_name", "NVARCHAR(64)"),
-    ("coordinations", "recorder_name", "NVARCHAR(64)"),
-]
-
-
 def _add_missing_columns():
-    """替既有資料表補上後來新增的欄位；已存在就略過。"""
+    """替既有資料表補上模型有、資料庫還沒有的欄位。
+
+    create_all() 只建立缺少的「表」，不會替既有的表加欄位，因此舊的資料庫
+    升級後會在寫入時直接炸掉。雲端那側有 netlify/database/migrations/，
+    地端沒有遷移工具。
+
+    欄位清單直接從模型推導，不另外手工維護一份——手工清單漏掉的欄位不會有
+    任何人發現：migration 004 的 sites.department 就是這樣在地端缺了很久，
+    而共用前端的工地下拉正是依它分組的。
+    """
     from sqlalchemy import inspect as sa_inspect, text
+    from sqlalchemy.schema import CreateColumn
 
     inspector = sa_inspect(engine)
     existing_tables = set(inspector.get_table_names())
 
-    with engine.begin() as conn:
-        for table, column, ddl_type in _ADDED_COLUMNS:
-            if table not in existing_tables:
-                continue          # create_all 會建立，屆時就已含此欄位
-            cols = {c["name"] for c in inspector.get_columns(table)}
-            if column in cols:
-                continue
-            # SQLite 的型別是動態的，NVARCHAR 也接受，不需分支
-            conn.execute(text(f"ALTER TABLE {table} ADD {column} {ddl_type}"))
+    for table in Base.metadata.sorted_tables:
+        if table.name not in existing_tables:
+            continue              # create_all 已建好，屆時就含全部欄位
+        have = {c["name"] for c in inspector.get_columns(table.name)}
+        missing = [c for c in table.columns if c.name not in have]
+        if not missing:
+            continue
+
+        # 逐欄各自提交：某一欄失敗（例如既有資料違反 NOT NULL）不該讓其他
+        # 欄位跟著回滾，也不該讓整個服務起不來。
+        for col in missing:
+            ddl = CreateColumn(col).compile(engine).string
+            try:
+                with engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE {table.name} ADD {ddl}"))
+            except Exception as e:                    # noqa: BLE001
+                print(f"[db] 無法補上 {table.name}.{col.name}：{e}")
 
 
 def init_db():

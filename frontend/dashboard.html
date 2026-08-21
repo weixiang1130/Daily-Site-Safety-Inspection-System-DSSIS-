@@ -397,9 +397,7 @@ function buildRota(d) {
       <td title="${esc(r.site)}">${esc(r.site)}</td>
       <td title="${esc(r.hazard_label)}：${esc(r.description)}">${esc(r.description)}</td>
       <td>${esc(r.vendor)}</td>
-      <td><span class="tag ${r.status === 'closed' ? 'closed'
-        : r.status === 'fixed' ? 'fixed' : 'open'}">${
-        esc(STATUS_LABEL[r.status] || r.status)}</span></td></tr>`,
+      <td>${statusTag(r.status)}</td></tr>`,
   });
 
   views.push({
@@ -470,6 +468,12 @@ const Cam = {
   },
 
   fail(msg) {
+    // 清掉畫面前先釋放目前這張，否則每次失敗都會遺留一個 blob
+    const img0 = document.getElementById('camImg');
+    if (img0.dataset.objectUrl) {
+      URL.revokeObjectURL(img0.dataset.objectUrl);
+      delete img0.dataset.objectUrl;
+    }
     // 用 <img src> 載入時，失敗只會留下一片黑而看不出原因。
     // 改成自己取回內容，取不到就把理由寫在畫面上，現場才知道要找誰處理。
     const err = document.getElementById('camError');
@@ -521,7 +525,11 @@ const Cam = {
     const img = document.getElementById('camImg');
     // 舊的 object URL 要釋放，否則長時間輪播會一路累積佔用記憶體
     const old = img.dataset.objectUrl;
-    img.onload = () => { if (old) URL.revokeObjectURL(old); };
+    // onload 與 onerror 都要釋放：只掛在 onload 的話，任何一張解不開的畫面
+    // 都會讓前一個 URL 永遠留著。牆上的分頁幾週不重整，會一路累積下去。
+    const release = () => { if (old) URL.revokeObjectURL(old); };
+    img.onload = release;
+    img.onerror = release;
     img.dataset.objectUrl = url;
     img.src = url;
     document.getElementById('camError').classList.add('hidden');

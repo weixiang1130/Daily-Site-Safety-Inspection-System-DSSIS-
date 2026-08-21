@@ -444,6 +444,14 @@ td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .kpi.accent .n   { color: var(--text-accent); }
 .kpi.critical { border-color: var(--critical-600); }
 
+/* 必填標記。兩張表單都用 <span class="req">＊</span> 標示唯一的必填欄位，
+   但先前沒有任何規則，星號會以內文顏色顯示、看起來像標點。 */
+.req {
+  color: var(--critical-600);
+  margin-left: 2px;
+  font-weight: 700;
+}
+
 /* 複驗完成但尚未結案。少了這條，verified 會落到 .tag.open 的紅底，
    把「已複驗」顯示成需要處理的紅色，訊號剛好相反。 */
 .tag.verified { background: var(--ok-100); color: var(--ok-600); }

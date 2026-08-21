@@ -40,11 +40,30 @@ function snapshotStore() {
   return ctx === "production" ? getStore("cctv") : getDeployStore("cctv");
 }
 
-const keyOf = (channel: number) => `snapshot-${channel}.jpg`;
+/**
+ * 這台站台預設服務的工地代碼。
+ *
+ * 快照鍵必須帶工地維度：頻道 1 幾乎每台 NVR 都有，若只用頻道編號當鍵，
+ * 第二個工地的推送程式會直接蓋掉第一個工地的畫面——而牆上仍掛著原本的
+ * 工地名稱、時間也顯示「幾秒前」，因為那張圖確實是新的，完全看不出錯。
+ */
+export function defaultCctvSite(): string {
+  return (env("CCTV_SITE_CODE") || env("PRIMARY_SITE_CODE") || "default").trim();
+}
+
+/** 鍵只允許安全字元，避免工地代碼被拿來跳出儲存區的命名空間。 */
+export function safeSiteCode(raw: string): string | null {
+  const s = raw.trim();
+  return /^[A-Za-z0-9_-]{1,32}$/.test(s) ? s : null;
+}
+
+const keyOf = (site: string, channel: number) => `${site}/snapshot-${channel}.jpg`;
 
 /** 內網推上來的畫面存進 Blobs，覆蓋同一個鍵，只保留最新一張。 */
-export async function storeSnapshot(channel: number, data: ArrayBuffer): Promise<void> {
-  await snapshotStore().set(keyOf(channel), data, {
+export async function storeSnapshot(
+  site: string, channel: number, data: ArrayBuffer,
+): Promise<void> {
+  await snapshotStore().set(keyOf(site, channel), data, {
     metadata: { captured_at: new Date().toISOString() },
   });
 }
@@ -53,8 +72,11 @@ export async function storeSnapshot(channel: number, data: ArrayBuffer): Promise
 export interface StoredSnapshot { data: ArrayBuffer; capturedAt: string; ageSec: number | null; }
 
 /** 取出最近一次推上來的畫面；沒有就回 null。 */
-export async function latestSnapshot(channel: number): Promise<StoredSnapshot | null> {
-  const got = await snapshotStore().getWithMetadata(keyOf(channel), { type: "arrayBuffer" });
+export async function latestSnapshot(
+  site: string, channel: number,
+): Promise<StoredSnapshot | null> {
+  const got = await snapshotStore().getWithMetadata(
+    keyOf(site, channel), { type: "arrayBuffer" });
   if (!got?.data) return null;
 
   // 時間戳缺漏或壞掉時回 null，不要用 NaN 或極大值硬湊一個數字：
@@ -62,10 +84,12 @@ export async function latestSnapshot(channel: number): Promise<StoredSnapshot | 
   // 看起來就跟剛拍的一樣；極大值則會印出「150119987579017 分鐘前」。
   // 兩種都讓「畫面多舊」這件事失去意義，而那正是這個機制存在的理由。
   const capturedAt = String((got.metadata as any)?.captured_at || "");
+  // 推送端的時鐘可能超前，算出來會是負數。負數會通過「夠新」的檢查，
+  // 於是一張凍住的畫面在整個時差期間都被當成最新的——和時間戳壞掉一樣，
+  // 都讓「畫面多舊」失去意義，因此一律視為時間不明。
   const ms = capturedAt ? new Date(capturedAt).getTime() : NaN;
-  const ageSec = Number.isFinite(ms)
-    ? Math.round((Date.now() - ms) / 1000)
-    : null;
+  const raw = Number.isFinite(ms) ? Math.round((Date.now() - ms) / 1000) : null;
+  const ageSec = raw != null && raw >= 0 ? raw : null;
   return { data: got.data as ArrayBuffer, capturedAt, ageSec };
 }
 
@@ -80,7 +104,10 @@ export function cctvEnabled(): boolean {
   // 判斷依據是「有沒有設定要顯示的頻道」，不是「有沒有直連憑證」。
   // 推送才是主要路徑（雲端直連會被主機以 403 擋掉），若要求直連憑證才算
   // 啟用，純推送的部署會變成畫面推得上去卻永遠讀不到，且兩邊都不報錯。
-  return Boolean(env("CCTV_CHANNELS").trim() || (env("CCTV_API_URL") && env("CCTV_USER")));
+  // 沿用 cctvChannels() 而不是自己再解析一次 CCTV_CHANNELS：那樣兩邊對
+  // 「未設定」的預設會不一致（它有 [1] 的預設，這裡沒有），造成推得上去
+  // 卻讀不到的同一種錯誤。
+  return Boolean(cctvChannels().length || (env("CCTV_API_URL") && env("CCTV_USER")));
 }
 
 /**
@@ -102,6 +129,11 @@ export async function fetchSnapshot(channel: number): Promise<ArrayBuffer> {
   const deadline = Date.now() + 8500;
   const left = () => deadline - Date.now();
 
+  // 沒讀完的回應會讓底層連線一直留在池外直到被回收。Digest 正常流程本來
+  // 就是「401 換 nonce → 200 取像」，那個 401 的內容從來不會被讀，因此每次
+  // 成功取像都會漏一條連線——不是只有錯誤路徑才漏。
+  const drain = async (r: Response) => { try { await r.body?.cancel(); } catch { /* 已關閉 */ } };
+
   const get = (headers?: HeadersInit) => {
     const ms = Math.min(5000, Math.max(0, left()));
     if (ms < 300) throw new Error("取得畫面逾時（監視器主機回應太慢）");
@@ -120,12 +152,14 @@ export async function fetchSnapshot(channel: number): Promise<ArrayBuffer> {
 
   if (first.ok) return await ensureImage(first);      // 有些機型不需驗證
   if (first.status === 403) {
+    await drain(first);
     // 實測就是這一種：連得到但被拒絕，且發生在還沒帶帳密的第一次請求，
     // 代表是來源 IP／地區限制，不是帳密問題。
     throw new Error("監視器拒絕此來源（403）。雲端主機的對外 IP 不在允許範圍，"
       + "請改由公司網路以 tools/push_snapshots.py 推送畫面");
   }
   if (first.status !== 401) {
+    await drain(first);
     throw new Error(`監視器回應 ${first.status}`);
   }
 
@@ -136,21 +170,37 @@ export async function fetchSnapshot(channel: number): Promise<ArrayBuffer> {
   const auth = digestHeader(challenge, "GET", path,
     env("CCTV_USER"), env("CCTV_PASS"));
 
+  // 挑戰用的回應已經取到 header，內容不再需要
+  await drain(first);
+
   const second = await get({ Authorization: auth });
   if (second.status === 401) {
     // nonce 可能已被主機作廢；重新取一次挑戰再試，仍失敗才視為帳密有問題。
     // 但預算不夠時就不要再試，免得整支函式被平台砍掉而失去錯誤訊息。
-    if (left() < 2500) throw new Error("監視器拒絕驗證（時間不足，未重試）");
+    if (left() < 2500) {
+      await drain(second);
+      throw new Error("監視器拒絕驗證（時間不足，未重試）");
+    }
     const retryChallenge = second.headers.get("www-authenticate") || challenge;
+    await drain(second);
     const retry = await get({
       Authorization: digestHeader(retryChallenge, "GET", path,
         env("CCTV_USER"), env("CCTV_PASS")),
     });
-    if (retry.status === 401) throw new Error("監視器拒絕驗證，請確認帳號密碼");
-    if (!retry.ok) throw new Error(`監視器回應 ${retry.status}`);
+    if (retry.status === 401) {
+      await drain(retry);
+      throw new Error("監視器拒絕驗證，請確認帳號密碼");
+    }
+    if (!retry.ok) {
+      await drain(retry);
+      throw new Error(`監視器回應 ${retry.status}`);
+    }
     return await ensureImage(retry);
   }
-  if (!second.ok) throw new Error(`監視器回應 ${second.status}`);
+  if (!second.ok) {
+    await drain(second);
+    throw new Error(`監視器回應 ${second.status}`);
+  }
 
   return await ensureImage(second);
 }

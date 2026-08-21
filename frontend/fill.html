@@ -111,10 +111,7 @@ const hazardOptions = HAZARDS.map(h => `<option value="${h[0]}">${h[1]}</option>
   vendors = vs;
   installVendorDatalist(vendors);
   document.getElementById('site').innerHTML = siteOptions(sites, me.site_id);
-  try {
-    const last = localStorage.getItem('inspectorName');
-    if (last) document.getElementById('inspector').value = last;
-  } catch (e) { /* 無痕模式沒有 localStorage，略過即可 */ }
+  document.getElementById('inspector').value = recallName('inspector');
   document.getElementById('form').innerHTML =
     forms.map(f => `<option value="${f.form_code}">${esc(f.title)}（${f.item_count} 項）</option>`).join('');
   document.getElementById('date').value = today();
@@ -124,13 +121,9 @@ document.getElementById('go').onclick = async () => {
   // 檢查人員在進入逐項檢查前就要求填寫。等到最後才擋，
   // 現場已經填完幾十項才被退回，會很挫折。
   const inspector = document.getElementById('inspector');
-  if (!inspector.value.trim()) {
-    alert('請先填寫檢查人員姓名');
-    inspector.focus();
-    return;
-  }
+  if (!requireName(inspector, '請先填寫檢查人員姓名')) return;
   // 同一個人通常連續多天填報，記住上次填的名字省去重打
-  try { localStorage.setItem('inspectorName', inspector.value.trim()); } catch (e) {}
+  rememberName('inspector', inspector.value);
 
   const code = document.getElementById('form').value;
   formDef = await API.get('/api/forms/' + code);

@@ -23,6 +23,8 @@
     CAM_CHANNELS   要推送的頻道，逗號分隔，例如 4,7
     WAR_ROOM_URL   戰情室網址，例如 https://xxx.netlify.app
     AGENT_TOKEN    推送權杖，需與站台的 SITE_AGENT_TOKEN 相同
+    SITE_CODE      本工地代碼（例如 BD04）。多個工地各自推送時必填，
+                   否則第二個工地的畫面會覆蓋第一個；單一工地可留空
     PUSH_INTERVAL  每輪間隔秒數，預設 60
 
 用法
@@ -59,6 +61,7 @@ CAM_PASS = env("CAM_PASS")
 CHANNELS = [c.strip() for c in env("CAM_CHANNELS", "1").split(",") if c.strip()]
 WAR_ROOM_URL = env("WAR_ROOM_URL").rstrip("/")
 AGENT_TOKEN = env("AGENT_TOKEN")
+SITE_CODE = env("SITE_CODE")
 INTERVAL = int(env("PUSH_INTERVAL", "60") or 60)
 
 # 單次請求的上限。取像約 380 KB，正常一兩秒內完成；
@@ -103,7 +106,7 @@ def push(channel: str, data: bytes) -> None:
     """把畫面送到戰情室。"""
     r = requests.post(
         f"{WAR_ROOM_URL}/api/v1/ingest/snapshot",
-        params={"channel": channel},
+        params={"channel": channel, **({"site": SITE_CODE} if SITE_CODE else {})},
         headers={"Content-Type": "image/jpeg", "X-Agent-Token": AGENT_TOKEN},
         data=data,
         timeout=TIMEOUT,

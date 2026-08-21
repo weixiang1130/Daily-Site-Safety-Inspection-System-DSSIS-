@@ -216,4 +216,41 @@ const HAZARDS = [
   ['GENERAL', '一般管理'], ['OTHER', '其他']
 ];
 
+/**
+ * 必填姓名欄位的共用檢查與記憶。
+ *
+ * 現場共用同一組帳號，這個名字是唯一能回答「這張表是誰填的」的東西，
+ * 兩張表單的規則必須一致——先前各寫一份，很快就在 trim、提示方式與是否
+ * 記憶上分岔了。
+ *
+ * 記憶用的鍵帶角色：檢查人員與紀錄人員常常不是同一個人，共用一個鍵會把
+ * 別人的名字預先填進去，而那個名字會一路進到簽核存查的 PDF 裡。
+ */
+function requireName(el, message) {
+  const v = (el.value || '').trim();
+  if (!v) { toast(message); el.focus(); return null; }
+  el.value = v;                       // 一併正規化，送出的就是修過的值
+  return v;
+}
+
+function recallName(role) {
+  try { return localStorage.getItem('lastName:' + role) || ''; }
+  catch (e) { return ''; }            // 無痕模式沒有 localStorage
+}
+
+function rememberName(role, value) {
+  try { localStorage.setItem('lastName:' + role, value); } catch (e) { /* 同上 */ }
+}
+
 const STATUS_LABEL = { open: '改善中', fixed: '待複驗', verified: '已複驗', closed: '已結案' };
+
+// 狀態對應的標籤樣式。先前各頁自己寫三元判斷，結果都漏掉 verified，
+// 「已複驗」會落到 .tag.open 的紅底而顯示成需要處理——訊號剛好相反。
+// 標籤文字已經集中在上面，顏色也集中在這裡，兩者才不會再各自漂移。
+const STATUS_CLASS = { open: 'open', fixed: 'fixed', verified: 'verified', closed: 'closed' };
+
+/** 產出狀態標籤。status 未知時退回原字串，不硬套成「需處理」的紅色。 */
+function statusTag(status) {
+  const cls = STATUS_CLASS[status] || '';
+  return `<span class="tag ${cls}">${esc(STATUS_LABEL[status] || status)}</span>`;
+}

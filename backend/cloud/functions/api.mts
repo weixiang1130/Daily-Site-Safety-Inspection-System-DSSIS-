@@ -15,8 +15,8 @@ import {
 import { buildCoordinationPdf, buildInspectionPdf, type SigInput } from "../lib/pdf.ts";
 import { pollWeatherStations } from "../lib/weather.ts";
 import { pollHeadcount } from "../lib/headcount.ts";
-import { cctvChannels, cctvEnabled, fetchSnapshot,
-         latestSnapshot, storeSnapshot } from "../lib/cctv.ts";
+import { cctvChannels, cctvEnabled, fetchSnapshot, latestSnapshot,
+         storeSnapshot, defaultCctvSite, safeSiteCode } from "../lib/cctv.ts";
 import { levelOf, stationLevel, LEVEL_LABEL, THRESHOLDS } from "../lib/hazard.ts";
 import { heatGuidance, escalated } from "../lib/heat-guidance.ts";
 
@@ -258,10 +258,25 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
 
       // 先看內網推上來的畫面。監視器主機會擋掉雲端的對外 IP（實測 403），
       // 所以推送才是主要路徑，直連只是備援。
-      const stored = await latestSnapshot(ch);
-      // 時間不明（ageSec 為 null）一律不算新鮮，寧可去直連確認
-      if (stored && stored.ageSec != null && stored.ageSec <= SNAPSHOT_MAX_AGE_SEC) {
-        return new Response(stored.data, { headers: imageHeaders(stored.ageSec) });
+      //
+      // 這段讀取要放在 try 內：Blobs 若出錯而讓例外往外拋，不但會變成沒有
+      // 訊息的 500，還會連帶跳過下面的直連備援——備援存在的意義就沒了。
+      let stored: Awaited<ReturnType<typeof latestSnapshot>> = null;
+      try {
+        stored = await latestSnapshot(defaultCctvSite(), ch);
+        // 時間不明（ageSec 為 null）一律不算新鮮，寧可去直連確認
+        if (stored && stored.ageSec != null && stored.ageSec <= SNAPSHOT_MAX_AGE_SEC) {
+          return new Response(stored.data, { headers: imageHeaders(stored.ageSec) });
+        }
+      } catch (e: any) {
+        console.error("[cctv] 讀取已推送畫面失敗", e);
+      }
+
+      // 純推送部署還沒收到第一張畫面時，直連只會回「未設定 CCTV_API_URL」，
+      // 那會把人引去設定一條已知被 403 擋掉的路。直接講真正該檢查的東西。
+      if (!stored && !Netlify.env.get("CCTV_API_URL")) {
+        return fail(503, "尚未收到內網推送的畫面。請確認 tools/push_snapshots.py "
+          + "是否正在公司網路內執行");
       }
 
       try {
@@ -297,12 +312,17 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       const type = req.headers.get("content-type") || "";
       if (!type.startsWith("image/")) return fail(415, "請以 image/jpeg 傳送畫面");
 
+      // 工地代碼決定儲存命名空間。未指定時沿用本站設定，讓既有的單一工地
+      // 部署不必改；第二個工地的代理只要帶上自己的代碼就不會互相覆蓋。
+      const site = safeSiteCode(url.searchParams.get("site") || defaultCctvSite());
+      if (!site) return fail(400, "工地代碼格式不正確");
+
       const data = await req.arrayBuffer();
       if (data.byteLength < 1024) return fail(400, "影像過小，可能不是有效畫面");
       if (data.byteLength > 5_000_000) return fail(413, "影像過大");
 
-      await storeSnapshot(ch, data);
-      return json({ ok: true, channel: ch, bytes: data.byteLength });
+      await storeSnapshot(site, ch, data);
+      return json({ ok: true, site, channel: ch, bytes: data.byteLength });
     }
 
     // ---- 檔案 ----
@@ -313,7 +333,11 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       if (!got?.data) return fail(404, "檔案不存在");
       const ct = (got.metadata as any)?.contentType || "application/octet-stream";
       return new Response(got.data as ArrayBuffer, {
-        headers: { "content-type": ct, "cache-control": "private, max-age=3600" },
+        headers: {
+          "content-type": ct,
+          "cache-control": "private, max-age=3600",
+          "x-content-type-options": "nosniff",
+        },
       });
     }
 
@@ -610,9 +634,13 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       if (!["jpg", "jpeg", "png", "webp"].includes(ext)) {
         return fail(400, "僅接受 jpg / png / webp");
       }
-      const key = newKey("photos", ext === "jpeg" ? "jpg" : ext);
+      // content-type 由副檔名決定，不採用呼叫端送來的 file.type。
+      // /api/file 會把存下來的值原樣回傳，若信任呼叫端，上傳 x.png 卻標成
+      // text/html 就會變成本站網域下的 HTML，對已登入的使用者形成儲存型 XSS。
+      const safeExt = ext === "jpeg" ? "jpg" : ext;
+      const key = newKey("photos", safeExt);
       await files().set(key, await file.arrayBuffer(), {
-        metadata: { contentType: file.type || `image/${ext}` },
+        metadata: { contentType: safeExt === "jpg" ? "image/jpeg" : `image/${safeExt}` },
       });
       return json({ ok: true, path: FILE_PREFIX + key });
     }
@@ -1034,7 +1062,8 @@ async function dashboard(url: URL) {
   // 人員進出：只取最近一小時內的最新一筆，太舊的數字在牆上會誤導
   const headRows = await db.sql`
     SELECT DISTINCT ON (r.site_id, r.metric)
-           r.site_id, r.metric, r.value_num, r.reading_at, s.name AS site
+           r.site_id, r.metric, r.value_num, r.reading_at,
+           s.name AS site, s.code AS site_code
     FROM device_readings r
     LEFT JOIN sites s ON s.id = r.site_id
     WHERE r.device_type = 'people'
@@ -1045,20 +1074,19 @@ async function dashboard(url: URL) {
   // 人數固定以主場站為準，與環境數據、監視畫面一致（見 docs/README.md）。
   // 跨工地加總會讓「現場在場人數」這個緊急應變的第一個數字，在標著單一
   // 工地名稱的位置顯示成全公司總和——疏散時會照著一個過大的數字點名。
+  // 設了主場站就只算它，而且要「解析不到就不顯示」而非退回加總。
+  // 退回加總會在代碼打錯、改名或工地停用時，悄悄把全公司總和放到單一工地
+  // 名稱底下——正是這段程式要避免的那個疏散人數錯誤。
   const primaryCode = BRANDING.primary_site_code;
-  const headSite = siteId
-    ? null                                   // 使用者已指定工地，照其選擇
-    : (primaryCode
-        ? (await db.sql`SELECT id FROM sites WHERE code = ${primaryCode}`)[0]?.id ?? null
-        : null);
-
-  const headScoped = (headRows as any[]).filter(
-    (r) => headSite == null || r.site_id === headSite);
+  const headScoped = (headRows as any[]).filter((r) => {
+    if (siteId) return true;                 // 使用者已指定工地，照其選擇
+    if (!primaryCode) return true;           // 沒設主場站，維持全公司彙總
+    return r.site_code === primaryCode;
+  });
 
   const headcount = headScoped.reduce((acc, r) => {
     acc[r.metric] = (acc[r.metric] || 0) + Number(r.value_num);
     acc.reading_at = minuteISO(r.reading_at);
-    acc.site = r.site || null;
     return acc;
   }, {} as Record<string, any>);
 
