@@ -300,6 +300,23 @@ Digest 規定用 MD5，而 Web Crypto 只有 SHA 系列，因此該檔內含一�
 無法回答「這張表是誰檢查的」。因此填報時必須填寫檢查人員姓名
 （協議表為紀錄人員），PDF 與清單一律以此為準，未填才退回帳號名稱。
 
+
+### 幾個容易踩錯的地方
+
+- **流體字級必須掛在 `html`，不能掛在 `body`。** rem 一律相對根元素解析，
+  掛在 body 上的話 `--fs-*` 與所有 rem 尺寸都會停在 16px，只有 em 跟著變，
+  版面會出現「欄寬放大、欄裡的字沒放大」的錯位。因此 `dashboard.html` 的
+  `war` class 同時掛在 `html` 與 `body`。
+- **`.grid` / `.kpis` / `.panel` / `.kpi` 是共用元件**，`home.html` 也在用，
+  不屬於戰情室。改戰情室版面時不要連它們一起換掉。
+- **監視器是否啟用看的是「有沒有設定頻道」**（`CCTV_CHANNELS`），
+  不是有沒有直連憑證。推送才是主要路徑，要求直連憑證才算啟用的話，
+  純推送的部署會推得上去卻讀不到，而且兩邊都不會報錯。
+- **量測值的 NULL 不可以轉成 0。** 壞掉的溫度感測器會在牆上顯示成
+  「0 °C」並標為正常，而熱指數由溫濕度推算，這個假的 0 還會把危害等級拉低。
+- **地端沒有遷移工具**，`create_all()` 只建表不加欄位。新增欄位要同時寫進
+  `backend/onprem/app/db.py` 的 `_ADDED_COLUMNS`，啟動時才會補上。
+
 ### PDF 中文字型
 
 `backend/cloud/assets/fonts/NotoSansTC-Regular.ttf` 由 `tools/build_pdf_font.py`

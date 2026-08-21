@@ -390,9 +390,13 @@ export async function buildCoordinationPdf(
   d.text(`單號 COORD-${String(co.id).padStart(6, "0")}`, { size: 8, color: MUTED, gap: 6 });
   d.hr();
 
+  // 紀錄人員必須進 PDF：現場共用同一組帳號，這份簽核後存查的文件是稽核
+  // 與事故調查實際會調閱的東西，少了填表人就答不出「這張表是誰填的」。
   d.table([70, 150, 70, 100, 60, CONTENT_W - 450], [
     ["工程名稱", co.site_name, "開會日期", fmtDate(co.meeting_date),
       "作業日期", fmtDate(co.work_date)],
+    ["紀錄人員", co.recorder_name || "—", "提交時間", fmtTime(co.submitted_at),
+      "", ""],
   ]);
 
   d.heading("參加協議人員");

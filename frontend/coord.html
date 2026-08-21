@@ -112,6 +112,10 @@ const hazardOptions = HAZARDS.map(h => `<option value="${h[0]}">${h[1]}</option>
   vendors = vs;
   installVendorDatalist(vendors);
   document.getElementById('site').innerHTML = siteOptions(sites, me.site_id);
+  try {
+    const last = localStorage.getItem('inspectorName');
+    if (last) document.getElementById('recorder').value = last;
+  } catch (e) { /* 無痕模式沒有 localStorage，略過即可 */ }
   document.getElementById('mdate').value = today();
   document.getElementById('wdate').value = today();
   addAttendee(); addAttendee();
@@ -195,6 +199,14 @@ async function upPhoto(input, i, which) {
 document.getElementById('clearSig').onclick = () => pad && pad.clear();
 
 document.getElementById('submit').onclick = async () => {
+  // 紀錄人員是必填。現場共用同一組帳號，沒有這個名字就無法回答
+  // 「這張表是誰填的」，而稽核與事故調查都要問這件事。
+  const recorder = document.getElementById('recorder');
+  if (!recorder.value.trim()) {
+    toast('請填寫紀錄人員姓名');
+    recorder.focus();
+    return;
+  }
   if (!pad || pad.isEmpty()) { toast('請先簽名'); return; }
   const btn = document.getElementById('submit');
   btn.disabled = true;
@@ -242,7 +254,7 @@ document.getElementById('submit').onclick = async () => {
       meeting_date: document.getElementById('mdate').value,
       work_date: document.getElementById('wdate').value,
       weather: document.getElementById('weather').value,
-      recorder_name: document.getElementById('recorder').value,
+      recorder_name: document.getElementById('recorder').value.trim(),
       agreement_text: document.getElementById('agreement').value,
       handling_text: document.getElementById('handling').value,
       attendees, findings,

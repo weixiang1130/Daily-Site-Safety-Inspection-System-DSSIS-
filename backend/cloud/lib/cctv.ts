@@ -19,7 +19,7 @@
 //   本檔的 latestSnapshot()  供儀表板讀取，過期才回退去直連
 // 這也符合本專案一貫的原則：資料由我們這邊保存，不受制於對方的存取限制。
 //
-// 主機是大華（Dahua）NVR，快照端點為
+// 主機是設備商甲（vendor-a）的 NVR，快照端點為
 //   GET /cgi-bin/snapshot.cgi?channel=N
 // 回應 image/jpeg。前端每隔數秒重新請求一次即可當成準即時畫面；
 // 真正的串流是 RTSP，瀏覽器原生播不了，不在這一版的範圍。
@@ -49,17 +49,23 @@ export async function storeSnapshot(channel: number, data: ArrayBuffer): Promise
   });
 }
 
-export interface StoredSnapshot { data: ArrayBuffer; capturedAt: string; ageSec: number; }
+/** ageSec 為 null 代表時間戳不可用，呼叫端必須當成「時間不明」而非最新。 */
+export interface StoredSnapshot { data: ArrayBuffer; capturedAt: string; ageSec: number | null; }
 
 /** 取出最近一次推上來的畫面；沒有就回 null。 */
 export async function latestSnapshot(channel: number): Promise<StoredSnapshot | null> {
   const got = await snapshotStore().getWithMetadata(keyOf(channel), { type: "arrayBuffer" });
   if (!got?.data) return null;
 
+  // 時間戳缺漏或壞掉時回 null，不要用 NaN 或極大值硬湊一個數字：
+  // NaN 會讓前端的 Number.isFinite 檢查失敗而完全不顯示時間，
+  // 看起來就跟剛拍的一樣；極大值則會印出「150119987579017 分鐘前」。
+  // 兩種都讓「畫面多舊」這件事失去意義，而那正是這個機制存在的理由。
   const capturedAt = String((got.metadata as any)?.captured_at || "");
-  const ageSec = capturedAt
-    ? Math.round((Date.now() - new Date(capturedAt).getTime()) / 1000)
-    : Number.MAX_SAFE_INTEGER;
+  const ms = capturedAt ? new Date(capturedAt).getTime() : NaN;
+  const ageSec = Number.isFinite(ms)
+    ? Math.round((Date.now() - ms) / 1000)
+    : null;
   return { data: got.data as ArrayBuffer, capturedAt, ageSec };
 }
 
@@ -71,7 +77,10 @@ export function cctvChannels(): number[] {
 }
 
 export function cctvEnabled(): boolean {
-  return Boolean(env("CCTV_API_URL") && env("CCTV_USER"));
+  // 判斷依據是「有沒有設定要顯示的頻道」，不是「有沒有直連憑證」。
+  // 推送才是主要路徑（雲端直連會被主機以 403 擋掉），若要求直連憑證才算
+  // 啟用，純推送的部署會變成畫面推得上去卻永遠讀不到，且兩邊都不報錯。
+  return Boolean(env("CCTV_CHANNELS").trim() || (env("CCTV_API_URL") && env("CCTV_USER")));
 }
 
 /**

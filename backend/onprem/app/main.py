@@ -220,7 +220,10 @@ def create_inspection(payload: dict = Body(...), db: Session = Depends(get_db),
         inspect_date=date.fromisoformat(payload.get("inspect_date")
                                         or date.today().isoformat()),
         location=payload.get("location"), weather=payload.get("weather"),
-        inspector_id=user["id"], status="submitted", submitted_at=datetime.now(),
+        inspector_id=user["id"],
+        # 共用帳號下，帳號名稱代表不了實際檢查人，因此以填報時填寫的姓名為準
+        inspector_name=(payload.get("inspector_name") or "").strip() or None,
+        status="submitted", submitted_at=datetime.now(),
     )
     db.add(insp)
     db.flush()
@@ -294,7 +297,7 @@ def list_inspections(site_id: int = None, days: int = 30,
             "id": i.id, "site": i.site.name, "site_id": i.site_id,
             "form_code": i.form_code, "form_title": i.form.title,
             "inspect_date": i.inspect_date.isoformat(), "location": i.location,
-            "inspector": i.inspector.display_name, "status": i.status,
+            "inspector": i.inspector_name or i.inspector.display_name, "status": i.status,
             "fail_count": fails, "item_count": len(i.results),
             "pdf_url": f"/api/inspections/{i.id}/pdf" if i.pdf_path else None,
         })
@@ -309,7 +312,7 @@ def get_inspection(insp_id: int, db: Session = Depends(get_db), user=Depends(nee
     return {
         "id": i.id, "site": i.site.name, "form_title": i.form.title,
         "inspect_date": i.inspect_date.isoformat(), "location": i.location,
-        "weather": i.weather, "inspector": i.inspector.display_name, "status": i.status,
+        "weather": i.weather, "inspector": i.inspector_name or i.inspector.display_name, "status": i.status,
         "results": [{"seq": r.item.seq, "category": r.item.category, "text": r.item.text,
                      "result": r.result, "remark": r.remark}
                     for r in sorted(i.results, key=lambda x: x.item.seq)],
@@ -347,6 +350,7 @@ def create_coordination(payload: dict = Body(...), db: Session = Depends(get_db)
         agreement_text=payload.get("agreement_text"),
         patrol_text=payload.get("patrol_text"),
         handling_text=payload.get("handling_text"),
+        recorder_name=(payload.get("recorder_name") or "").strip() or None,
         status="submitted", submitted_at=datetime.now(), created_by=user["id"],
     )
     db.add(co)

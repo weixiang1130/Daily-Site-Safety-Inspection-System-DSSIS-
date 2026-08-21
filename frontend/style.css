@@ -384,20 +384,90 @@ td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 }
 
 /* ---------------------------------------------------------------------------
+   共用元件：卡片式面板與 KPI 數字
+   ---------------------------------------------------------------------------
+   這幾條被 home.html 使用（今日作業頁的「缺失概況」）。戰情室改版時整段
+   .theme-dark 區塊被換掉，連帶把這些非戰情室專用的規則一起刪掉，導致首頁
+   的 KPI 變成沒有卡片、沒有顏色分級的裸文字。放在共用區、不要再併進任何
+   單一頁面的區塊裡。
+   --------------------------------------------------------------------------- */
+
+.grid { display: grid; gap: var(--sp-4); }
+.kpis { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+
+.panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--sp-4) var(--sp-5);
+}
+.panel > h3 {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-4);
+  font-family: var(--font-heading);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  letter-spacing: var(--ls-label);
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.panel > h3::before {
+  content: "";
+  width: 3px; height: 12px;
+  background: var(--accent);
+  flex: none;
+}
+
+.kpi { padding: var(--sp-5) var(--sp-4); }
+.kpi .n {
+  font-family: var(--font-mono);
+  font-size: var(--fs-metric);
+  font-weight: 500;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+}
+.kpi .l {
+  font-family: var(--font-heading);
+  font-size: var(--fs-xs);
+  letter-spacing: var(--ls-label);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-top: var(--sp-3);
+}
+.kpi.critical .n { color: var(--critical-600); }
+.kpi.warn .n     { color: var(--warn-600); }
+.kpi.ok .n       { color: var(--ok-600); }
+.kpi.accent .n   { color: var(--text-accent); }
+.kpi.critical { border-color: var(--critical-600); }
+
+/* 複驗完成但尚未結案。少了這條，verified 會落到 .tag.open 的紅底，
+   把「已複驗」顯示成需要處理的紅色，訊號剛好相反。 */
+.tag.verified { background: var(--ok-100); color: var(--ok-600); }
+
+/* ---------------------------------------------------------------------------
    戰情室
    ---------------------------------------------------------------------------
    與填報頁共用同一套色彩、字體與元件，只有版面規則相反：
    牆上的畫面沒有人會去滑，因此整頁固定一屏、不出現捲軸，清單改為自動換頁。
    --------------------------------------------------------------------------- */
 
+/* 字級同時看寬度與高度，取較小者。只看寬度的話，顯示縮放 125％
+   或視窗不是全高時會把版面擠爆。
+
+   **必須掛在根元素**：rem 一律相對 html 元素解析，掛在 body 上的話
+   --fs-* 與所有 rem 尺寸都會停在預設的 16px，只有 em 會跟著變，
+   版面就會出現「欄寬放大、欄裡的字沒放大」的錯位。 */
+html.war { font-size: clamp(12px, min(0.62vw + 6px, 1.15vh + 6px), 22px); }
+
 body.war {
   height: 100dvh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  /* 字級同時看寬度與高度，取較小者。只看寬度的話，顯示縮放 125％
-     或視窗不是全高時會把版面擠爆。 */
-  font-size: clamp(12px, min(0.62vw + 6px, 1.15vh + 6px), 22px);
 }
 .war .topbar { flex: none; }
 .war .topbar select { width: auto; padding: 4px var(--sp-3); font-size: var(--fs-sm); }

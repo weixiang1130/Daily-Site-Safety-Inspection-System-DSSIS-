@@ -245,17 +245,22 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       // 只接受設定檔列出的頻道，避免這支路由變成可任意存取內網主機的跳板
       if (!allowed.includes(ch)) return fail(400, "頻道不在允許範圍");
 
-      const imageHeaders = (ageSec?: number) => ({
+      // ageSec 為 null 代表時間戳不可用。此時明講 unknown，不要省略標頭——
+      // 省略的話前端顯示得跟剛拍的一模一樣，反而比沒有畫面更誤導。
+      const imageHeaders = (ageSec: number | null) => ({
         "Content-Type": "image/jpeg",
         // 畫面持續更新，不能讓瀏覽器或 CDN 快取
         "Cache-Control": "no-store",
-        ...(ageSec == null ? {} : { "X-Snapshot-Age": String(ageSec) }),
+        // 內容是代理來的影像，不要讓瀏覽器自行嗅探型別
+        "X-Content-Type-Options": "nosniff",
+        "X-Snapshot-Age": ageSec == null ? "unknown" : String(ageSec),
       });
 
       // 先看內網推上來的畫面。監視器主機會擋掉雲端的對外 IP（實測 403），
       // 所以推送才是主要路徑，直連只是備援。
       const stored = await latestSnapshot(ch);
-      if (stored && stored.ageSec <= SNAPSHOT_MAX_AGE_SEC) {
+      // 時間不明（ageSec 為 null）一律不算新鮮，寧可去直連確認
+      if (stored && stored.ageSec != null && stored.ageSec <= SNAPSHOT_MAX_AGE_SEC) {
         return new Response(stored.data, { headers: imageHeaders(stored.ageSec) });
       }
 
@@ -1016,7 +1021,11 @@ async function dashboard(url: URL) {
                   reading_at: minuteISO(row.reading_at), metrics: {} };
       envByStation.set(row.device_id, station);
     }
-    station.metrics[row.metric] = Number(row.value_num);
+    // NULL 代表感測器沒有讀到值，不是 0。轉成 0 的話，壞掉的溫度感測器
+    // 會在八月的牆上顯示「0 °C」並標成正常，而且熱指數是由溫濕度推算的，
+    // 這個假的 0 還會把危害等級一起拉低。
+    station.metrics[row.metric] =
+      row.value_num === null ? null : Number(row.value_num);
     // 以最新的一筆時間為準
     const t = minuteISO(row.reading_at)!;
     if (t > station.reading_at!) station.reading_at = t;
@@ -1033,10 +1042,23 @@ async function dashboard(url: URL) {
       AND (${siteId}::int IS NULL OR r.site_id = ${siteId}::int)
     ORDER BY r.site_id, r.metric, r.reading_at DESC`;
 
-  const headcount = (headRows as any[]).reduce((acc, r) => {
-    // 選了單一工地就是該工地的數字；全部工地則加總
+  // 人數固定以主場站為準，與環境數據、監視畫面一致（見 docs/README.md）。
+  // 跨工地加總會讓「現場在場人數」這個緊急應變的第一個數字，在標著單一
+  // 工地名稱的位置顯示成全公司總和——疏散時會照著一個過大的數字點名。
+  const primaryCode = BRANDING.primary_site_code;
+  const headSite = siteId
+    ? null                                   // 使用者已指定工地，照其選擇
+    : (primaryCode
+        ? (await db.sql`SELECT id FROM sites WHERE code = ${primaryCode}`)[0]?.id ?? null
+        : null);
+
+  const headScoped = (headRows as any[]).filter(
+    (r) => headSite == null || r.site_id === headSite);
+
+  const headcount = headScoped.reduce((acc, r) => {
     acc[r.metric] = (acc[r.metric] || 0) + Number(r.value_num);
     acc.reading_at = minuteISO(r.reading_at);
+    acc.site = r.site || null;
     return acc;
   }, {} as Record<string, any>);
 

@@ -99,7 +99,10 @@ def build_inspection_pdf(insp, results, findings, signatures) -> str:
         Paragraph("<b>檢查地點</b>", cell), Paragraph(insp.location or "－", cell),
         Paragraph("<b>天氣</b>", cell), Paragraph(insp.weather or "－", cell),
     ], [
-        Paragraph("<b>檢查人員</b>", cell), Paragraph(insp.inspector.display_name, cell),
+        # 以填報時填寫的姓名為準，未填才退回帳號名稱：現場共用同一組帳號，
+        # 帳號名稱答不出「這張表是誰檢查的」。
+        Paragraph("<b>檢查人員</b>", cell),
+        Paragraph(insp.inspector_name or insp.inspector.display_name, cell),
         Paragraph("<b>提交時間</b>", cell),
         Paragraph(f"{insp.submitted_at:%Y-%m-%d %H:%M}" if insp.submitted_at else "－", cell),
     ]]

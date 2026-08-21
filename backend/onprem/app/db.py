@@ -152,6 +152,10 @@ class Inspection(Base):
     location = Column(Unicode(128))            # 檢查地點 / 位置編號
     weather = Column(Unicode(16))
     inspector_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    # 實際執行檢查的人。現場共用同一組帳號登入，inspector_id 只能代表
+    # 「哪個工地帳號送的」，答不出「這張表是誰檢查的」，而稽核與事故調查
+    # 都要問這件事。允許為空：既有資料沒有這個欄位，補值只會是猜測。
+    inspector_name = Column(Unicode(64))
     status = Column(Unicode(16), default="draft")   # draft/submitted/approved
     submitted_at = Column(DateTime)
     approved_at = Column(DateTime)
@@ -272,6 +276,8 @@ class Coordination(Base):
     meeting_date = Column(Date, nullable=False, default=date.today)
     work_date = Column(Date, nullable=False, default=date.today)
     weather = Column(Unicode(16))
+    # 同 Inspection.inspector_name，協議表記錄實際填表人
+    recorder_name = Column(Unicode(64))
     agreement_text = Column(UnicodeText)      # 一、協議事項
     patrol_text = Column(UnicodeText)         # 二、巡視結果（缺失另立 Finding）
     handling_text = Column(UnicodeText)       # 三、處理情形
@@ -328,8 +334,36 @@ class DeviceReading(Base):
     )
 
 
+# 既有資料庫要補上的欄位。create_all() 只會建立缺少的「表」，不會替既有的
+# 表加欄位，因此舊的開發資料庫升級後會在寫入時直接炸掉。雲端那側有
+# netlify/database/migrations/，地端沒有遷移工具，就在啟動時補這一步。
+_ADDED_COLUMNS = [
+    ("inspections", "inspector_name", "NVARCHAR(64)"),
+    ("coordinations", "recorder_name", "NVARCHAR(64)"),
+]
+
+
+def _add_missing_columns():
+    """替既有資料表補上後來新增的欄位；已存在就略過。"""
+    from sqlalchemy import inspect as sa_inspect, text
+
+    inspector = sa_inspect(engine)
+    existing_tables = set(inspector.get_table_names())
+
+    with engine.begin() as conn:
+        for table, column, ddl_type in _ADDED_COLUMNS:
+            if table not in existing_tables:
+                continue          # create_all 會建立，屆時就已含此欄位
+            cols = {c["name"] for c in inspector.get_columns(table)}
+            if column in cols:
+                continue
+            # SQLite 的型別是動態的，NVARCHAR 也接受，不需分支
+            conn.execute(text(f"ALTER TABLE {table} ADD {column} {ddl_type}"))
+
+
 def init_db():
     Base.metadata.create_all(engine)
+    _add_missing_columns()
 
 
 def db_info() -> str:
