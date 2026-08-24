@@ -915,7 +915,28 @@ def root():
 
 
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
-app.mount("/static", StaticFiles(
+class RevalidatingStatic(StaticFiles):
+    """靜態檔一律要求瀏覽器先向伺服器確認有沒有更新。
+
+    為什麼需要這個
+    --------------
+    戰情室是一台開機就全螢幕、幾個月不會有人去碰的機器。瀏覽器預設會快取
+    CSS 與 JS，更新樣式之後那台螢幕可能好幾天還在用舊檔——而且最糟的情況
+    不是「看起來像舊版」，是**新舊混用**：新的 HTML 配舊的 CSS。實際發生過一次，
+    深色主題上線後，畫面拿到新的 HTML 卻用舊的 CSS，警示帶底色仍是淺色、
+    文字卻已改成亮色，整段變成亮字配亮底而看不見。
+
+    no-cache 不是不快取，是「每次都先問」：檔案沒變時伺服器回 304，
+    只有標頭的流量。這台機器在區域網路內，這個代價可以忽略。
+    """
+
+    async def get_response(self, path, scope):
+        resp = await super().get_response(path, scope)
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
+
+app.mount("/static", RevalidatingStatic(
     directory=os.path.join(os.path.dirname(os.path.dirname(BASE_DIR)), "frontend"),
     html=True), name="static")
 

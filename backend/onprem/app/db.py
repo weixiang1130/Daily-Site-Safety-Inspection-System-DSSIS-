@@ -424,7 +424,47 @@ def _scalar_default_sql(col):
     return None
 
 
+# 建表與補欄位時的鎖等待上限（毫秒）。
+#
+# 服務被強制結束時，SQL Server 那端的 session 不會立刻消失，未結束的交易
+# 會繼續握著 schema 鎖。下次啟動查系統目錄就被擋住，而預設是**無限等待**——
+# 症狀是服務停在「Waiting for application startup」永遠不動，沒有任何錯誤訊息。
+# 工作排程器開機自動啟動時遇到這個，牆上就是一片空白而沒有人知道為什麼。
+#
+# 設上限讓它失敗得快、而且講得出原因。
+DDL_LOCK_TIMEOUT_MS = 15000
+
+
 def init_db():
+    if IS_MSSQL:
+        from sqlalchemy import event, text as _text
+
+        # 只掛在這一段，不影響服務啟動後的一般查詢——那些查詢慢是慢，
+        # 但不該因為短暫的鎖競爭就整個失敗。
+        def _set_lock_timeout(dbapi_conn, _rec):
+            cur = dbapi_conn.cursor()
+            cur.execute(f"SET LOCK_TIMEOUT {DDL_LOCK_TIMEOUT_MS}")
+            cur.close()
+
+        event.listen(engine, "connect", _set_lock_timeout)
+        try:
+            _create_schema()
+        except Exception as e:                        # noqa: BLE001
+            raise RuntimeError(
+                f"資料庫初始化失敗或在等待鎖時逾時"
+                f"（上限 {DDL_LOCK_TIMEOUT_MS} 毫秒）。"
+                "常見原因是上一次服務被強制結束，留下未結束的交易握著結構鎖。"
+                "處理方式：確認沒有其他行程正在使用這個資料庫，必要時在 "
+                "SQL Server 以 KILL 結束殘留的 session 後再啟動。"
+                f"原始錯誤：{e}") from e
+        finally:
+            event.remove(engine, "connect", _set_lock_timeout)
+            engine.dispose()      # 收掉帶有 LOCK_TIMEOUT 的連線，不留給後續查詢
+    else:
+        _create_schema()
+
+
+def _create_schema():
     Base.metadata.create_all(engine)
     _add_missing_columns()
 

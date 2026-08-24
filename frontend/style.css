@@ -866,7 +866,7 @@ body.war {
   color: var(--text-muted);
   font-weight: 500;
 }
-.ha-sun > span { color: var(--critical-600); }
+.ha-sun > span { color: var(--critical-on-tint); }
 
 /* 等級上升時的彈出提醒。牆上沒有人會去點，因此會自動收起。 */
 .heat-popup {
