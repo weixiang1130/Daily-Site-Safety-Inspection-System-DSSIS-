@@ -10,3 +10,5 @@ python-multipart>=0.0.9
 itsdangerous>=2.1
 reportlab>=4.0
 pillow>=10.0
+# 地端收集程式與監視器取像用（氣象站 API、NVR 的 Digest 驗證）
+requests>=2.31

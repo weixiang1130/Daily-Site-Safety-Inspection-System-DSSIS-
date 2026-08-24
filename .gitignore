@@ -20,6 +20,7 @@ uploads/
 .env
 .env.*
 !.env.example
+!.env.onprem.example
 
 # 去識別化對照表 —— 等同還原金鑰，嚴禁進版控
 deid_rules.local.json

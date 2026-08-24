@@ -11,13 +11,23 @@ import uuid
 from datetime import date, datetime, timedelta
 
 from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import (FileResponse, JSONResponse, RedirectResponse,
+                               Response)
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
-from .auth import SECRET_KEY, authenticate, current_user
+# 必須在下面任何 os.environ.get() 之前載入，否則設定檔填了也不會生效
+from .envfile import load_env
+
+load_env()
+
+from .auth import SECRET_KEY, authenticate, current_user  # noqa: E402
+from .hazard import (LEVEL_LABEL, level_of, station_level,  # noqa: E402
+                     heat_index_c, thresholds_payload)
+from .heat_guidance import heat_guidance
+from . import cctv
 from .db import (
     BASE_DIR, Coordination, CoordinationAttendee, DeviceReading, Finding, FormItem,
     FormTemplate, Inspection, InspectionResult, SessionLocal, Signature, Site, User,
@@ -49,6 +59,8 @@ BRANDING = {
     "org_short": os.environ.get("BRAND_SHORT_NAME", "示範營造"),
     "org_name_en": os.environ.get("BRAND_NAME_EN", "Demo Construction"),
     "group_name": os.environ.get("BRAND_GROUP", ""),
+    # 戰情室的主場站。環境與進出場人次以它為主，缺失統計仍涵蓋全部工地。
+    "primary_site_code": os.environ.get("PRIMARY_SITE_CODE", ""),
 }
 
 # 戰情室大螢幕是否免登入。放在公司內網時可設為 true（大螢幕不必有人登入）；
@@ -531,6 +543,46 @@ async def upload_photo(file: UploadFile = File(...), user=Depends(need_login)):
 # ==========================================================================
 # 戰情室儀表板
 # ==========================================================================
+# ---------------------------------------------------------------------------
+# 監視器
+#
+# 地端伺服器就在公司網路內，直接向 NVR 取像即可；雲端那套推送機制
+# （tools/push_snapshots.py + 儲存區 + 權杖）在這裡都不需要。
+# ---------------------------------------------------------------------------
+
+@app.get("/api/cctv/channels")
+def cctv_channels(request: Request):
+    """有哪些頻道可看。未設定 CAM_* 時回空清單，前端據此隱藏整格。"""
+    if not PUBLIC_DASHBOARD and not current_user(request):
+        raise HTTPException(status_code=401, detail="請先登入")
+    return {"enabled": cctv.enabled(), "channels": cctv.channels()}
+
+
+@app.get("/api/cctv/snapshot")
+def cctv_snapshot(request: Request, channel: int = 0):
+    """取一張畫面。
+
+    路徑與參數刻意與雲端版相同，前端才能同一份程式碼兩邊都跑得動——
+    戰情室搬到地端的期間，兩邊會並存一陣子。
+    """
+    if not PUBLIC_DASHBOARD and not current_user(request):
+        raise HTTPException(status_code=401, detail="請先登入")
+    try:
+        data = cctv.snapshot(channel)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:                              # noqa: BLE001
+        # 監視器離線不該讓整個牆面看起來像壞掉，回 503 讓前端只在那一格
+        # 顯示訊息。訊息要具體，否則現場只會看到「失敗」而無從查起。
+        raise HTTPException(status_code=503, detail=f"取像失敗：{e}")
+
+    return Response(
+        content=data, media_type="image/jpeg",
+        # 已經在伺服器端做了短暫快取，瀏覽器再自行快取會讓畫面停住不動
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @app.get("/api/dashboard")
 def dashboard(request: Request, site_id: int = None, days: int = 30,
               db: Session = Depends(get_db)):
@@ -570,7 +622,10 @@ def dashboard(request: Request, site_id: int = None, days: int = 30,
         if k in trend:
             trend[k] += 1
 
-    iq = db.query(Inspection).filter(Inspection.inspect_date == today)
+    # 只計已送出的。草稿是還在填的表，把它算進「今日檢查」會虛增數字，
+    # 而這個數字是長官在牆上直接看的。
+    iq = (db.query(Inspection)
+          .filter(Inspection.inspect_date == today, Inspection.status != "draft"))
     if site_id:
         iq = iq.filter(Inspection.site_id == site_id)
     todays_insp = iq.all()
@@ -597,9 +652,127 @@ def dashboard(request: Request, site_id: int = None, days: int = 30,
     median_fix = (fixed_durations[len(fixed_durations) // 2]
                   if fixed_durations else None)
 
+    # ------------------------------------------------------------------
+    # 現場即時：環境、人數、最新表單
+    #
+    # 這幾塊是戰情室搬到地端的主因——資料源都在公司網路內，雲端根本連不到
+    # 監視器，也沒必要讓每張影像來回穿越網際網路。
+    # ------------------------------------------------------------------
+    primary_code = os.environ.get("PRIMARY_SITE_CODE", "").strip()
+
+    # 環境：每個測站每個指標取三小時內最新的一筆
+    env_since = datetime.now() - timedelta(hours=3)
+    env_rows = (db.query(DeviceReading)
+                .filter(DeviceReading.device_type == "env",
+                        DeviceReading.reading_at >= env_since)
+                .order_by(DeviceReading.reading_at.desc()).all())
+
+    site_by_id = {s.id: s for s in db.query(Site).all()}
+
+    stations = {}
+    for r in env_rows:
+        st = stations.setdefault(r.device_id, {
+            "device_id": r.device_id, "site": None, "site_code": r.site_code,
+            "station": r.device_id, "reading_at": None, "metrics": {},
+        })
+        if r.metric in st["metrics"]:
+            continue                      # 已取到更新的一筆
+        st["metrics"][r.metric] = float(r.value_num) if r.value_num is not None else None
+        stamp = r.reading_at.isoformat(timespec="minutes")
+        if st["reading_at"] is None or stamp > st["reading_at"]:
+            st["reading_at"] = stamp
+        if st["site"] is None and r.site_id:
+            site_obj = site_by_id.get(r.site_id)
+            if site_obj:
+                st["site"] = site_obj.name
+                st["site_code"] = site_obj.code
+
+    environment = []
+    for st in stations.values():
+        # 廠商的危害等級不可信（實測熱指數 49.4 仍回報 0），排除在判定之外
+        judged = {k: v for k, v in st["metrics"].items()
+                  if k not in ("hazard_level", "vendor_hazard_level")}
+        st["levels"] = {k: level_of(k, v) for k, v in judged.items()}
+        st["level"] = station_level(judged)
+        st["level_label"] = LEVEL_LABEL[st["level"]]
+
+        hi = judged.get("heat_index")
+        if hi is None and judged.get("temperature") is not None                 and judged.get("humidity") is not None:
+            hi = heat_index_c(judged["temperature"], judged["humidity"])
+        st["heat"] = heat_guidance(hi)
+        environment.append(st)
+
+    # 危害等級高的排前面，值班人員第一眼就看到最需要處理的工地
+    environment.sort(key=lambda x: -x["level"])
+
+    # 人數：一小時內最新一筆。固定以主場站為準，解析不到就不顯示——
+    # 退回全公司加總會把總和放在單一工地名稱底下，疏散時會照著錯的數字點名。
+    head_since = datetime.now() - timedelta(hours=1)
+    head_rows = (db.query(DeviceReading)
+                 .filter(DeviceReading.device_type == "people",
+                         DeviceReading.reading_at >= head_since)
+                 .order_by(DeviceReading.reading_at.desc()).all())
+
+    headcount = {}
+    seen_metrics = set()
+    for r in head_rows:
+        if primary_code and r.site_code != primary_code:
+            continue
+        if r.metric in seen_metrics:
+            continue
+        seen_metrics.add(r.metric)
+        headcount[r.metric] = float(r.value_num) if r.value_num is not None else None
+        headcount["reading_at"] = r.reading_at.isoformat(timespec="minutes")
+
+    # 最新交出來的表單：工地填完後要在牆上馬上看得到結果
+    recent_insp = (db.query(Inspection)
+                   .filter(Inspection.status != "draft")
+                   .order_by(Inspection.inspect_date.desc(), Inspection.id.desc())
+                   .limit(20).all())
+    recent_coord = (db.query(Coordination)
+                    .filter(Coordination.status != "draft")
+                    .order_by(Coordination.work_date.desc(), Coordination.id.desc())
+                    .limit(20).all())
+
+    recent_forms = []
+    for i in recent_insp:
+        # 本機填的表有逐項結果就直接算；雲端同步來的沒有逐項資料，用同步帶回來的
+        # 彙總。兩者都沒有才是真的未知——這時不能顯示「全數符合」，那會讓牆上把
+        # 一張有缺失的表看成沒問題。
+        if i.results:
+            fails = len([r for r in i.results if r.result == "fail"])
+        else:
+            fails = i.fail_count
+        recent_forms.append({
+            "kind": "inspection", "on_date": i.inspect_date.isoformat(),
+            "site": i.site.name if i.site else "",
+            "title": i.form.title if getattr(i, "form", None) else i.form_code,
+            "person": i.inspector_name or (i.inspector.display_name if i.inspector else ""),
+            "result": ("未知" if fails is None else
+                       f"{fails} 項不符合" if fails else "全數符合"),
+            "ok": fails == 0,
+            "pdf_url": f"/api/inspections/{i.id}/pdf" if i.pdf_path else None,
+        })
+    for c in recent_coord:
+        recent_forms.append({
+            "kind": "coordination", "on_date": c.work_date.isoformat(),
+            "site": c.site.name if c.site else "",
+            "title": "每日協議、巡視及處理紀錄表",
+            "person": c.recorder_name or "",
+            "result": f"{len(c.attendees) or c.attendee_count or 0} 家廠商",
+            "ok": True,
+            "pdf_url": f"/api/coordinations/{c.id}/pdf" if c.pdf_path else None,
+        })
+    recent_forms.sort(key=lambda x: x["on_date"], reverse=True)
+    recent_forms = recent_forms[:20]
+
     return {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "range_days": days,
+        "environment": environment,
+        "environment_spec": thresholds_payload(),
+        "headcount": headcount or None,
+        "recent_forms": recent_forms,
         "kpi": {
             "findings_today": len(todays),
             "findings_range": len(findings),

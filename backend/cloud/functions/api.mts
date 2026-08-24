@@ -325,6 +325,78 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       return json({ ok: true, site, channel: ch, bytes: data.byteLength });
     }
 
+    // 地端戰情室拉取表單資料。
+    //
+    // 戰情室已搬到公司內網（見 docs/地端戰情室.md），但表單仍留在雲端讓工地
+    // 用手機填報。這個端點讓地端定時把新增與異動的資料抓回去，儀表板才有
+    // 東西可以顯示。
+    //
+    // 只讀、只回傳統計需要的欄位。照片、簽名與 PDF 不在此列——那些是大檔，
+    // 每輪都傳會把雲端流量吃掉，而這正是搬回地端要解決的問題。
+    if (p === "/api/v1/export" && method === "GET") {
+      const expected = Netlify.env.get("SITE_AGENT_TOKEN") || "";
+      const token = req.headers.get("x-agent-token") || "";
+      if (!expected || token !== expected) return fail(401, "代理權杖驗證失敗");
+
+      // 增量取得：只回傳這個時間點之後異動的資料。首次同步不帶參數即可全取。
+      const sinceRaw = url.searchParams.get("since") || "";
+      const since = sinceRaw && !isNaN(Date.parse(sinceRaw))
+        ? new Date(sinceRaw).toISOString()
+        : new Date(0).toISOString();
+
+      // 上限保護：資料累積幾年後不設限的全量查詢會讓函式逾時，
+      // 地端拿到一半的資料卻以為同步完成，之後就再也補不回來。
+      const LIMIT = 2000;
+
+      const sites = await db.sql`
+        SELECT code, name, department, sort_order, active FROM sites`;
+      const vendors = await db.sql`
+        SELECT code, name, active FROM vendors`;
+      const findings = await db.sql`
+        SELECT f.id, s.code AS site_code, f.source, f.found_at, f.location,
+               f.hazard_code, f.hazard_label, f.description, v.code AS vendor_code,
+               f.severity, f.action_type, f.due_date, f.fixed_at, f.verified_at,
+               f.status, f.created_at
+        FROM findings f
+        JOIN sites s ON s.id = f.site_id
+        LEFT JOIN vendors v ON v.id = f.vendor_id
+        WHERE GREATEST(f.created_at, COALESCE(f.fixed_at, f.created_at),
+                       COALESCE(f.verified_at, f.created_at)) > ${since}
+        ORDER BY f.id LIMIT ${LIMIT}`;
+      const inspections = await db.sql`
+        SELECT i.id, s.code AS site_code, i.form_code, i.inspect_date, i.location,
+               i.inspector_name, i.status, i.submitted_at, i.created_at,
+               (SELECT COUNT(*) FROM inspection_results r
+                 WHERE r.inspection_id = i.id AND r.result = 'fail') AS fail_count
+        FROM inspections i
+        JOIN sites s ON s.id = i.site_id
+        WHERE i.created_at > ${since} OR i.submitted_at > ${since}
+        ORDER BY i.id LIMIT ${LIMIT}`;
+      const coordinations = await db.sql`
+        SELECT c.id, s.code AS site_code, c.meeting_date, c.work_date,
+               c.recorder_name, c.status, c.submitted_at, c.created_at,
+               (SELECT COUNT(*) FROM coordination_attendees a
+                 WHERE a.coordination_id = c.id) AS attendee_count
+        FROM coordinations c
+        JOIN sites s ON s.id = c.site_id
+        WHERE c.created_at > ${since} OR c.submitted_at > ${since}
+        ORDER BY c.id LIMIT ${LIMIT}`;
+
+      // 地端拿這個時間當下一輪的 since。用資料本身的最大時間而不是「現在」——
+      // 用「現在」的話，查詢期間才寫進來的資料會被永遠跳過。
+      const stamps = [...findings, ...inspections, ...coordinations]
+        .map((r: any) => r.created_at).filter(Boolean)
+        .map((t: any) => new Date(t).toISOString());
+      const nextSince = stamps.length ? stamps.sort().at(-1) : since;
+
+      return json({
+        since, next_since: nextSince, limit: LIMIT,
+        truncated: findings.length >= LIMIT || inspections.length >= LIMIT
+          || coordinations.length >= LIMIT,
+        sites, vendors, findings, inspections, coordinations,
+      });
+    }
+
     // ---- 檔案 ----
     if (p.startsWith(FILE_PREFIX)) {
       if (!me) return fail(401, "請先登入");

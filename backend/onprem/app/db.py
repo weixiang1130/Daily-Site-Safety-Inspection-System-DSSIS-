@@ -150,6 +150,10 @@ class FormItem(Base):
 class Inspection(Base):
     __tablename__ = "inspections"
     id = Column(Integer, primary_key=True)
+    # 雲端那一筆的 id。表單留在雲端讓工地用手機填報，戰情室在地端，
+    # 由 collectors/sync_forms.py 定時抓回來。比對用這個欄位而不是 id——
+    # 兩邊各自產生流水號，直接沿用會撞號，把不同的資料蓋掉。
+    cloud_id = Column(Integer, index=True)
     site_id = Column(Integer, ForeignKey("sites.id"), nullable=False)
     form_code = Column(Unicode(8), ForeignKey("form_templates.form_code"), nullable=False)
     inspect_date = Column(Date, nullable=False, default=date.today)
@@ -165,6 +169,9 @@ class Inspection(Base):
     approved_at = Column(DateTime)
     pdf_path = Column(Unicode(255))
     created_at = Column(DateTime, default=datetime.now)
+    # 由雲端同步過來的不符合項數。同步只帶彙總、不帶逐項結果——逐項資料量大，
+    # 而牆上只需要「幾項不符合」。本機自己填的表單此欄為空，改由 results 計算。
+    fail_count = Column(Integer)
 
     __table_args__ = (
         # 「今日/近 N 日、某工地已交哪些巡檢單」是首頁與儀表板最常見的查詢
@@ -199,6 +206,10 @@ class InspectionResult(Base):
 class Finding(Base):
     __tablename__ = "findings"
     id = Column(Integer, primary_key=True)
+    # 雲端那一筆的 id。表單留在雲端讓工地用手機填報，戰情室在地端，
+    # 由 collectors/sync_forms.py 定時抓回來。比對用這個欄位而不是 id——
+    # 兩邊各自產生流水號，直接沿用會撞號，把不同的資料蓋掉。
+    cloud_id = Column(Integer, index=True)
     site_id = Column(Integer, ForeignKey("sites.id"), nullable=False)
     inspection_id = Column(Integer, ForeignKey("inspections.id"))
     coordination_id = Column(Integer, ForeignKey("coordinations.id"))
@@ -276,6 +287,10 @@ class Signature(Base):
 class Coordination(Base):
     __tablename__ = "coordinations"
     id = Column(Integer, primary_key=True)
+    # 雲端那一筆的 id。表單留在雲端讓工地用手機填報，戰情室在地端，
+    # 由 collectors/sync_forms.py 定時抓回來。比對用這個欄位而不是 id——
+    # 兩邊各自產生流水號，直接沿用會撞號，把不同的資料蓋掉。
+    cloud_id = Column(Integer, index=True)
     site_id = Column(Integer, ForeignKey("sites.id"), nullable=False)
     meeting_date = Column(Date, nullable=False, default=date.today)
     work_date = Column(Date, nullable=False, default=date.today)
@@ -290,6 +305,8 @@ class Coordination(Base):
     pdf_path = Column(Unicode(255))
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime, default=datetime.now)
+    # 同上：由雲端同步過來的出席廠商家數
+    attendee_count = Column(Integer)
 
     site = relationship("Site")
     attendees = relationship("CoordinationAttendee", back_populates="coordination",

@@ -54,12 +54,21 @@ def load_rules():
     return terms
 
 
+# git 以 NUL 分隔檔名時的分隔字元。用 chr(0) 而不是字面量跳脫，
+# 字面量在複製貼上或經過多層跳脫時容易被折成真正的 NUL 位元組，
+# 那會讓整個檔案變成無法解析的原始碼。
+NUL = chr(0)
+
+
 def tracked_files(staged: bool):
-    cmd = (["git", "diff", "--cached", "--name-only", "--diff-filter=ACMR"]
-           if staged else ["git", "ls-files"])
+    # -z 讓 git 以 NUL 分隔輸出原始檔名。少了它，非 ASCII 的檔名會被加上引號
+    # 並跳脫成八進位轉義序列，這串路徑開不起來，pre-commit hook 會直接崩掉
+    # 而不是回報掃描結果——本專案的檔名有中文，遲早會踩到。
+    cmd = (["git", "diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z"]
+           if staged else ["git", "ls-files", "-z"])
     out = subprocess.run(cmd, cwd=BASE_DIR, capture_output=True, text=True,
                          encoding="utf-8")
-    return [p for p in out.stdout.splitlines() if p.strip()]
+    return [p for p in out.stdout.split(NUL) if p.strip()]
 
 
 def should_skip(rel: str) -> bool:
