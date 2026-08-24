@@ -107,6 +107,8 @@
   --warn-600:     #b5761f;
   --warn-100:     #f7eedd;
   --critical-600: #a33a32;
+  /* 環保／參考類標示用。與職安的警戒色分開，避免兩種語意被看成同一件事 */
+  --info-600:     #2f6690;
   --critical-100: #f6e5e3;
 
   /* ---------- 語意色（淺色介面：現場填報端） ---------- */
@@ -179,30 +181,45 @@
 }
 
 /* ---------- 深色情境（戰情室大螢幕）----------
-   非另一套配色，而是同一組色階的深色端，維持品牌一致性。 */
+   戰情室是唯一的使用者。它掛在牆上、隔三五公尺看，和坐在桌前看填報表單
+   是完全不同的觀看條件：環境光更亮、視角更斜、沒有人會湊近細看。
+   因此這裡不是把淺色配色調暗，而是刻意拉高對比——底色壓到接近純黑，
+   文字提到接近純白，狀態色提高彩度，讓「正常／警戒／危險」在遠處一眼可辨。
+
+   -100 系列（狀態底色）在深色下必須另外定義。沿用淺色的淡色調會在深色
+   卡片上變成一塊刺眼的亮斑；這裡改成同色相的深色透明疊層。 */
 .theme-dark {
-  --bg-canvas:     var(--slate-900);
-  --bg-surface:    #16232f;
-  --bg-sunken:     #0e1821;
+  --bg-canvas:     #0a0f16;
+  --bg-surface:    #131c26;
+  --bg-sunken:     #0d151d;
   --bg-inverse:    var(--sand-50);
 
-  --border:        #22323f;
-  --border-strong: #2e4152;
-  --border-accent: var(--slate-400);
+  --border:        #23303d;
+  --border-strong: #3a4d5f;
+  --border-accent: var(--slate-300);
 
-  --text-primary:   #e9e4db;
-  --text-secondary: #9fb0be;
-  --text-muted:     #75889a;
+  --text-primary:   #f4f7fa;
+  --text-secondary: #b3c3d1;
+  --text-muted:     #8397a8;
   --text-inverse:   var(--stone-900);
-  --text-accent:    var(--slate-300);
+  --text-accent:    var(--slate-200);
 
-  --accent:        var(--slate-400);
-  --accent-hover:  var(--slate-300);
+  --accent:        var(--slate-300);
+  --accent-hover:  var(--slate-200);
   --accent-subtle: #1b2b39;
 
-  --ok-600:       #6faa7e;
-  --warn-600:     #d69a45;
-  --critical-600: #d1685e;
+  /* 狀態色：彩度高於淺色版，遠距離才分得出來。
+     綠、琥珀、紅之外另給一個藍色，供環保／參考類的標示使用，
+     才不會和職安的警戒色混淆。 */
+  --ok-600:       #3ddc84;
+  --warn-600:     #ffb020;
+  --critical-600: #ff5257;
+  --info-600:     #4da3ff;
+
+  /* 狀態底色：深色透明疊層，襯得出色相又不會在牆上形成亮斑 */
+  --ok-100:       rgba(61, 220, 132, .14);
+  --warn-100:     rgba(255, 176, 32, .16);
+  --critical-100: rgba(255, 82, 87, .18);
 
   --shadow-sm: none;
   --shadow:    none;

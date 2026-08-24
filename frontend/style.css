@@ -751,7 +751,7 @@ body.war {
    沿用熱危害的外框語彙（同樣是法規警示），但用不同的左邊框顏色區隔，
    讓值班人員一眼分得出是哪一種。版面只有一列，兩則同時出現也不會把
    下半部擠掉——之前熱危害警示變高就發生過整片被壓扁。 */
-.noise-alert { border-left-color: var(--info-600, #2563eb); }
+.noise-alert { border-left-color: var(--info-600); }
 .noise-alert.l1 { border-left-color: var(--text-secondary); }
 .noise-alert.l2 { border-left-color: var(--warn-600); background: var(--warn-100); }
 .noise-alert.l3,
