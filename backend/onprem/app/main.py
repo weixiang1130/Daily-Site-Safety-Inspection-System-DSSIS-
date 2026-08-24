@@ -583,6 +583,27 @@ def cctv_snapshot(request: Request, channel: int = 0):
     )
 
 
+# 雲端同步用的佔位帳號。它只是為了滿足 inspector_id 的外鍵限制而存在，
+# 不是真的有這個人，因此絕不可出現在牆上——顯示成「雲端同步 填了這張表」
+# 會讓看板的人以為那是檢查人員的姓名。
+SYNC_PLACEHOLDER_USER = "cloud-sync"
+
+
+def _person_of(inspection) -> str:
+    """檢查人員姓名。取不到就留白，不要退回帳號名稱。
+
+    現場共用同一組帳號登入，帳號的顯示名稱答不出「這張表是誰檢查的」；
+    早期的紀錄沒有 inspector_name 欄位，補不出來就該留白，
+    填一個看起來像姓名的東西比空白更糟。
+    """
+    if inspection.inspector_name:
+        return inspection.inspector_name
+    u = inspection.inspector
+    if u and u.username != SYNC_PLACEHOLDER_USER:
+        return u.display_name or ""
+    return ""
+
+
 @app.get("/api/dashboard")
 def dashboard(request: Request, site_id: int = None, days: int = 30,
               db: Session = Depends(get_db)):
@@ -667,7 +688,9 @@ def dashboard(request: Request, site_id: int = None, days: int = 30,
                         DeviceReading.reading_at >= env_since)
                 .order_by(DeviceReading.reading_at.desc()).all())
 
-    site_by_id = {s.id: s for s in db.query(Site).all()}
+    _all_sites = db.query(Site).all()
+    site_by_id = {s.id: s for s in _all_sites}
+    site_by_code = {s.code: s for s in _all_sites if s.code}
 
     stations = {}
     for r in env_rows:
@@ -681,8 +704,13 @@ def dashboard(request: Request, site_id: int = None, days: int = 30,
         stamp = r.reading_at.isoformat(timespec="minutes")
         if st["reading_at"] is None or stamp > st["reading_at"]:
             st["reading_at"] = stamp
-        if st["site"] is None and r.site_id:
-            site_obj = site_by_id.get(r.site_id)
+        if st["site"] is None:
+            # 先用 site_id，沒有就退而用 site_code 對。收集程式若在工地資料
+            # 同步進來之前就跑過，那批讀值的 site_id 會是空的，只認 site_id
+            # 會讓牆上顯示一串 MAC 位址而不是工地名稱。
+            site_obj = site_by_id.get(r.site_id) if r.site_id else None
+            if site_obj is None and r.site_code:
+                site_obj = site_by_code.get(r.site_code)
             if site_obj:
                 st["site"] = site_obj.name
                 st["site_code"] = site_obj.code
@@ -747,7 +775,7 @@ def dashboard(request: Request, site_id: int = None, days: int = 30,
             "kind": "inspection", "on_date": i.inspect_date.isoformat(),
             "site": i.site.name if i.site else "",
             "title": i.form.title if getattr(i, "form", None) else i.form_code,
-            "person": i.inspector_name or (i.inspector.display_name if i.inspector else ""),
+            "person": _person_of(i),
             "result": ("未知" if fails is None else
                        f"{fails} 項不符合" if fails else "全數符合"),
             "ok": fails == 0,

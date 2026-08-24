@@ -384,11 +384,44 @@ def _add_missing_columns():
         # 欄位跟著回滾，也不該讓整個服務起不來。
         for col in missing:
             ddl = CreateColumn(col).compile(engine).string
+            # NOT NULL 欄位加到「已有資料」的表時，SQL Server 一定要有 DEFAULT，
+            # 否則整句被拒（既有列沒值可填）。模型裡的 default= 是 Python 端預設，
+            # 不會出現在 CreateColumn 產生的 DDL 裡，因此這裡自行補上伺服器端
+            # 預設值。取不到純量預設值時，退而以可為空的方式加入——欄位存在
+            # 但少了 NOT NULL 約束，總比整個欄位加不進去、之後寫入全炸好。
+            if not col.nullable:
+                lit = _scalar_default_sql(col)
+                if lit is not None:
+                    ddl += f" DEFAULT {lit}"
+                else:
+                    ddl = ddl.replace(" NOT NULL", "")
+                    print(f"[db] {table.name}.{col.name} 無可用預設值，"
+                          "改以可為空方式補上")
             try:
                 with engine.begin() as conn:
                     conn.execute(text(f"ALTER TABLE {table.name} ADD {ddl}"))
             except Exception as e:                    # noqa: BLE001
                 print(f"[db] 無法補上 {table.name}.{col.name}：{e}")
+
+
+def _scalar_default_sql(col):
+    """把欄位的純量預設值轉成可直接放進 DDL 的字面量；取不到時回 None。
+
+    只處理純量常數（default=0、default="draft" 這類）。像 datetime.now 這種
+    可呼叫的預設是每列各自求值，沒有單一字面量可放進 ALTER，回 None 由呼叫端
+    改以可為空方式處理。
+    """
+    d = col.default
+    if d is None or not getattr(d, "is_scalar", False):
+        return None
+    val = d.arg
+    if isinstance(val, bool):
+        return "1" if val else "0"
+    if isinstance(val, (int, float)):
+        return str(val)
+    if isinstance(val, str):
+        return "'" + val.replace("'", "''") + "'"
+    return None
 
 
 def init_db():

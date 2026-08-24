@@ -52,3 +52,6 @@ desktop.ini
 # Node / Netlify
 node_modules/
 .netlify/
+
+# 雲端同步進度。屬各機器自己的執行時狀態，不是專案內容
+sync_state.json
