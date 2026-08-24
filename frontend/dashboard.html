@@ -27,8 +27,9 @@
 
 <div class="war-body">
 
-  <!-- 熱危害警示：達第一級才出現，等級越高越醒目 -->
+  <!-- 法規警示：達門檻才出現，等級越高越醒目 -->
   <section class="heat-alert hidden" id="heatAlert"></section>
+  <section class="heat-alert noise-alert hidden" id="noiseAlert"></section>
 
   <!-- 現場即時：環境、人數、監視畫面 -->
   <section class="band band-live">
@@ -40,6 +41,7 @@
         <span class="muted small" id="envTime"></span>
       </div>
       <div class="tiles tiles-env" id="envTiles"></div>
+      <p class="env-basis" id="envBasis"></p>
       <div class="other-sites" id="otherSites"></div>
       <div class="tiles tiles-people" id="peopleTiles"></div>
     </div>
@@ -142,11 +144,13 @@ function renderEnvironment(list, spec) {
     nameEl.textContent = '現場即時';
     lvlEl.className = 'env-level hidden';
     tilesEl.innerHTML = '<p class="empty-state">尚無環境監測資料</p>';
+    document.getElementById('envBasis').textContent = '';
     document.getElementById('otherSites').innerHTML = '';
     document.getElementById('envTime').textContent = '';
     // 沒有資料就不能留著舊的熱危害警示——牆上會變成一則沒有依據、
     // 也永遠不會消失的法規指示。
     renderHeatAlert(null);
+    renderNoiseAlert(null);
     return;
   }
 
@@ -170,12 +174,20 @@ function renderEnvironment(list, spec) {
 
   // 危害等級是我們自己算的，和廠商平台回報的不同，放在最後做為結論
   renderHeatAlert(primary);
+  renderNoiseAlert(primary);
 
   cells.push(tile('危害等級', primary.level_label, '',
                   LEVEL_CLASS[primary.level] + ' tile-verdict',
                   '取各項指標中最高者。任何一項達到危險都必須反映出來，'
                   + '不能被其他正常的指標稀釋掉。'));
   tilesEl.innerHTML = cells.join('');
+
+  // 判定依據寫在牆上而不是只掛 title：大螢幕沒有人會把滑鼠移上去。
+  // 粉塵這兩項尤其要講清楚是環保 AQI——職安的粉塵容許濃度以 mg/m³ 計，
+  // 比這裡的數值高三個數量級，不標明會被誤讀成「PM 破表＝違反職安法」。
+  document.getElementById('envBasis').textContent =
+    '噪音／熱指數：職安法規門檻　｜　PM2.5、PM10：環境部空氣品質指標（環保），'
+    + '非職安法定暴露值';
 
   document.getElementById('otherSites').innerHTML = others.length
     ? '<span class="muted small">其他工地</span>' + others.map(s => `
@@ -292,6 +304,57 @@ function barlist(el, rows) {
   while (box.scrollHeight > box.clientHeight + 1 && box.children.length > 1) {
     box.removeChild(box.lastElementChild);
   }
+}
+
+// ---------------------------------------------------------------------------
+// 噪音警示
+//
+// 和熱危害同一個道理：顯示「噪音 87 dB」對現場沒有用，值班人員未必知道
+// 85 分貝就已經觸發聽力保護計畫的法定義務。因此直接寫出該做哪幾件事。
+//
+// 措辭一律是「應評估、應確認」，不寫「違反規定」——我們量到的是即時音壓級，
+// 法規講的是 8 小時日時量平均，兩者不能畫等號。牆上出現法規判定現場會當真，
+// 判錯的代價是有人據此認為不必戴防護具。
+//
+// 版面比熱危害更精簡（只有一列），避免兩則警示同時出現時把下半部擠掉。
+// ---------------------------------------------------------------------------
+function renderNoiseAlert(primary) {
+  const box = document.getElementById('noiseAlert');
+  const n = primary && primary.noise;
+  const alarms = (primary && primary.noise_alarm) || [];
+
+  // 職安未達門檻、環保也沒有時段警報，就不佔版面
+  if (!n && !alarms.length) { box.classList.add('hidden'); return; }
+
+  box.className = `heat-alert noise-alert l${n ? n.level : 1}`;
+  box.title = n ? [n.caveat].concat(n.measures || []).join(NEWLINE) : '';
+
+  // 這個音量下每日還能待多久——比單純說「超標」對現場有用得多
+  const hours = n && n.allowed_hours != null
+    ? `<span class="ha-value">每日暴露上限 ${esc(String(n.allowed_hours))} 小時</span>`
+    : '';
+
+  // 時段警報是環保的營建工程周界噪音管制，與職安的聽力保護不同法源，
+  // 因此獨立標示而不併入等級，免得兩者被當成同一件事
+  const env = alarms.length
+    ? `<span class="na-period">環保時段管制：${esc(alarms.join('、'))}超標</span>`
+    : '';
+
+  box.innerHTML = n ? `
+    <div class="ha-head">
+      <span class="ha-level">噪音 ${esc(n.name)}</span>
+      <span class="ha-value">${esc(String(n.value))} dB</span>
+      ${hours}
+      <span class="ha-principle">${esc(n.principle)}</span>
+      ${env}
+    </div>
+    <div class="ha-row"><b>本級重點</b>
+      <span>${(n.focus || []).map(esc).join('　·　')}</span></div>` : `
+    <div class="ha-head">
+      <span class="ha-level">營建噪音時段管制</span>
+      ${env}
+      <span class="ha-principle">勞工聽力保護部分未達門檻；本項屬環保周界噪音管制</span>
+    </div>`;
 }
 
 // ---------------------------------------------------------------------------

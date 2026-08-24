@@ -747,6 +747,39 @@ body.war {
   50%      { background: var(--bg-surface); }
 }
 
+/* 噪音警示
+   沿用熱危害的外框語彙（同樣是法規警示），但用不同的左邊框顏色區隔，
+   讓值班人員一眼分得出是哪一種。版面只有一列，兩則同時出現也不會把
+   下半部擠掉——之前熱危害警示變高就發生過整片被壓扁。 */
+.noise-alert { border-left-color: var(--info-600, #2563eb); }
+.noise-alert.l1 { border-left-color: var(--text-secondary); }
+.noise-alert.l2 { border-left-color: var(--warn-600); background: var(--warn-100); }
+.noise-alert.l3,
+.noise-alert.l4 {
+  border-left-color: var(--critical-600);
+  background: var(--critical-100);
+}
+.noise-alert.l1 .ha-level { color: var(--text-primary); }
+.noise-alert.l2 .ha-level { color: var(--warn-600); }
+
+/* 環保的時段管制與職安的聽力保護是兩回事，做成獨立標籤而不是混在文字裡 */
+/* 判定依據的註腳。刻意做得很小：它要能被查到，但不該跟數值搶注意力 */
+.env-basis {
+  margin: 4px 0 0;
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  line-height: 1.3;
+}
+
+.na-period {
+  font-size: var(--fs-xs);
+  padding: 1px var(--sp-2);
+  border-radius: var(--radius-sm, 4px);
+  border: 1px solid var(--warn-600);
+  color: var(--warn-600);
+  white-space: nowrap;
+}
+
 .ha-head {
   display: flex;
   align-items: baseline;

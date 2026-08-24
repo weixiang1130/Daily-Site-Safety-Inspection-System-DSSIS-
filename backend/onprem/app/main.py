@@ -27,6 +27,7 @@ from .auth import SECRET_KEY, authenticate, current_user  # noqa: E402
 from .hazard import (LEVEL_LABEL, level_of, station_level,  # noqa: E402
                      heat_index_c, thresholds_payload)
 from .heat_guidance import heat_guidance
+from .noise_guidance import noise_guidance, period_alarms
 from . import cctv
 from .db import (
     BASE_DIR, Coordination, CoordinationAttendee, DeviceReading, Finding, FormItem,
@@ -717,9 +718,12 @@ def dashboard(request: Request, site_id: int = None, days: int = 30,
 
     environment = []
     for st in stations.values():
-        # 廠商的危害等級不可信（實測熱指數 49.4 仍回報 0），排除在判定之外
+        # 廠商的危害等級不可信（實測熱指數 49.4 仍回報 0），排除在判定之外。
+        # 噪音時段警報也排除：那是環保的營建工程周界噪音管制，與勞工聽力
+        # 保護是兩回事，併進危害等級會讓現場以為「環保沒超標＝聽力沒問題」。
         judged = {k: v for k, v in st["metrics"].items()
-                  if k not in ("hazard_level", "vendor_hazard_level")}
+                  if k not in ("hazard_level", "vendor_hazard_level")
+                  and not k.startswith("noise_alarm")}
         st["levels"] = {k: level_of(k, v) for k, v in judged.items()}
         st["level"] = station_level(judged)
         st["level_label"] = LEVEL_LABEL[st["level"]]
@@ -728,6 +732,12 @@ def dashboard(request: Request, site_id: int = None, days: int = 30,
         if hi is None and judged.get("temperature") is not None                 and judged.get("humidity") is not None:
             hi = heat_index_c(judged["temperature"], judged["humidity"])
         st["heat"] = heat_guidance(hi)
+
+        # 噪音：職安的聽力保護（依即時音壓級）與環保的時段管制（廠商旗標）
+        # 分開呈現，兩者法源與主管機關都不同
+        st["noise"] = noise_guidance(judged.get("noise"))
+        st["noise_alarm"] = period_alarms(st["metrics"])
+
         environment.append(st)
 
     # 危害等級高的排前面，值班人員第一眼就看到最需要處理的工地
