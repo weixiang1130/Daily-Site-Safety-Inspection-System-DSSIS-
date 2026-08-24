@@ -198,6 +198,30 @@ function renderEnvironment(list, spec) {
     : '';
 }
 
+// 級距刻度。
+//
+// 牆上只寫「第二級」，不知情的人無從判斷那是輕是重、總共又有幾級，
+// 也不知道我們憑什麼這樣判。把整個級距、目前落在哪一段、以及法規依據
+// 一起攤在牆上，看板的人自己就能核對，不必來問。
+//
+// 級距與名稱都由 API 送來（源頭是法規門檻表），前端不自己寫一份。
+function levelScale(g) {
+  const rows = g.scale || [];
+  if (!rows.length) return '';
+  const segs = rows.map(r => {
+    // 只標下界：牆上要一眼掃過，每段都寫完整區間會變成一串數字牆
+    const edge = r.from == null ? '' : r.from;
+    const on = r.level === g.level ? ' on' : '';
+    return `<span class="sc-seg l${r.level}${on}">
+      <b>${esc(r.name)}</b><i>${edge === '' ? '' : esc(String(edge))}</i></span>`;
+  }).join('');
+  return `<div class="ha-scale">
+    <span class="sc-cur">第 ${g.level} 級 / 共 ${rows.length - 1} 級</span>
+    <span class="sc-bar">${segs}</span>
+    <span class="sc-basis">依據：${esc(g.basis || '')}</span>
+  </div>`;
+}
+
 // ---------------------------------------------------------------------------
 // 熱危害警示
 //
@@ -233,6 +257,7 @@ function renderHeatAlert(primary) {
     </div>
     <div class="ha-row"><b>本級重點</b>
       <span>${(heat.focus || []).map(esc).join('　·　')}</span></div>
+    ${levelScale(heat)}
     ${sun ? `<div class="ha-row ha-sun"><b>注意</b>
       <span>陽光直接照射下作業或穿著不透氣防護衣物時，
       依指引附表二備註三應提升為 ${esc(sun.name)}，並依該級採取措施</span></div>` : ''}`;
@@ -348,6 +373,7 @@ function renderNoiseAlert(primary) {
       <span class="ha-principle">${esc(n.principle)}</span>
       ${env}
     </div>
+    ${levelScale(n)}
     <div class="ha-row"><b>本級重點</b>
       <span>${(n.focus || []).map(esc).join('　·　')}</span></div>` : `
     <div class="ha-head">

@@ -763,6 +763,54 @@ body.war {
 .noise-alert.l2 .ha-level { color: var(--warn-600); }
 
 /* 環保的時段管制與職安的聽力保護是兩回事，做成獨立標籤而不是混在文字裡 */
+/* 級距刻度
+   把整個分級攤在牆上，讓看板的人自己核對「第二級」是輕是重、依據為何。
+   做成一列且字級很小：它是查證用的參考，不該跟等級和數值搶注意力。 */
+.ha-scale {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+.sc-cur { white-space: nowrap; font-weight: 700; color: var(--text-primary); }
+.sc-bar { display: flex; flex: 1; min-width: 0; gap: 2px; }
+.sc-seg {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  /* 名稱與下界排成同一行。堆成兩行會讓警示帶高出十幾像素，
+     那足以把整頁擠出一屏——牆上沒有捲軸，被擠掉就等於看不到。 */
+  align-items: baseline;
+  justify-content: center;
+  gap: 3px;
+  padding: 1px 2px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  line-height: 1.15;
+  overflow: hidden;
+}
+.sc-seg b { font-weight: 500; white-space: nowrap; overflow: hidden;
+            text-overflow: ellipsis; max-width: 100%; }
+.sc-seg i {
+  font-style: normal;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  opacity: .7;
+}
+/* 目前所在的級別。只靠顏色不夠——牆離得遠，加粗邊框才看得出來 */
+.sc-seg.on {
+  border-color: var(--text-primary);
+  border-width: 2px;
+  background: var(--bg-base, transparent);
+  color: var(--text-primary);
+  font-weight: 700;
+}
+.sc-seg.on b { font-weight: 700; }
+.sc-basis { white-space: nowrap; opacity: .85; }
+
 /* 判定依據的註腳。刻意做得很小：它要能被查到，但不該跟數值搶注意力 */
 .env-basis {
   margin: 4px 0 0;

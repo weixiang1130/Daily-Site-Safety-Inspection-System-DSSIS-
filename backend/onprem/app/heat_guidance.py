@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional
 
-from .hazard import level_of
+from .hazard import THRESHOLDS, level_of
 
 # 附表三中各級都要做的基礎措施
 BASE_MEASURES: List[str] = [
@@ -102,6 +102,25 @@ def _pack(level: int) -> dict:
     }
 
 
+def scale() -> List[dict]:
+    """各級的界線與名稱，供牆上顯示級距刻度。
+
+    牆上只寫「第二級」，不知情的人無從判斷那是輕是重、總共又有幾級。
+    級距與名稱都由這裡產生，不讓前端自己寫一份——法規門檻改了卻只改一邊，
+    是那種不會有人發現的錯。
+    """
+    breaks = THRESHOLDS["heat_index"].breaks
+    out = []
+    for lvl in range(len(breaks) + 1):
+        out.append({
+            "level": lvl,
+            "name": _NAME[lvl],
+            "from": breaks[lvl - 1] if lvl > 0 else None,
+            "to": breaks[lvl] if lvl < len(breaks) else None,
+        })
+    return out
+
+
 def heat_guidance(heat_index) -> Optional[dict]:
     """依熱指數值取得該級的應辦措施。無有效值時回 None。"""
     if heat_index is None:
@@ -109,6 +128,9 @@ def heat_guidance(heat_index) -> Optional[dict]:
     level = level_of("heat_index", heat_index)
     g = _pack(level)
     g["value"] = heat_index
+    g["scale"] = scale()
+    g["basis"] = THRESHOLDS["heat_index"].basis
+    g["unit"] = THRESHOLDS["heat_index"].unit
 
     # 附表二備註三：陽光直照或穿不透氣防護衣應提升一級。工地戶外作業多屬
     # 前者，只顯示現值會讓現場低估；但是否成立要由現場認定，因此並列顯示

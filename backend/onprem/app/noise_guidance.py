@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional
 
-from .hazard import level_of
+from .hazard import THRESHOLDS, level_of
 
 # 各級名稱。對應 hazard.py 的 noise 分界 [80, 85, 90, 115]
 _NAME = {
@@ -99,6 +99,20 @@ def allowed_hours(db_value: float) -> Optional[float]:
     return round(hours, 2)
 
 
+def scale() -> List[dict]:
+    """各級的界線與名稱，供牆上顯示級距刻度。理由同 heat_guidance.scale()。"""
+    breaks = THRESHOLDS["noise"].breaks
+    out = []
+    for lvl in range(len(breaks) + 1):
+        out.append({
+            "level": lvl,
+            "name": _NAME[lvl],
+            "from": breaks[lvl - 1] if lvl > 0 else None,
+            "to": breaks[lvl] if lvl < len(breaks) else None,
+        })
+    return out
+
+
 def noise_guidance(db_value) -> Optional[dict]:
     """依即時音壓級取得該級的應辦措施。無有效值時回 None。"""
     if db_value is None:
@@ -117,6 +131,9 @@ def noise_guidance(db_value) -> Optional[dict]:
         "measures": _measures(level),
         "focus": _ADDED[level],
         "allowed_hours": hours,
+        "scale": scale(),
+        "basis": THRESHOLDS["noise"].basis,
+        "unit": THRESHOLDS["noise"].unit,
         # 這句話會直接出現在牆上，措辭必須守住「即時值 ≠ 日時量平均」
         "caveat": "本數值為即時音壓級，非 8 小時日時量平均值；"
                   "是否符合法規應以作業環境監測結果認定。",
