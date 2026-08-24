@@ -915,6 +915,61 @@ def root():
 
 
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+
+FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(BASE_DIR)), "frontend")
+
+# 只接受單純的檔名。這個值來自網址，放行斜線或點點就等於讓外部讀取
+# frontend 以外的任何檔案。
+_PAGE_NAME = re.compile(r"[a-z0-9_-]+")
+
+
+def asset_version() -> str:
+    """前端樣式與腳本的版本戳，取自這些檔案的最後修改時間。"""
+    latest = 0
+    try:
+        for name in os.listdir(FRONTEND_DIR):
+            if name.endswith((".css", ".js")):
+                latest = max(latest,
+                             int(os.path.getmtime(os.path.join(FRONTEND_DIR, name))))
+    except OSError:
+        return "0"
+    return str(latest)
+
+
+@app.get("/static/{page}.html")
+def serve_page(page: str):
+    """送出前端頁面，並在樣式與腳本的網址後面加上版本戳。
+
+    為什麼不只靠 Cache-Control
+    --------------------------
+    no-cache 能讓「之後」的更新立刻生效，但救不了**已經**被快取起來的舊檔——
+    瀏覽器是在存進去的當下就決定要留多久的。實際踩過：深色主題上線後，
+    畫面拿到新的 HTML 卻配上舊的 CSS，警示帶底色還是淺的、文字卻已改成亮色，
+    整段變成亮字配亮底完全看不見，而且重新整理也沒用。
+
+    改成帶版本戳之後，檔案一改網址就跟著變，舊的快取條目根本對不上，
+    不需要任何人去清快取——牆上那台機器不會有人去按重新整理。
+    """
+    if not _PAGE_NAME.fullmatch(page):
+        raise HTTPException(status_code=404, detail="查無此頁")
+
+    path = os.path.join(FRONTEND_DIR, f"{page}.html")
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="查無此頁")
+
+    with open(path, encoding="utf-8") as f:
+        html = f.read()
+
+    version = asset_version()
+    html = re.sub(
+        r'(href|src)="(/static/[^"?]+\.(?:css|js))"',
+        lambda m: f'{m.group(1)}="{m.group(2)}?v={version}"',
+        html,
+    )
+    return Response(content=html, media_type="text/html; charset=utf-8",
+                    headers={"Cache-Control": "no-cache"})
+
+
 class RevalidatingStatic(StaticFiles):
     """靜態檔一律要求瀏覽器先向伺服器確認有沒有更新。
 
