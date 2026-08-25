@@ -32,15 +32,29 @@ ROOT_INDEX = """<!doctype html>
 # 這裡只處理根路徑導頁與 SPA 式的靜態回退。
 REDIRECTS = "/  /static/index.html  302\n"
 
+# 不上雲端的頁面。
+#
+# 戰情室已改在公司內網執行（見 docs/地端戰情室.md）：它是大螢幕整天開著、
+# 每分鐘更新監視畫面與環境數據的東西，掛在雲端會持續吃掉方案額度，而它要的
+# 資料來源本來就都在公司網路內。雲端只留填報。
+#
+# 檔案本身不刪 —— 地端服務讀的是同一個 frontend/ 目錄，
+# 這裡只是不把它複製進雲端的產出物。
+CLOUD_EXCLUDE = ("dashboard.html",)
+
 
 def main():
     if os.path.isdir(DIST):
         shutil.rmtree(DIST)
     os.makedirs(DIST)
 
-    shutil.copytree(SRC, os.path.join(DIST, "static"))
+    shutil.copytree(SRC, os.path.join(DIST, "static"),
+                    ignore=shutil.ignore_patterns(*CLOUD_EXCLUDE))
     n = sum(len(f) for _, _, f in os.walk(os.path.join(DIST, "static")))
     print(f"[build] 複製 frontend/ → dist/static/（{n} 個檔案）")
+
+    print("[build] not deployed to cloud: "
+          + ", ".join(CLOUD_EXCLUDE))
 
     with open(os.path.join(DIST, "index.html"), "w", encoding="utf-8") as f:
         f.write(ROOT_INDEX)

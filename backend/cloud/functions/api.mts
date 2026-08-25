@@ -13,12 +13,6 @@ import {
   sessionCookieHeader, verifyPassword, type SessionUser,
 } from "../lib/auth.ts";
 import { buildCoordinationPdf, buildInspectionPdf, type SigInput } from "../lib/pdf.ts";
-import { pollWeatherStations } from "../lib/weather.ts";
-import { pollHeadcount } from "../lib/headcount.ts";
-import { cctvChannels, cctvEnabled, fetchSnapshot, latestSnapshot,
-         storeSnapshot, defaultCctvSite, safeSiteCode } from "../lib/cctv.ts";
-import { levelOf, stationLevel, LEVEL_LABEL, THRESHOLDS } from "../lib/hazard.ts";
-import { heatGuidance, escalated } from "../lib/heat-guidance.ts";
 
 const db = getDatabase();
 
@@ -40,6 +34,9 @@ const BRANDING = {
   group_name: Netlify.env.get("BRAND_GROUP") || "",
   // 戰情室預設聚焦的工地。現階段以單一主場站為主，其餘工地的填報仍會列出。
   primary_site_code: Netlify.env.get("PRIMARY_SITE_CODE") || "",
+  // 戰情室已改在公司內網執行，雲端不再提供（見 docs/地端戰情室.md）。
+  // 前端據此隱藏入口——留著按鈕只會連到 404。
+  war_room: false,
 };
 
 /** 內網推上來的畫面超過這個秒數就算過期。推送間隔的兩倍多一些，
@@ -47,7 +44,6 @@ const BRANDING = {
 const SNAPSHOT_MAX_AGE_SEC = 180;
 
 /** 儀表板是否免登入。公開網際網路上務必維持 false。 */
-const PUBLIC_DASHBOARD = Netlify.env.get("PUBLIC_DASHBOARD") === "true";
 
 function ingestTokens(): Record<string, string> {
   const raw = Netlify.env.get("INGEST_TOKENS")
@@ -225,104 +221,6 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       return json(rows.map((r: any) => ({
         ...r, value_num: r.value_num === null ? null : Number(r.value_num),
       })));
-    }
-
-    // ---- 儀表板 ----
-    if (p === "/api/dashboard") {
-      if (!PUBLIC_DASHBOARD && !me) return fail(401, "請先登入");
-      return json(await dashboard(url));
-    }
-
-    // ---- 監視器畫面 ----
-    // 由後端代理的原因見 lib/cctv.ts：主機禁止被 iframe、又是 http，
-    // 前端無法直接取用。存取權限比照儀表板。
-    if (p === "/api/cctv/snapshot") {
-      if (!PUBLIC_DASHBOARD && !me) return fail(401, "請先登入");
-      if (!cctvEnabled()) return fail(404, "未設定監視器");
-
-      const allowed = cctvChannels();
-      const ch = parseInt(url.searchParams.get("channel") || "", 10);
-      // 只接受設定檔列出的頻道，避免這支路由變成可任意存取內網主機的跳板
-      if (!allowed.includes(ch)) return fail(400, "頻道不在允許範圍");
-
-      // ageSec 為 null 代表時間戳不可用。此時明講 unknown，不要省略標頭——
-      // 省略的話前端顯示得跟剛拍的一模一樣，反而比沒有畫面更誤導。
-      const imageHeaders = (ageSec: number | null) => ({
-        "Content-Type": "image/jpeg",
-        // 畫面持續更新，不能讓瀏覽器或 CDN 快取
-        "Cache-Control": "no-store",
-        // 內容是代理來的影像，不要讓瀏覽器自行嗅探型別
-        "X-Content-Type-Options": "nosniff",
-        "X-Snapshot-Age": ageSec == null ? "unknown" : String(ageSec),
-      });
-
-      // 先看內網推上來的畫面。監視器主機會擋掉雲端的對外 IP（實測 403），
-      // 所以推送才是主要路徑，直連只是備援。
-      //
-      // 這段讀取要放在 try 內：Blobs 若出錯而讓例外往外拋，不但會變成沒有
-      // 訊息的 500，還會連帶跳過下面的直連備援——備援存在的意義就沒了。
-      let stored: Awaited<ReturnType<typeof latestSnapshot>> = null;
-      try {
-        stored = await latestSnapshot(defaultCctvSite(), ch);
-        // 時間不明（ageSec 為 null）一律不算新鮮，寧可去直連確認
-        if (stored && stored.ageSec != null && stored.ageSec <= SNAPSHOT_MAX_AGE_SEC) {
-          return new Response(stored.data, { headers: imageHeaders(stored.ageSec) });
-        }
-      } catch (e: any) {
-        console.error("[cctv] 讀取已推送畫面失敗", e);
-      }
-
-      // 純推送部署還沒收到第一張畫面時，直連只會回「未設定 CCTV_API_URL」，
-      // 那會把人引去設定一條已知被 403 擋掉的路。直接講真正該檢查的東西。
-      if (!stored && !Netlify.env.get("CCTV_API_URL")) {
-        return fail(503, "尚未收到內網推送的畫面。請確認 tools/push_snapshots.py "
-          + "是否正在公司網路內執行");
-      }
-
-      try {
-        const buf = await fetchSnapshot(ch);
-        return new Response(buf, { headers: imageHeaders(0) });
-      } catch (e: any) {
-        console.error("[cctv] 取得畫面失敗", e);
-        // 直連也失敗時，過期的畫面仍比空白有用，但要明講它是舊的
-        if (stored) {
-          return new Response(stored.data, { headers: imageHeaders(stored.ageSec) });
-        }
-        return fail(502, `取得監視器畫面失敗：${e?.message || e}`);
-      }
-    }
-
-    if (p === "/api/cctv/channels") {
-      if (!PUBLIC_DASHBOARD && !me) return fail(401, "請先登入");
-      return json({ enabled: cctvEnabled(), channels: cctvEnabled() ? cctvChannels() : [] });
-    }
-
-    // 內網代理推送監視畫面。以權杖驗證，不用 session——推送程式跑在公司
-    // 網路內的機器上，不會有登入狀態。
-    if (p === "/api/v1/ingest/snapshot" && method === "POST") {
-      // 用專屬權杖而非設備廠商的權杖：推送程式是我們自己跑在公司網路內的
-      // 代理，不是外部廠商，權限範圍也只有上傳畫面這一件事。
-      const expected = Netlify.env.get("SITE_AGENT_TOKEN") || "";
-      const token = req.headers.get("x-agent-token") || "";
-      if (!expected || token !== expected) return fail(401, "代理權杖驗證失敗");
-
-      const ch = parseInt(url.searchParams.get("channel") || "", 10);
-      if (!cctvChannels().includes(ch)) return fail(400, "頻道不在允許範圍");
-
-      const type = req.headers.get("content-type") || "";
-      if (!type.startsWith("image/")) return fail(415, "請以 image/jpeg 傳送畫面");
-
-      // 工地代碼決定儲存命名空間。未指定時沿用本站設定，讓既有的單一工地
-      // 部署不必改；第二個工地的代理只要帶上自己的代碼就不會互相覆蓋。
-      const site = safeSiteCode(url.searchParams.get("site") || defaultCctvSite());
-      if (!site) return fail(400, "工地代碼格式不正確");
-
-      const data = await req.arrayBuffer();
-      if (data.byteLength < 1024) return fail(400, "影像過小，可能不是有效畫面");
-      if (data.byteLength > 5_000_000) return fail(413, "影像過大");
-
-      await storeSnapshot(site, ch, data);
-      return json({ ok: true, site, channel: ch, bytes: data.byteLength });
     }
 
     // 地端戰情室拉取表單資料。
@@ -530,6 +428,31 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
     const coordPdf = /^\/api\/coordinations\/(\d+)\/pdf$/.exec(p);
     if (coordPdf) return await servePdf("coordinations", parseInt(coordPdf[1], 10));
 
+    // 首頁的「缺失概況」只要三個數字。
+    //
+    // 原本是叫 /api/dashboard，但戰情室搬到地端後那個端點已移除。改成三個
+    // COUNT 而不是把整份缺失撈回前端自己算——首頁每次載入都會呼叫，
+    // 資料量會隨案件累積無止境成長。
+    if (p === "/api/findings/summary" && method === "GET") {
+      const today = todayISO();
+      const rows = await db.sql`
+        SELECT
+          COUNT(*) FILTER (WHERE found_at::date = ${today}::date) AS findings_today,
+          COUNT(*) FILTER (WHERE status IN ('open', 'fixed'))     AS open,
+          COUNT(*) FILTER (
+            WHERE action_type = 'scheduled'
+              AND due_date IS NOT NULL
+              AND status NOT IN ('verified', 'closed')
+              AND due_date < ${today}::date)                       AS overdue
+        FROM findings`;
+      const r: any = rows[0] || {};
+      return json({
+        findings_today: Number(r.findings_today || 0),
+        open: Number(r.open || 0),
+        overdue: Number(r.overdue || 0),
+      });
+    }
+
     if (p === "/api/findings" && method === "GET") {
       const days = parseInt(url.searchParams.get("days") || "30", 10);
       const siteId = url.searchParams.get("site_id");
@@ -672,27 +595,6 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
         await db.sql`DELETE FROM findings WHERE inspection_id = ${id}`;
         await db.sql`DELETE FROM inspections WHERE id = ${id}`;
         return json({ ok: true });
-      }
-
-      // 手動觸發微型氣象站抓取。
-      // 排程函式無法以 HTTP 呼叫，部署後要立即驗證或排錯時用這支。
-      if (p === "/api/admin/weather-poll" && method === "POST") {
-        try {
-          const msg = await pollWeatherStations();
-          return json({ ok: true, message: msg });
-        } catch (e: any) {
-          return fail(500, `抓取失敗：${e?.message || e}`);
-        }
-      }
-
-      // 手動觸發人員進出人次抓取，用途同上
-      if (p === "/api/admin/headcount-poll" && method === "POST") {
-        try {
-          const msg = await pollHeadcount();
-          return json({ ok: true, message: msg });
-        } catch (e: any) {
-          return fail(500, `抓取失敗：${e?.message || e}`);
-        }
       }
 
       return fail(404, `找不到管理路由 ${p}`);
@@ -974,259 +876,6 @@ async function servePdf(table: "inspections" | "coordinations", id: number) {
       "content-disposition": `inline; filename="${key.split("/").pop()}"`,
     },
   });
-}
-
-// ---------------------------------------------------------------------------
-// 儀表板彙總
-// ---------------------------------------------------------------------------
-async function dashboard(url: URL) {
-  const days = parseInt(url.searchParams.get("days") || "30", 10);
-  const siteId = url.searchParams.get("site_id");
-  const today = todayISO();
-
-  const rows = await db.sql`
-    SELECT f.*, s.name AS site, v.name AS vendor FROM findings f
-    JOIN sites s ON s.id = f.site_id
-    LEFT JOIN vendors v ON v.id = f.vendor_id
-    WHERE f.found_at >= NOW() - (${days}::int * INTERVAL '1 day')
-      AND (${siteId}::int IS NULL OR f.site_id = ${siteId}::int)`;
-  const findings = rows.map((r: any) => ({ ...shapeFinding(r), raw: r }));
-
-
-  const insps = await db.sql`
-    SELECT id, site_id FROM inspections
-    WHERE inspect_date = CURRENT_DATE
-      AND (${siteId}::int IS NULL OR site_id = ${siteId}::int)`;
-
-  const sites = await db.sql`SELECT id, name FROM sites WHERE active = TRUE ORDER BY id`;
-
-  // 最新交出來的表單。工地填完之後要在戰情室上馬上看得到結果，
-  // 否則現場沒有回饋，也無從知道自己交了沒。
-  // 兩種表單合在一起看，因為值班人員關心的是「今天有誰交了什麼」。
-  const recentInspections = await db.sql`
-    SELECT i.id, i.inspect_date AS on_date, i.pdf_key, s.name AS site,
-           ft.title AS title,
-           COALESCE(i.inspector_name, u.display_name) AS person,
-           (SELECT COUNT(*)::int FROM inspection_results r
-             WHERE r.inspection_id = i.id AND r.result = 'fail') AS fail_count
-    FROM inspections i
-    JOIN sites s ON s.id = i.site_id
-    JOIN form_templates ft ON ft.form_code = i.form_code
-    JOIN users u ON u.id = i.inspector_id
-    WHERE (${siteId}::int IS NULL OR i.site_id = ${siteId}::int)
-    ORDER BY i.inspect_date DESC, i.id DESC
-    LIMIT 20`;
-
-  const recentCoordinations = await db.sql`
-    SELECT c.id, c.work_date AS on_date, c.pdf_key, s.name AS site,
-           c.recorder_name,
-           (SELECT COUNT(*)::int FROM coordination_attendees a
-             WHERE a.coordination_id = c.id) AS attendee_count
-    FROM coordinations c JOIN sites s ON s.id = c.site_id
-    WHERE (${siteId}::int IS NULL OR c.site_id = ${siteId}::int)
-    ORDER BY c.work_date DESC, c.id DESC
-    LIMIT 20`;
-
-  const recentForms = [
-    ...(recentInspections as any[]).map((r) => ({
-      kind: "inspection" as const,
-      on_date: dateOnly(r.on_date),
-      site: r.site,
-      title: r.title,
-      person: r.person,
-      // 缺失數就是這張表的結果：0 代表全數符合
-      result: r.fail_count > 0 ? `${r.fail_count} 項不符合` : "全數符合",
-      ok: r.fail_count === 0,
-      pdf_url: r.pdf_key ? `/api/inspections/${r.id}/pdf` : null,
-    })),
-    ...(recentCoordinations as any[]).map((r) => ({
-      kind: "coordination" as const,
-      on_date: dateOnly(r.on_date),
-      site: r.site,
-      title: "每日協議、巡視及處理紀錄表",
-      person: r.recorder_name || "",
-      result: `${r.attendee_count} 家廠商`,
-      ok: true,
-      pdf_url: r.pdf_key ? `/api/coordinations/${r.id}/pdf` : null,
-    })),
-  ]
-    .sort((a, b) => String(b.on_date).localeCompare(String(a.on_date)))
-    .slice(0, 20);
-
-  const count = (fn: (f: any) => boolean) => findings.filter(fn).length;
-  const closed = count((f) => f.status === "closed");
-
-  const durations = findings
-    .filter((f) => f.raw.fixed_at && f.raw.found_at)
-    .map((f) => (new Date(f.raw.fixed_at).getTime() - new Date(f.raw.found_at).getTime())
-      / 3_600_000)
-    .sort((a, b) => a - b);
-  const medianFix = durations.length
-    ? Math.round(durations[Math.floor(durations.length / 2)] * 10) / 10 : null;
-
-  const tally = (key: (f: any) => string | null) => {
-    const m = new Map<string, number>();
-    for (const f of findings) {
-      const k = key(f);
-      if (k) m.set(k, (m.get(k) || 0) + 1);
-    }
-    return [...m.entries()].map(([label, c]) => ({ label, count: c }))
-      .sort((a, b) => b.count - a.count);
-  };
-
-  const trend: Array<{ date: string; count: number }> = [];
-  for (let i = 13; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    trend.push({ date: d.toISOString().slice(0, 10), count: 0 });
-  }
-  const trendIdx = new Map(trend.map((t, i) => [t.date, i]));
-  for (const f of findings) {
-    // found_at 已是台北時區的 YYYY-MM-DDTHH:MM，直接取前十碼即為當地日期。
-    const i = trendIdx.get(f.found_at!.slice(0, 10));
-    if (i !== undefined) trend[i].count++;
-  }
-
-  const siteRows = sites.map((s: any) => {
-    const mine = findings.filter((f) => f.site_id === s.id);
-    const over = mine.filter((f) => f.overdue).length;
-    const open = mine.filter((f) => ["open", "fixed"].includes(f.status)).length;
-    return {
-      site_id: s.id, site: s.name, findings: mine.length, open, overdue: over,
-      inspections_today: insps.filter((i: any) => i.site_id === s.id).length,
-      light: over ? "red" : (mine.some((f) => f.status === "open") ? "yellow" : "green"),
-    };
-  });
-
-  // 工地環境（微型氣象站）。只取有在線測站的工地，斷線的不佔版面。
-  const envRows = await db.sql`
-    SELECT DISTINCT ON (r.device_id, r.metric)
-           r.device_id, r.metric, r.value_num, r.reading_at, r.site_id,
-           s.name AS site, s.code AS site_code, r.raw_payload
-    FROM device_readings r
-    LEFT JOIN sites s ON s.id = r.site_id
-    WHERE r.device_type = 'env'
-      AND r.reading_at >= NOW() - INTERVAL '3 hours'
-      AND (${siteId}::int IS NULL OR r.site_id = ${siteId}::int)
-    ORDER BY r.device_id, r.metric, r.reading_at DESC`;
-
-  const envByStation = new Map<string, any>();
-  for (const row of envRows as any[]) {
-    let station = envByStation.get(row.device_id);
-    if (!station) {
-      let name = row.site || row.device_id;
-      try { name = JSON.parse(row.raw_payload || "{}").station || name; } catch { /* 保留預設 */ }
-      station = { device_id: row.device_id, site: row.site,
-                  site_code: row.site_code, station: name,
-                  reading_at: minuteISO(row.reading_at), metrics: {} };
-      envByStation.set(row.device_id, station);
-    }
-    // NULL 代表感測器沒有讀到值，不是 0。轉成 0 的話，壞掉的溫度感測器
-    // 會在八月的牆上顯示「0 °C」並標成正常，而且熱指數是由溫濕度推算的，
-    // 這個假的 0 還會把危害等級一起拉低。
-    station.metrics[row.metric] =
-      row.value_num === null ? null : Number(row.value_num);
-    // 以最新的一筆時間為準
-    const t = minuteISO(row.reading_at)!;
-    if (t > station.reading_at!) station.reading_at = t;
-  }
-
-  // 人員進出：只取最近一小時內的最新一筆，太舊的數字在牆上會誤導
-  const headRows = await db.sql`
-    SELECT DISTINCT ON (r.site_id, r.metric)
-           r.site_id, r.metric, r.value_num, r.reading_at,
-           s.name AS site, s.code AS site_code
-    FROM device_readings r
-    LEFT JOIN sites s ON s.id = r.site_id
-    WHERE r.device_type = 'people'
-      AND r.reading_at >= NOW() - INTERVAL '1 hour'
-      AND (${siteId}::int IS NULL OR r.site_id = ${siteId}::int)
-    ORDER BY r.site_id, r.metric, r.reading_at DESC`;
-
-  // 人數固定以主場站為準，與環境數據、監視畫面一致（見 docs/README.md）。
-  // 跨工地加總會讓「現場在場人數」這個緊急應變的第一個數字，在標著單一
-  // 工地名稱的位置顯示成全公司總和——疏散時會照著一個過大的數字點名。
-  // 設了主場站就只算它，而且要「解析不到就不顯示」而非退回加總。
-  // 退回加總會在代碼打錯、改名或工地停用時，悄悄把全公司總和放到單一工地
-  // 名稱底下——正是這段程式要避免的那個疏散人數錯誤。
-  const primaryCode = BRANDING.primary_site_code;
-  const headScoped = (headRows as any[]).filter((r) => {
-    if (siteId) return true;                 // 使用者已指定工地，照其選擇
-    if (!primaryCode) return true;           // 沒設主場站，維持全公司彙總
-    return r.site_code === primaryCode;
-  });
-
-  const headcount = headScoped.reduce((acc, r) => {
-    acc[r.metric] = (acc[r.metric] || 0) + Number(r.value_num);
-    acc.reading_at = minuteISO(r.reading_at);
-    return acc;
-  }, {} as Record<string, any>);
-
-  // 危害分級一律在後端判定。前端若自己再算一套，兩邊門檻遲早會不一致，
-  // 屆時牆上顯示的顏色和實際告警依據就對不起來。
-  for (const st of envByStation.values()) {
-    const { hazard_level: _own, vendor_hazard_level: _vendor, ...judged } = st.metrics;
-    st.levels = Object.fromEntries(
-      Object.entries(judged).map(([k, v]) => [k, levelOf(k, v as number)]),
-    );
-    st.level = stationLevel(judged);
-    st.level_label = LEVEL_LABEL[st.level];
-
-    // 熱危害另外附上應辦措施。只顯示「第三級」對現場沒有用——值班人員
-    // 未必記得第三級要做什麼，牆上要直接講出現在該做哪幾件事。
-    const heat = heatGuidance(judged.heat_index as number | undefined);
-    if (heat) {
-      st.heat = {
-        ...heat,
-        value: judged.heat_index,
-        // 附表二備註 3：陽光直照或穿不透氣防護衣應提升一級。工地多屬前者，
-        // 但是否成立要由現場認定，因此並列而不直接取代判定結果。
-        if_direct_sun: heat.level < 4 ? escalated(heat.level) : null,
-      };
-    }
-  }
-
-  return {
-    generated_at: new Date().toISOString(),
-    range_days: days,
-    environment: [...envByStation.values()]
-      // 危害等級高的排前面，值班人員第一眼就看到最需要處理的工地
-      .sort((a, b) => (b.level ?? 0) - (a.level ?? 0)
-        || String(a.site || "").localeCompare(String(b.site || ""))),
-    environment_spec: THRESHOLDS,
-    recent_forms: recentForms,
-    headcount: Object.keys(headcount).length ? headcount : null,
-    kpi: {
-      findings_today: count((f) => f.found_at!.slice(0, 10) === today),
-      findings_range: findings.length,
-      onsite_fixed: count((f) => f.action_type === "onsite"),
-      scheduled: count((f) => f.action_type === "scheduled"),
-      open: count((f) => ["open", "fixed"].includes(f.status)),
-      overdue: count((f) => f.overdue),
-      closed_rate: findings.length
-        ? Math.round((closed / findings.length) * 1000) / 10 : 100,
-      median_fix_hours: medianFix,
-      inspections_today: insps.length,
-    },
-    by_hazard: tally((f) => f.hazard_label || "其他"),
-    by_vendor: tally((f) => f.vendor).slice(0, 10),
-    trend,
-    sites: siteRows,
-    overdue_list: findings.filter((f) => f.overdue).map((f) => ({
-      no: f.no, site: f.site, description: f.description, vendor: f.vendor || "",
-      person: f.responsible_person, due_date: f.due_date,
-      days_over: Math.floor(
-        (Date.now() - new Date(f.due_date!).getTime()) / 86_400_000),
-    })).sort((a, b) => b.days_over - a.days_over).slice(0, 20),
-    recent: [...findings]
-      .sort((a, b) => new Date(b.found_at).getTime() - new Date(a.found_at).getTime())
-      .slice(0, 15)
-      .map((f) => ({
-        no: f.no, site: f.site, found_at: f.found_at!, hazard_label: f.hazard_label,
-        description: f.description, vendor: f.vendor || "", status: f.status,
-        action_type: f.action_type,
-      })),
-  };
 }
 
 export const config: Config = {

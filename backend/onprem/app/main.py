@@ -62,6 +62,8 @@ BRANDING = {
     "group_name": os.environ.get("BRAND_GROUP", ""),
     # 戰情室的主場站。環境與進出場人次以它為主，缺失統計仍涵蓋全部工地。
     "primary_site_code": os.environ.get("PRIMARY_SITE_CODE", ""),
+    # 戰情室就跑在這裡，首頁要顯示入口。雲端那側固定為 false。
+    "war_room": True,
 }
 
 # 戰情室大螢幕是否免登入。放在公司內網時可設為 true（大螢幕不必有人登入）；
@@ -603,6 +605,23 @@ def _person_of(inspection) -> str:
     if u and u.username != SYNC_PLACEHOLDER_USER:
         return u.display_name or ""
     return ""
+
+
+@app.get("/api/findings/summary")
+def findings_summary(db: Session = Depends(get_db), user=Depends(need_login)):
+    """首頁「缺失概況」的三個數字。
+
+    與雲端同名同結構：首頁兩邊共用同一份程式碼，端點不一致就得在前端分岔。
+    刻意不重用 /api/dashboard——那份彙總很重，首頁只要三個數字。
+    """
+    today = date.today()
+    rows = db.query(Finding).all()
+    return {
+        "findings_today": len([f for f in rows if f.found_at
+                               and f.found_at.date() == today]),
+        "open": len([f for f in rows if f.status in ("open", "fixed")]),
+        "overdue": len([f for f in rows if f.is_overdue]),
+    }
 
 
 @app.get("/api/dashboard")

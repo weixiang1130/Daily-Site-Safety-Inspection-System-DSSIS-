@@ -40,7 +40,7 @@
     <div class="grid kpis" id="mini" style="margin-bottom:var(--sp-5)"></div>
     <div class="row">
       <a href="/static/findings.html"><button class="ghost" style="width:100%">缺失清單／複驗</button></a>
-      <a href="/static/dashboard.html"><button class="ghost" style="width:100%">戰情儀表板</button></a>
+      <a href="/static/dashboard.html" class="hidden" id="warRoomLink"><button class="ghost" style="width:100%">戰情儀表板</button></a>
     </div>
     <div class="row hidden" id="adminRow" style="margin-top:var(--sp-3)">
       <a href="/static/admin.html"><button class="ghost" style="width:100%">系統管理（工地／廠商／密碼）</button></a>
@@ -68,11 +68,18 @@ let me = null;
   document.getElementById('who').textContent = `${me.name}（${me.username}）`;
   if (me.role === 'admin') document.getElementById('adminRow').classList.remove('hidden');
 
-  const d = await API.get('/api/dashboard?days=30');
+  // 戰情室入口只在跑得起戰情室的那一側顯示。雲端已把它移到公司內網，
+  // 留著按鈕只會連到 404。
+  const brand = await loadBranding();
+  if (brand.war_room) document.getElementById('warRoomLink').classList.remove('hidden');
+
+  // 只取三個數字。戰情室搬到地端後 /api/dashboard 已不在雲端，
+  // 而首頁本來也用不到那份完整彙總。
+  const d = await API.get('/api/findings/summary');
   document.getElementById('mini').innerHTML = [
-    ['accent', d.kpi.findings_today, '今日缺失'],
-    ['warn', d.kpi.open, '未結案'],
-    ['critical', d.kpi.overdue, '逾期未改善']
+    ['accent', d.findings_today, '今日缺失'],
+    ['warn', d.open, '未結案'],
+    ['critical', d.overdue, '逾期未改善']
   ].map(([c, n, l]) => `
     <div class="panel kpi ${c}"><div class="n">${n}</div><div class="l">${l}</div></div>`
   ).join('');
