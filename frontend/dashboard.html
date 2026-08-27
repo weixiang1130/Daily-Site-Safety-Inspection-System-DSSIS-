@@ -517,6 +517,31 @@ const Rota = {
 function buildRota(d) {
   const views = [];
 
+  // 今日重點工項排最前：長官走進戰情室的第一個問題是「今天在做什麼、
+  // 要注意什麼」。逾期的急迫性已由版頭結論膠囊（紅字）涵蓋，
+  // 因此清單的第一輪讓給工項。
+  views.push({
+    title: '今日重點工項', cls: 'cols-tasks',
+    head: ['棟別', '工項', '期間', '進度', '應注意'],
+    rows: d.today_tasks || [],
+    row: t => {
+      // 首日與末日特別標示：吊裝首日、灌漿收尾都是事故高發時點
+      const phase = t.first_day ? '<span class="tag overdue">今日開始</span>'
+                  : t.last_day  ? '<span class="tag fixed">今日收尾</span>'
+                  : `第 ${t.day_no}／${t.total_days} 天`;
+      const chips = (t.hazards || [])
+        .map(h => `<span class="tag open">${esc(h)}</span>`).join(' ');
+      // 牆是單一工地的戰情室，棟別取名稱最後一段（辦公棟／住宅棟）就夠
+      const bld = (t.site || '').split('-').pop();
+      return `<tr>
+        <td title="${esc(t.site)}">${esc(bld)}</td>
+        <td title="${esc(t.name)}">${esc(t.name)}</td>
+        <td class="num">${esc(t.start.slice(5))}~${esc(t.end.slice(5))}</td>
+        <td>${phase}</td>
+        <td>${chips || '<span class="muted">—</span>'}</td></tr>`;
+    },
+  });
+
   // 逾期排第一輪：這是清單裡唯一「需要立即行動」的內容。
   // 排在最後的話，只看七秒的人看到的是最新動態，而不是最該處理的事。
   // 沒有逾期時不佔一輪（Rota.set 會濾掉空清單）。

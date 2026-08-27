@@ -981,6 +981,11 @@ table.fixed th {
 .cols-forms   th:nth-child(4) { width: 12%; }
 .cols-forms   th:nth-child(5) { width: 16%; }
 
+.cols-tasks   th:nth-child(1) { width: 9%; }
+.cols-tasks   th:nth-child(3) { width: 13%; }
+.cols-tasks   th:nth-child(4) { width: 13%; }
+.cols-tasks   th:nth-child(5) { width: 26%; }
+
 .cols-overdue th:nth-child(1) { width: 11%; }
 .cols-overdue th:nth-child(2) { width: 14%; }
 .cols-overdue th:nth-child(4) { width: 17%; }

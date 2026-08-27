@@ -28,10 +28,12 @@ from .hazard import (LEVEL_LABEL, level_of, station_level,  # noqa: E402
                      heat_index_c, thresholds_payload)
 from .heat_guidance import heat_guidance
 from .noise_guidance import noise_guidance, period_alarms
+from .work_hazards import hazards_of
 from . import cctv
 from .db import (
     BASE_DIR, Coordination, CoordinationAttendee, DeviceReading, Finding, FormItem,
-    FormTemplate, Inspection, InspectionResult, SessionLocal, Signature, Site, User,
+    FormTemplate, Inspection, InspectionResult, PlannedTask, SessionLocal,
+    Signature, Site, User,
     Vendor, db_info, init_db,
 )
 from .pdf import build_coordination_pdf, build_inspection_pdf
@@ -823,6 +825,39 @@ def dashboard(request: Request, site_id: int = None, days: int = 30,
     recent_forms.sort(key=lambda x: x["on_date"], reverse=True)
     recent_forms = recent_forms[:20]
 
+    # ------------------------------------------------------------------
+    # 今日重點工項
+    #
+    # 回答牆上的第二個問題：「今天在做什麼、要注意什麼」。
+    # 資料來自列控表匯入（tools/import_schedule.py）；未來現場改為每日
+    # 回報實際進度時，同一張表以 source='daily_report' 並存即可。
+    # 只取葉工項——上層的「基礎工程」是彙總，掛上牆沒有意義。
+    # ------------------------------------------------------------------
+    tt = date.today()
+    ptasks = (db.query(PlannedTask)
+              .filter(PlannedTask.is_leaf == True,  # noqa: E712
+                      PlannedTask.start_date <= tt,
+                      PlannedTask.end_date >= tt)
+              .order_by(PlannedTask.site_code, PlannedTask.start_date)
+              .all())
+    today_tasks = []
+    for t in ptasks:
+        t_site = site_by_id.get(t.site_id)
+        total = (t.end_date - t.start_date).days + 1
+        today_tasks.append({
+            "site": t_site.name if t_site else t.site_code,
+            "site_code": t.site_code,
+            "name": t.name,
+            "start": t.start_date.isoformat(),
+            "end": t.end_date.isoformat(),
+            "day_no": (tt - t.start_date).days + 1,
+            "total_days": total,
+            # 首日與末日要特別標示：吊裝首日、灌漿收尾都是事故高發時點
+            "first_day": t.start_date == tt,
+            "last_day": t.end_date == tt,
+            "hazards": hazards_of(t.name),
+        })
+
     return {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "range_days": days,
@@ -830,6 +865,7 @@ def dashboard(request: Request, site_id: int = None, days: int = 30,
         "environment_spec": thresholds_payload(),
         "headcount": headcount or None,
         "recent_forms": recent_forms,
+        "today_tasks": today_tasks,
         "kpi": {
             "findings_today": len(todays),
             "findings_range": len(findings),

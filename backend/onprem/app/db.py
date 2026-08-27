@@ -355,6 +355,37 @@ class DeviceReading(Base):
     )
 
 
+class PlannedTask(Base):
+    """排程工項——儀表板「今日重點工項」的資料來源。
+
+    目前由 tools/import_schedule.py 從各工地的列控表（MS Project 匯出的
+    project 工作表）整份匯入，source='schedule'。未來現場改為每日回報
+    實際進度時，以 source='daily_report' 寫入即可並存：儀表板可優先取
+    日報、沒有日報的日子退回排程，不必改資料結構。
+
+    匯入是整份替換（先刪同 site+source 再寫入）：列控表每月改版，
+    逐筆比對新舊版本的工項沒有可靠的鍵——名稱會改、識別碼會重排。
+    """
+    __tablename__ = "planned_tasks"
+    id = Column(Integer, primary_key=True)
+    site_id = Column(Integer, ForeignKey("sites.id"))
+    site_code = Column(Unicode(32), nullable=False)
+    source = Column(Unicode(16), nullable=False, default="schedule")
+    task_no = Column(Unicode(16))          # 列控表內的識別碼，僅供對照
+    name = Column(Unicode(255), nullable=False)
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=False)
+    outline_level = Column(Integer)
+    # 只有葉節點是實際的作業；上層是「基礎工程」這類彙總，掛上牆沒有意義
+    is_leaf = Column(Boolean, nullable=False, default=True)
+    imported_at = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        # 儀表板每次載入都查「今日進行中」，依日期範圍掃
+        Index("ix_ptask_site_dates", "site_code", "start_date", "end_date"),
+    )
+
+
 def _add_missing_columns():
     """替既有資料表補上模型有、資料庫還沒有的欄位。
 
