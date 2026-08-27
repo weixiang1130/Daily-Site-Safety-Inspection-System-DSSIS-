@@ -536,7 +536,8 @@ body.war {
 /* 數值磚：牆上要在數公尺外讀得到，因此數字大、標籤小 */
 .tiles { display: grid; gap: var(--sp-2); }
 .tiles-env { grid-template-columns: repeat(7, minmax(0, 1fr)); }
-.tiles-people { grid-template-columns: 1.7fr 1fr 1fr; }
+/* 人數三磚＋兩棟財務進度。進度磚略寬——標籤帶著實際/預估的原始數字 */
+.tiles-people { grid-template-columns: 1.5fr 0.9fr 0.9fr 1.35fr 1.35fr; }
 .tiles-kpi { grid-template-columns: repeat(8, minmax(0, 1fr)); }
 
 .tile {

@@ -858,6 +858,42 @@ def dashboard(request: Request, site_id: int = None, days: int = 30,
             "hazards": hazards_of(t.name),
         })
 
+    # ------------------------------------------------------------------
+    # 工程進度（財務）
+    #
+    # 來自 FinOps 月結（collectors/finops.py）。**以金額衡量**，不是施工
+    # 進度——牆上必須標明，否則會被當成現場做到幾成。
+    # 對照的是「實際 vs 預估」：成本投入是 S 曲線，拿時間進度比會誤判。
+    # ------------------------------------------------------------------
+    prog_rows = (db.query(DeviceReading)
+                 .filter(DeviceReading.device_type == "progress")
+                 .order_by(DeviceReading.reading_at.desc()).all())
+    prog_by_site = {}
+    for r in prog_rows:
+        sc = r.site_code or r.device_id
+        slot = prog_by_site.setdefault(sc, {"site_code": sc, "at": r.reading_at})
+        if slot["at"] != r.reading_at:
+            continue              # 只取每個工地最新一個月結
+        slot[r.metric] = float(r.value_num) if r.value_num is not None else None
+
+    progress = []
+    for sc, slot in prog_by_site.items():
+        actual, est = slot.get("progress_actual"), slot.get("progress_est")
+        if actual is None or est is None:
+            continue
+        p_site = site_by_code.get(sc)
+        at = slot["at"]
+        progress.append({
+            "site": p_site.name if p_site else sc,
+            "site_code": sc,
+            "actual": actual, "est": est,
+            "gap": round(actual - est, 1),      # 正＝超前、負＝落後
+            "time_rate": slot.get("progress_time"),
+            # 公司慣用民國年月；月結成本落後當期約一個月，標明截止月份
+            "month": f"{at.year - 1911}/{at.month:02d}",
+        })
+    progress.sort(key=lambda x: x["site_code"])
+
     return {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "range_days": days,
@@ -866,6 +902,7 @@ def dashboard(request: Request, site_id: int = None, days: int = 30,
         "headcount": headcount or None,
         "recent_forms": recent_forms,
         "today_tasks": today_tasks,
+        "progress": progress,
         "kpi": {
             "findings_today": len(todays),
             "findings_range": len(findings),

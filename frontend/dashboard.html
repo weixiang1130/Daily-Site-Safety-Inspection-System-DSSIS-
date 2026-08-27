@@ -292,14 +292,40 @@ function showHeatPopup(heat) {
   p.onclick = () => p.classList.add('hidden');
 }
 
-function renderPeople(hc) {
+function renderPeople(hc, prog) {
   // 在場人數是緊急應變的第一個問題，因此獨立放大
-  document.getElementById('peopleTiles').innerHTML = hc ? [
+  const people = hc ? [
     tile('現場在場人數', hc.headcount_present ?? '—', '人', 'tile-hero'),
     tile('今日進場', hc.headcount_in ?? '—', '人次', ''),
     tile('今日出場', hc.headcount_out ?? '—', '人次', ''),
-  ].join('') : tile('現場在場人數', '—', '', 'tile-hero');
+  ] : [tile('現場在場人數', '—', '', 'tile-hero'),
+       tile('今日進場', '—', '', ''), tile('今日出場', '—', '', '')];
+
+  // 工程進度（財務）：磚的大字直接是結論「超前／落後 N%」——七秒原則，
+  // 對照結果才是關鍵資訊，實際與預估的原始數字放在標籤與提示裡。
+  // 「金額」二字不可省：這是財務進度，不是施工進度，混講會誤導現場。
+  const progTiles = (prog && prog.length ? prog : [null, null]).map((g, i) => {
+    if (!g) return tile(i === 0 ? '工程進度（金額）' : '', '—', '', '');
+    const ahead = g.gap >= 0;
+    const word = ahead ? '超前' : '落後';
+    // 落後 3% 以上才紅：月結有一個月時滯，小幅落後屬正常波動，
+    // 天天紅會警示疲乏
+    const cls = ahead ? 'ok' : (g.gap <= -PROG_BEHIND_RED ? 'critical' : 'warn');
+    const bld = (g.site || '').split('-').pop();
+    return tile(`${bld}進度（金額）實際${g.actual}％／預估${g.est}％`,
+                `${word} ${Math.abs(g.gap)}`, '%', cls,
+                `以金額衡量的財務進度，非施工進度（截至 ${g.month} 月結，`
+                + `月結約落後當期一個月）。時間進度 ${g.time_rate ?? '—'}％。`
+                + '成本投入是 S 曲線，判讀以「實際 vs 預估」為準。');
+  });
+
+  document.getElementById('peopleTiles').innerHTML =
+    people.concat(progTiles).join('');
 }
+
+// 落後達此百分點才以紅色警示（低於此為琥珀）。月結資料有約一個月時滯，
+// 小幅落後屬正常波動；門檻是管理判斷，不是法規值。
+const PROG_BEHIND_RED = 3;
 
 // 七秒原則：畫面要在七秒內讓觀者吸收到關鍵資訊。
 // 做法是拉開視覺層級——異常的用顏色跳出來，沒事的（零值）降暗退到背景。
@@ -342,6 +368,15 @@ function renderVerdict(d) {
     }
   }
   if (d.kpi && d.kpi.overdue > 0) items.push(`逾期未改善 ${d.kpi.overdue} 件`);
+
+  // 財務進度明顯落後也值得抬頭——但門檻要高（紅色門檻），
+  // 小幅落後天天掛在膠囊上會稀釋真正的警示
+  for (const g of d.progress || []) {
+    if (g.gap <= -PROG_BEHIND_RED) {
+      const bld = (g.site || '').split('-').pop();
+      items.push(`${bld}進度落後 ${Math.abs(g.gap)}%`);
+    }
+  }
 
   el.classList.remove('hidden');
   if (items.length) {
@@ -710,7 +745,7 @@ async function load() {
 
   renderEnvironment(d.environment || [], d.environment_spec || {});
   Cam.setTitle(d.environment || []);
-  renderPeople(d.headcount);
+  renderPeople(d.headcount, d.progress);
   renderKpis(d.kpi);
   renderVerdict(d);
   barlist('hazard', d.by_hazard);
