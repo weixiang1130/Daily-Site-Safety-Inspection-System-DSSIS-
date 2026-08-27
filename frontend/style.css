@@ -581,6 +581,27 @@ body.war {
 .tile.warn     .t-value { color: var(--warn-600); }
 .tile.critical { border-left-color: var(--critical-600); background: var(--critical-100); }
 .tile.critical .t-value { color: var(--critical-600); font-weight: 700; }
+/* 七秒原則：正常的退後，異常的跳出來。
+   零值磚降暗——「沒有逾期」不需要搶注意力，它的工作是把注意力讓給
+   真正有數字的磚。只降數值不降標籤：觀者仍要能讀出這格是什麼。 */
+.tile.dim .t-value { color: var(--text-muted); }
+.tile.dim { border-left-color: var(--border); }
+
+/* 整體結論膠囊。放在版頭，視線進入畫面的第一個落點就是結論。 */
+.verdict {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: var(--fs-sm);
+  padding: 2px 12px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.verdict.ok  { color: var(--ok-600); border: 1.5px solid var(--ok-600); }
+.verdict.bad { color: #fff; background: var(--critical-600); }
+
+/* 逾期清單：整輪都是「需立即處理」的內容，列底加淡紅提醒這一輪的性質 */
+.cols-overdue tbody tr { background: var(--critical-100); }
+
 /* 危害等級是結論，用文字而非數字，字級略收 */
 .tile-verdict .t-value { font-family: var(--font-heading); font-size: 1.6rem; }
 

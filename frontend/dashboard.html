@@ -13,6 +13,7 @@
 
 <div class="topbar">
   <div class="brand" id="brand"></div>
+  <span class="verdict hidden" id="verdict"></span>
   <select id="site" aria-label="選擇工地"></select>
   <select id="days" aria-label="選擇統計區間">
     <option value="7">近 7 日</option>
@@ -300,17 +301,56 @@ function renderPeople(hc) {
   ].join('') : tile('現場在場人數', '—', '', 'tile-hero');
 }
 
+// 七秒原則：畫面要在七秒內讓觀者吸收到關鍵資訊。
+// 做法是拉開視覺層級——異常的用顏色跳出來，沒事的（零值）降暗退到背景。
+// 八個磚全部等重的話，觀者得逐一讀完數字才知道哪裡有問題。
 function renderKpis(k) {
+  const dim = v => v ? '' : 'dim';
+  // 結案率依值上色。原本寫死綠色，31% 也顯示成一切正常——比不上色更糟。
+  // 門檻是管理上的內部基準，不是法規值，因此可以取整數。
+  const rateCls = k.closed_rate >= 90 ? 'ok'
+                : k.closed_rate >= 70 ? 'warn' : 'critical';
   document.getElementById('kpis').innerHTML = [
-    tile('逾期未改善', k.overdue, '件', k.overdue ? 'critical' : 'ok'),
-    tile('今日新增缺失', k.findings_today, '件', ''),
-    tile('未結案', k.open, '件', k.open ? 'warn' : 'ok'),
-    tile('結案率', k.closed_rate, '%', 'ok'),
-    tile('當場改善', k.onsite_fixed, '件', ''),
-    tile('限期改善', k.scheduled, '件', ''),
-    tile('改善時效中位數', k.median_fix_hours == null ? '—' : k.median_fix_hours, '小時', ''),
-    tile('今日已交巡檢單', k.inspections_today, '張', ''),
+    tile('逾期未改善', k.overdue, '件', k.overdue ? 'critical' : 'dim'),
+    tile('今日新增缺失', k.findings_today, '件', k.findings_today ? 'warn' : 'dim'),
+    tile('未結案', k.open, '件', k.open ? 'warn' : 'dim'),
+    tile('結案率', k.closed_rate, '%', rateCls),
+    tile('當場改善', k.onsite_fixed, '件', dim(k.onsite_fixed)),
+    tile('限期改善', k.scheduled, '件', dim(k.scheduled)),
+    tile('改善時效中位數', k.median_fix_hours == null ? '—' : k.median_fix_hours,
+         '小時', k.median_fix_hours == null ? 'dim' : ''),
+    tile('今日已交巡檢單', k.inspections_today, '張', dim(k.inspections_today)),
   ].join('');
+}
+
+// 整體結論。只放兩類真正需要行動的事：環境達警戒以上、缺失逾期未改善。
+// 「今日新增缺失」刻意不列入——工地每天本來就會有缺失，列進去會天天紅，
+// 警示疲乏之後，真正該紅的那天就沒有人抬頭了。
+function renderVerdict(d) {
+  const el = document.getElementById('verdict');
+  const items = [];
+
+  const env = d.environment || [];
+  if (!env.length) {
+    // 收不到環境數據時不可顯示「整體正常」——牆上此刻對環境是全盲的，
+    // 說正常是虛假的安心。資料中斷本身就是值班人員該處理的異常。
+    items.push('環境資料中斷');
+  } else {
+    const worst = env.reduce((a, s) => (s.level > a.level ? s : a), { level: 0 });
+    if (worst.level >= 2) {
+      items.push(`環境${worst.level_label}（${worst.site || worst.station}）`);
+    }
+  }
+  if (d.kpi && d.kpi.overdue > 0) items.push(`逾期未改善 ${d.kpi.overdue} 件`);
+
+  el.classList.remove('hidden');
+  if (items.length) {
+    el.className = 'verdict bad';
+    el.textContent = '需注意：' + items.join('　·　');
+  } else {
+    el.className = 'verdict ok';
+    el.textContent = '整體正常';
+  }
 }
 
 function barlist(el, rows) {
@@ -477,6 +517,22 @@ const Rota = {
 function buildRota(d) {
   const views = [];
 
+  // 逾期排第一輪：這是清單裡唯一「需要立即行動」的內容。
+  // 排在最後的話，只看七秒的人看到的是最新動態，而不是最該處理的事。
+  // 沒有逾期時不佔一輪（Rota.set 會濾掉空清單）。
+  views.push({
+    title: '逾期未改善　需立即處理', cls: 'cols-overdue',
+    head: ['單號', '工地', '缺失內容', '責任廠商／人', '期限', '逾期'],
+    rows: d.overdue_list,
+    row: o => `<tr>
+      <td class="num">${esc(o.no)}</td>
+      <td title="${esc(o.site)}">${esc(o.site)}</td>
+      <td title="${esc(o.description)}">${esc(o.description)}</td>
+      <td>${esc(o.vendor)}${o.person ? '／' + esc(o.person) : ''}</td>
+      <td class="num">${esc(o.due_date || '')}</td>
+      <td><span class="tag overdue">${o.days_over} 天</span></td></tr>`,
+  });
+
   views.push({
     title: '最新缺失動態', cls: 'cols-recent',
     head: ['時間', '工地', '缺失內容', '責任廠商', '狀態'],
@@ -505,20 +561,6 @@ function buildRota(d) {
         <td><span class="tag ${f.ok ? 'closed' : 'open'}">${esc(f.result)}</span></td>
       </tr>`;
     },
-  });
-
-  // 逾期只有在真的有的時候才進入輪播，沒有就不要佔一輪
-  views.push({
-    title: '逾期未改善　需立即處理', cls: 'cols-overdue',
-    head: ['單號', '工地', '缺失內容', '責任廠商／人', '期限', '逾期'],
-    rows: d.overdue_list,
-    row: o => `<tr>
-      <td class="num">${esc(o.no)}</td>
-      <td title="${esc(o.site)}">${esc(o.site)}</td>
-      <td title="${esc(o.description)}">${esc(o.description)}</td>
-      <td>${esc(o.vendor)}${o.person ? '／' + esc(o.person) : ''}</td>
-      <td class="num">${esc(o.due_date || '')}</td>
-      <td><span class="tag overdue">${o.days_over} 天</span></td></tr>`,
   });
 
   Rota.set(views);
@@ -645,6 +687,7 @@ async function load() {
   Cam.setTitle(d.environment || []);
   renderPeople(d.headcount);
   renderKpis(d.kpi);
+  renderVerdict(d);
   barlist('hazard', d.by_hazard);
   barlist('vendor', d.by_vendor);
 
