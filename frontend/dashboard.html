@@ -57,6 +57,13 @@
     </aside>
   </section>
 
+  <!-- 今日重點工項 × 工程進度：每棟一張卡。
+       抬頭是進度結論（超前／落後），底下是這棟今天在做的事——
+       長官的「做什麼、注意什麼、進度如何」在同一個視線落點回答完。 -->
+  <section class="band band-focus hidden" id="focusBand">
+    <div class="focus-cards" id="focusCards"></div>
+  </section>
+
   <!-- 缺失管理指標 -->
   <section class="band band-kpi">
     <div class="tiles tiles-kpi" id="kpis"></div>
@@ -292,40 +299,70 @@ function showHeatPopup(heat) {
   p.onclick = () => p.classList.add('hidden');
 }
 
-function renderPeople(hc, prog) {
+function renderPeople(hc) {
   // 在場人數是緊急應變的第一個問題，因此獨立放大
-  const people = hc ? [
+  document.getElementById('peopleTiles').innerHTML = (hc ? [
     tile('現場在場人數', hc.headcount_present ?? '—', '人', 'tile-hero'),
     tile('今日進場', hc.headcount_in ?? '—', '人次', ''),
     tile('今日出場', hc.headcount_out ?? '—', '人次', ''),
   ] : [tile('現場在場人數', '—', '', 'tile-hero'),
-       tile('今日進場', '—', '', ''), tile('今日出場', '—', '', '')];
-
-  // 工程進度（財務）：磚的大字直接是結論「超前／落後 N%」——七秒原則，
-  // 對照結果才是關鍵資訊，實際與預估的原始數字放在標籤與提示裡。
-  // 「金額」二字不可省：這是財務進度，不是施工進度，混講會誤導現場。
-  const progTiles = (prog && prog.length ? prog : [null, null]).map((g, i) => {
-    if (!g) return tile(i === 0 ? '工程進度（金額）' : '', '—', '', '');
-    const ahead = g.gap >= 0;
-    const word = ahead ? '超前' : '落後';
-    // 落後 3% 以上才紅：月結有一個月時滯，小幅落後屬正常波動，
-    // 天天紅會警示疲乏
-    const cls = ahead ? 'ok' : (g.gap <= -PROG_BEHIND_RED ? 'critical' : 'warn');
-    const bld = (g.site || '').split('-').pop();
-    return tile(`${bld}進度（金額）實際${g.actual}％／預估${g.est}％`,
-                `${word} ${Math.abs(g.gap)}`, '%', cls,
-                `以金額衡量的財務進度，非施工進度（截至 ${g.month} 月結，`
-                + `月結約落後當期一個月）。時間進度 ${g.time_rate ?? '—'}％。`
-                + '成本投入是 S 曲線，判讀以「實際 vs 預估」為準。');
-  });
-
-  document.getElementById('peopleTiles').innerHTML =
-    people.concat(progTiles).join('');
+       tile('今日進場', '—', '', ''),
+       tile('今日出場', '—', '', '')]).join('');
 }
 
 // 落後達此百分點才以紅色警示（低於此為琥珀）。月結資料有約一個月時滯，
 // 小幅落後屬正常波動；門檻是管理判斷，不是法規值。
 const PROG_BEHIND_RED = 3;
+
+// 今日重點工項 × 工程進度：每棟一張卡。
+// 原本工項在下方輪播裡，輪走了就看不到；進度磚又在另一區。
+// 併成同一張卡之後，「這棟做什麼、進度如何」是同一個視線落點。
+function renderFocus(d) {
+  const band = document.getElementById('focusBand');
+  const tasks = d.today_tasks || [];
+  const prog = d.progress || [];
+  const codes = [...new Set([...tasks.map(t => t.site_code),
+                             ...prog.map(g => g.site_code)])].sort();
+  if (!codes.length) { band.classList.add('hidden'); return; }
+  band.classList.remove('hidden');
+
+  const progBy = Object.fromEntries(prog.map(g => [g.site_code, g]));
+  const MAX_ROWS = 4;   // 卡片高度固定，工項多時列出前幾項＋「+N」
+
+  document.getElementById('focusCards').innerHTML = codes.map(code => {
+    const g = progBy[code];
+    const rows = tasks.filter(t => t.site_code === code);
+    const siteName = (g && g.site) || (rows[0] && rows[0].site) || code;
+    const bld = siteName.split('-').pop();
+
+    let chip = '<span class="prog-chip dim">進度 —</span>', sub = '';
+    if (g) {
+      const ahead = g.gap >= 0;
+      const cls = ahead ? 'ok' : (g.gap <= -PROG_BEHIND_RED ? 'critical' : 'warn');
+      chip = `<span class="prog-chip ${cls}">${ahead ? '超前' : '落後'} ${Math.abs(g.gap)}%</span>`;
+      // 「金額」不可省：財務進度不是施工進度，混講會誤導現場
+      sub = `<span class="fcard-sub">金額進度 實際 ${g.actual}％／預估 ${g.est}％`
+          + `　截至 ${g.month} 月結</span>`;
+    }
+
+    const body = rows.length ? rows.slice(0, MAX_ROWS).map(t => {
+      const phase = t.first_day ? '<span class="tag overdue">今日開始</span>'
+                  : t.last_day  ? '<span class="tag fixed">今日收尾</span>'
+                  : `<span class="ft-day">第 ${t.day_no}／${t.total_days} 天</span>`;
+      const chips = (t.hazards || [])
+        .map(h => `<span class="tag open">${esc(h)}</span>`).join('');
+      return `<div class="fcard-task">
+        <span class="ft-name" title="${esc(t.name)}（${esc(t.start)}~${esc(t.end)}）">${esc(t.name)}</span>
+        ${phase}<span class="ft-chips">${chips}</span></div>`;
+    }).join('') + (rows.length > MAX_ROWS
+      ? `<div class="fcard-more">…另有 ${rows.length - MAX_ROWS} 項進行中</div>` : '')
+      : '<div class="fcard-more">今日無列管工項</div>';
+
+    return `<div class="fcard">
+      <div class="fcard-head"><b>${esc(bld)}</b>${chip}${sub}</div>
+      ${body}</div>`;
+  }).join('');
+}
 
 // 七秒原則：畫面要在七秒內讓觀者吸收到關鍵資訊。
 // 做法是拉開視覺層級——異常的用顏色跳出來，沒事的（零值）降暗退到背景。
@@ -552,31 +589,6 @@ const Rota = {
 function buildRota(d) {
   const views = [];
 
-  // 今日重點工項排最前：長官走進戰情室的第一個問題是「今天在做什麼、
-  // 要注意什麼」。逾期的急迫性已由版頭結論膠囊（紅字）涵蓋，
-  // 因此清單的第一輪讓給工項。
-  views.push({
-    title: '今日重點工項', cls: 'cols-tasks',
-    head: ['棟別', '工項', '期間', '進度', '應注意'],
-    rows: d.today_tasks || [],
-    row: t => {
-      // 首日與末日特別標示：吊裝首日、灌漿收尾都是事故高發時點
-      const phase = t.first_day ? '<span class="tag overdue">今日開始</span>'
-                  : t.last_day  ? '<span class="tag fixed">今日收尾</span>'
-                  : `第 ${t.day_no}／${t.total_days} 天`;
-      const chips = (t.hazards || [])
-        .map(h => `<span class="tag open">${esc(h)}</span>`).join(' ');
-      // 牆是單一工地的戰情室，棟別取名稱最後一段（辦公棟／住宅棟）就夠
-      const bld = (t.site || '').split('-').pop();
-      return `<tr>
-        <td title="${esc(t.site)}">${esc(bld)}</td>
-        <td title="${esc(t.name)}">${esc(t.name)}</td>
-        <td class="num">${esc(t.start.slice(5))}~${esc(t.end.slice(5))}</td>
-        <td>${phase}</td>
-        <td>${chips || '<span class="muted">—</span>'}</td></tr>`;
-    },
-  });
-
   // 逾期排第一輪：這是清單裡唯一「需要立即行動」的內容。
   // 排在最後的話，只看七秒的人看到的是最新動態，而不是最該處理的事。
   // 沒有逾期時不佔一輪（Rota.set 會濾掉空清單）。
@@ -745,8 +757,9 @@ async function load() {
 
   renderEnvironment(d.environment || [], d.environment_spec || {});
   Cam.setTitle(d.environment || []);
-  renderPeople(d.headcount, d.progress);
+  renderPeople(d.headcount);
   renderKpis(d.kpi);
+  renderFocus(d);
   renderVerdict(d);
   barlist('hazard', d.by_hazard);
   barlist('vendor', d.by_vendor);

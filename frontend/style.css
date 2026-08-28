@@ -497,13 +497,14 @@ body.war {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--sp-3);
-  padding: var(--sp-3) var(--sp-4) var(--sp-4);
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-4) var(--sp-3);
 }
 /* 上半部依內容決定高度，下半部吃掉剩下的。
    沒有明確指定的話，flex 會平均壓縮每一塊，畫面就變成整片擠扁。 */
 .heat-alert,
 .band-live,
+.band-focus,
 .band-kpi { flex: 0 0 auto; }
 
 /* 每個區塊都是一張卡片，和填報頁的 .card 同一個語彙，只是留白收緊 */
@@ -511,7 +512,7 @@ body.war {
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: var(--sp-3) var(--sp-4);
+  padding: var(--sp-2) var(--sp-4);
 }
 .band-head {
   display: flex;
@@ -536,9 +537,12 @@ body.war {
 /* 數值磚：牆上要在數公尺外讀得到，因此數字大、標籤小 */
 .tiles { display: grid; gap: var(--sp-2); }
 .tiles-env { grid-template-columns: repeat(7, minmax(0, 1fr)); }
-/* 人數三磚＋兩棟財務進度。進度磚略寬——標籤帶著實際/預估的原始數字 */
-.tiles-people { grid-template-columns: 1.5fr 0.9fr 0.9fr 1.35fr 1.35fr; }
+.tiles-people { grid-template-columns: 1.7fr 1fr 1fr; }
 .tiles-kpi { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+/* KPI 是狀態列——依值上色已足以讓異常跳出來，字級不必與環境數值搶大。
+   收一級字，省下的高度讓給下方的排行與清單。 */
+.tiles-kpi .t-value { font-size: 1.7rem; }
+.tiles-kpi .tile { padding: 4px var(--sp-3); }
 
 .tile {
   background: var(--bg-sunken);
@@ -574,7 +578,7 @@ body.war {
 }
 /* 在場人數是緊急應變的第一個問題，給它最大的字 */
 .tile-hero { border-left-color: var(--accent); }
-.tile-hero .t-value { font-size: 3rem; }
+.tile-hero .t-value { font-size: 2.4rem; }
 
 .tile.ok       { border-left-color: var(--ok-600); }
 .tile.notice   { border-left-color: var(--text-secondary); }
@@ -582,6 +586,66 @@ body.war {
 .tile.warn     .t-value { color: var(--warn-600); }
 .tile.critical { border-left-color: var(--critical-600); background: var(--critical-100); }
 .tile.critical .t-value { color: var(--critical-600); font-weight: 700; }
+/* 今日重點工項 × 工程進度：每棟一張卡。
+   卡片抬頭是進度結論（大字彩色），底下是當日工項的緊湊列。
+   高度固定（工項超過上限以 +N 收尾），版面才不會隨排程膨脹。 */
+.focus-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  gap: var(--sp-4);
+}
+.fcard { min-width: 0; }
+.fcard-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-2);
+  flex-wrap: wrap;
+}
+.fcard-head b {
+  font-family: var(--font-heading);
+  font-size: var(--fs-h3);
+}
+.prog-chip {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: var(--fs-base);
+  padding: 1px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.prog-chip.ok       { color: var(--ok-600); border: 1.5px solid var(--ok-600); }
+.prog-chip.warn     { color: var(--warn-600); border: 1.5px solid var(--warn-600); }
+.prog-chip.critical { color: #fff; background: var(--critical-600); }
+.prog-chip.dim      { color: var(--text-muted); border: 1px solid var(--border); }
+.fcard-sub { font-size: var(--fs-xs); color: var(--text-secondary); }
+
+.fcard-task {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 2px 0;
+  border-top: 1px solid var(--border);
+  min-width: 0;
+}
+.ft-name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--fs-sm);
+}
+.ft-day {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.ft-chips { display: flex; gap: 3px; flex: 0 0 auto; }
+.fcard-more { font-size: var(--fs-xs); color: var(--text-muted); padding-top: 3px; }
+
 /* 七秒原則：正常的退後，異常的跳出來。
    零值磚降暗——「沒有逾期」不需要搶注意力，它的工作是把注意力讓給
    真正有數字的磚。只降數值不降標籤：觀者仍要能讀出這格是什麼。 */
@@ -684,12 +748,14 @@ body.war {
 
 /* 長官關注的排行：橫條列，三項直向排列在右側 */
 .band-rank {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-3);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: var(--sp-2) var(--sp-4);
   min-height: 0;
   overflow: hidden;
 }
+.rank-trend { grid-column: 1 / -1; }
 .rank {
   min-width: 0;
   min-height: 0;
@@ -1038,7 +1104,8 @@ table.fixed th {
 .light.green  { background: var(--ok-600); }
 
 /* 趨勢柱 */
-.spark { display: flex; align-items: flex-end; gap: 3px; height: 4em; }
+/* 趨勢是輔助脈絡不是判讀依據，壓低讓位給排行 */
+.spark { display: flex; align-items: flex-end; gap: 3px; height: 2.4em; }
 .spark div {
   flex: 1;
   min-height: 2px;
