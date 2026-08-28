@@ -60,12 +60,11 @@ def connect():
         sys.exit("FINOPS_PWD 未設定。密碼請自行填入 .env.onprem——"
                  "依內部規範，工具不代填、不記錄這組密碼。")
 
-    driver = [d for d in __import__("pyodbc").drivers()
-              if "for SQL Server" in d][-1]
+    driver = [d for d in pyodbc.drivers() if "for SQL Server" in d][-1]
     cs = (f"DRIVER={{{driver}}};SERVER={server};DATABASE=BI;"
           f"UID={env('FINOPS_USER')};PWD={pwd};"
           "Encrypt=yes;TrustServerCertificate=yes;Connection Timeout=15")
-    return __import__("pyodbc").connect(cs, timeout=15)
+    return pyodbc.connect(cs, timeout=15)
 
 
 def fetch_progress(conn, project_id: str):
@@ -75,8 +74,11 @@ def fetch_progress(conn, project_id: str):
     ProjectID 欄位常有尾隨空白，比對一律去空白。
     """
     cur = conn.cursor()
+    # 取未捨入的 decimal 欄位（*Rate），不取顯示用的 *RateShow——Show 欄捨入到
+    # 整數，超前／落後以兩者相減判定，在 ±3% 門檻附近會因捨入誤判紅／琥珀
+    # （實測 131H：Show 21/15 → 差 6.0；decimal 0.206/0.149 → 差 5.7）。
     cur.execute("""
-        SELECT TOP 1 MonthEnd, TimeRateShow, AccRealCostRateShow, AccEstCostRateShow
+        SELECT TOP 1 MonthEnd, TimeRate, AccRealCostRate, AccEstCostRate
         FROM BI.dbo.vw_ProjSurveyResult
         WHERE LTRIM(RTRIM(ProjectID)) = ?
           AND MonthEnd <= CONVERT(char(10), GETDATE(), 111)
@@ -87,8 +89,9 @@ def fetch_progress(conn, project_id: str):
     month_end, t_rate, actual, est = row
 
     def num(v):
+        """decimal 比率（0.206）→ 百分比（20.6）。"""
         try:
-            return float(str(v).replace("%", "").strip())
+            return round(float(v) * 100, 1)
         except (TypeError, ValueError):
             return None
 
@@ -133,13 +136,18 @@ def poll_once() -> str:
                                 ("progress_time", row["time"])):
                 if val is None:
                     continue
-                # 月結資料同一個月只需要一筆
-                dup = (db.query(DeviceReading.id)
+                # 月結同一個月只留一筆；已存在就更新——上游月結會重編，
+                # 只跳過的話，第一次抓到的值會被永遠鎖死
+                dup = (db.query(DeviceReading)
                        .filter(DeviceReading.device_id == pid,
                                DeviceReading.metric == metric,
                                DeviceReading.reading_at == at).first())
                 if dup:
-                    skipped += 1
+                    if float(dup.value_num or 0) != val:
+                        dup.value_num = val
+                        written += 1
+                    else:
+                        skipped += 1
                     continue
                 db.add(DeviceReading(
                     site_id=site_ids.get(site_code), site_code=site_code,

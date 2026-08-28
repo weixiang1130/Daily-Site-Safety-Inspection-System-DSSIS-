@@ -165,6 +165,10 @@ function renderEnvironment(list, spec) {
   nameEl.textContent = primary.site || primary.station;
   lvlEl.className = 'env-level l' + primary.level;
   lvlEl.textContent = primary.level_label;
+  // 原本最後一格還有一顆「危害等級」結論磚，和這個徽章顯示同一個值，
+  // 相距數公分——重複顯示，移除磚、說明掛在徽章上
+  lvlEl.title = '取各項指標中最高者。任何一項達到危險都必須反映出來，'
+              + '不能被其他正常的指標稀釋掉。';
   document.getElementById('envTime').textContent =
     primary.reading_at ? '量測於 ' + primary.reading_at.replace('T', ' ') : '';
 
@@ -180,14 +184,19 @@ function renderEnvironment(list, spec) {
                   LEVEL_CLASS[(primary.levels || {})[k] || 0], tip);
     });
 
-  // 危害等級是我們自己算的，和廠商平台回報的不同，放在最後做為結論
-  renderHeatAlert(primary);
-  renderNoiseAlert(primary);
+  // 警示帶掃「全部」測站取最嚴重者，而不是只看主場站——結論膠囊掃的是
+  // 全部測站，兩者判定範圍不同時，非主場站達危險等級只會有一顆紅膠囊，
+  // 法定應辦措施完全不會出現在牆上。帶內會標明是哪個工地的警示。
+  const heatWorst = list.reduce((a, st) =>
+    (st.heat && (!a || st.heat.level > a.heat.level)) ? st : a, null);
+  const noiseWorst = list.reduce((a, st) => {
+    const lv = st.noise ? st.noise.level : 0;
+    const has = st.noise || (st.noise_alarm || []).length;
+    return (has && (!a || lv > (a.noise ? a.noise.level : 0))) ? st : a;
+  }, null);
+  renderHeatAlert(heatWorst);
+  renderNoiseAlert(noiseWorst);
 
-  cells.push(tile('危害等級', primary.level_label, '',
-                  LEVEL_CLASS[primary.level] + ' tile-verdict',
-                  '取各項指標中最高者。任何一項達到危險都必須反映出來，'
-                  + '不能被其他正常的指標稀釋掉。'));
   tilesEl.innerHTML = cells.join('');
 
   // 判定依據寫在牆上而不是只掛 title：大螢幕沒有人會把滑鼠移上去。
@@ -260,6 +269,7 @@ function renderHeatAlert(primary) {
   box.innerHTML = `
     <div class="ha-head">
       <span class="ha-level">熱危害 ${esc(heat.name)}</span>
+      <span class="ha-site">${esc(primary.site || primary.station)}</span>
       <span class="ha-value">熱指數 ${esc(String(heat.value))}</span>
       <span class="ha-principle">${esc(heat.principle)}</span>
     </div>
@@ -317,17 +327,30 @@ const PROG_BEHIND_RED = 3;
 // 今日重點工項 × 工程進度：每棟一張卡。
 // 原本工項在下方輪播裡，輪走了就看不到；進度磚又在另一區。
 // 併成同一張卡之後，「這棟做什麼、進度如何」是同一個視線落點。
+//
+// 工項超過單頁上限時「卡內自動翻頁」而不是收成 +N——收起來的工項與其
+// 危害提示會在整面牆上永久不可見，裝修高峰十項並行時等於只管前四項。
+let focusPage = 0;
+let focusData = null;
+let focusTimer = null;
+
 function renderFocus(d) {
+  focusData = d;
   const band = document.getElementById('focusBand');
   const tasks = d.today_tasks || [];
   const prog = d.progress || [];
   const codes = [...new Set([...tasks.map(t => t.site_code),
                              ...prog.map(g => g.site_code)])].sort();
-  if (!codes.length) { band.classList.add('hidden'); return; }
+  if (!codes.length) {
+    band.classList.add('hidden');
+    if (focusTimer) { clearInterval(focusTimer); focusTimer = null; }
+    return;
+  }
   band.classList.remove('hidden');
 
   const progBy = Object.fromEntries(prog.map(g => [g.site_code, g]));
-  const MAX_ROWS = 4;   // 卡片高度固定，工項多時列出前幾項＋「+N」
+  const PER_PAGE = 4;   // 卡片高度固定，超過就翻頁
+  let needsPaging = false;
 
   document.getElementById('focusCards').innerHTML = codes.map(code => {
     const g = progBy[code];
@@ -345,23 +368,47 @@ function renderFocus(d) {
           + `　截至 ${g.month} 月結</span>`;
     }
 
-    const body = rows.length ? rows.slice(0, MAX_ROWS).map(t => {
-      const phase = t.first_day ? '<span class="tag overdue">今日開始</span>'
-                  : t.last_day  ? '<span class="tag fixed">今日收尾</span>'
+    const pages = Math.max(1, Math.ceil(rows.length / PER_PAGE));
+    if (pages > 1) needsPaging = true;
+    const pg = focusPage % pages;
+    const slice = rows.slice(pg * PER_PAGE, pg * PER_PAGE + PER_PAGE);
+
+    const body = rows.length ? slice.map(t => {
+      // 首日與末日特別標示（事故高發時點）。同日起訖的單日作業兩者皆真，
+      // 要講成「今日單日」——只標「今日開始」會讓人漏掉它今天就得收尾。
+      const phase = (t.first_day && t.last_day)
+                    ? '<span class="chip-start">今日單日</span>'
+                  : t.first_day ? '<span class="chip-start">今日開始</span>'
+                  : t.last_day  ? '<span class="chip-end">今日收尾</span>'
                   : `<span class="ft-day">第 ${t.day_no}／${t.total_days} 天</span>`;
+      // 危害提示用中性外框，不再挪用缺失狀態的紅——牆上的紅只留給
+      // 「待改善／逾期」這類真的出事的東西，紅到處都是就沒有紅了
       const chips = (t.hazards || [])
-        .map(h => `<span class="tag open">${esc(h)}</span>`).join('');
+        .map(h => `<span class="chip-hz">${esc(h)}</span>`).join('');
+      // 起訖日期直接上牆：大螢幕沒有人會滑鼠懸停，
+      // 「第 37 天」算得出剩幾天、算不出哪一天結束
       return `<div class="fcard-task">
-        <span class="ft-name" title="${esc(t.name)}（${esc(t.start)}~${esc(t.end)}）">${esc(t.name)}</span>
+        <span class="ft-name" title="${esc(t.name)}">${esc(t.name)}</span>
+        <span class="ft-range">${esc(t.start.slice(5))}~${esc(t.end.slice(5))}</span>
         ${phase}<span class="ft-chips">${chips}</span></div>`;
-    }).join('') + (rows.length > MAX_ROWS
-      ? `<div class="fcard-more">…另有 ${rows.length - MAX_ROWS} 項進行中</div>` : '')
+    }).join('') + (pages > 1
+      ? `<div class="fcard-more">共 ${rows.length} 項進行中・第 ${pg + 1}／${pages} 頁</div>` : '')
       : '<div class="fcard-more">今日無列管工項</div>';
 
     return `<div class="fcard">
       <div class="fcard-head"><b>${esc(bld)}</b>${chip}${sub}</div>
       ${body}</div>`;
   }).join('');
+
+  // 只有真的需要翻頁才開計時器；資料變少時關掉，不留幽靈計時器
+  if (needsPaging && !focusTimer) {
+    focusTimer = setInterval(() => {
+      focusPage++;
+      if (focusData) renderFocus(focusData);
+    }, 10000);
+  } else if (!needsPaging && focusTimer) {
+    clearInterval(focusTimer); focusTimer = null;
+  }
 }
 
 // 七秒原則：畫面要在七秒內讓觀者吸收到關鍵資訊。
@@ -480,12 +527,14 @@ function renderNoiseAlert(primary) {
   box.innerHTML = n ? `
     <div class="ha-head">
       <span class="ha-level">噪音 ${esc(n.name)}</span>
+      <span class="ha-site">${esc(primary.site || primary.station)}</span>
       <span class="ha-value">${esc(String(n.value))} dB</span>
       ${hours}
       <span class="ha-principle">${esc(n.principle)}</span>
       ${env}
     </div>
-    ${levelScale(n)}
+    ${document.getElementById('heatAlert').classList.contains('hidden')
+        ? levelScale(n) : ''}
     <div class="ha-row"><b>本級重點</b>
       <span>${(n.focus || []).map(esc).join('　·　')}</span></div>` : `
     <div class="ha-head">

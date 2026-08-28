@@ -536,7 +536,7 @@ body.war {
 
 /* 數值磚：牆上要在數公尺外讀得到，因此數字大、標籤小 */
 .tiles { display: grid; gap: var(--sp-2); }
-.tiles-env { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.tiles-env { grid-auto-flow: column; grid-auto-columns: 1fr; }
 .tiles-people { grid-template-columns: 1.7fr 1fr 1fr; }
 .tiles-kpi { grid-template-columns: repeat(8, minmax(0, 1fr)); }
 /* KPI 是狀態列——依值上色已足以讓異常跳出來，字級不必與環境數值搶大。
@@ -644,6 +644,42 @@ body.war {
   white-space: nowrap;
 }
 .ft-chips { display: flex; gap: 3px; flex: 0 0 auto; }
+/* 危害提示是「這類作業常見危害」的備忘，不是警報——中性外框。
+   紅色在這面牆上專屬於待改善與逾期；到處都紅，真正的紅就失效了。 */
+.chip-hz {
+  font-size: var(--fs-xs);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm, 4px);
+  border: 1px solid var(--border-strong);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+/* 首日／末日是排程節點提醒，用琥珀；首日實心較搶眼（開工日風險最高） */
+.chip-start {
+  font-size: var(--fs-xs);
+  padding: 1px 8px;
+  border-radius: var(--radius-sm, 4px);
+  background: var(--warn-600);
+  color: #fff;
+  white-space: nowrap;
+  font-weight: 700;
+}
+.chip-end {
+  font-size: var(--fs-xs);
+  padding: 1px 8px;
+  border-radius: var(--radius-sm, 4px);
+  border: 1px solid var(--warn-600);
+  color: var(--warn-600);
+  white-space: nowrap;
+  font-weight: 700;
+}
+.ft-range {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
 .fcard-more { font-size: var(--fs-xs); color: var(--text-muted); padding-top: 3px; }
 
 /* 七秒原則：正常的退後，異常的跳出來。
@@ -931,6 +967,12 @@ body.war {
 }
 .heat-alert.l1 .ha-level { color: var(--text-primary); }
 .heat-alert.l2 .ha-level { color: var(--warn-600); }
+.ha-site {
+  font-weight: 700;
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
 .ha-value {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
