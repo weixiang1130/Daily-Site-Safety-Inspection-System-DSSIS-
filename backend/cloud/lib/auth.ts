@@ -78,14 +78,23 @@ export interface SessionUser {
   exp: number;
 }
 
+// 未設定 SECRET_KEY 時的替代金鑰：每次冷啟動隨機產生。
+// 不能用固定的預設字串——它印在公開 repo 裡，等於任何人都能離線偽造
+// session（含 admin）。隨機金鑰的代價只是「忘記設定時登入常常失效」，
+// 這種失敗會被使用者立刻回報，而偽造 session 不會。
+let ephemeralSecret: string | null = null;
+
 function secret(): string {
   const s = Netlify.env.get("SECRET_KEY");
-  if (!s) {
-    // 未設定時仍可運作，但 session 無法跨部署存活，且安全性不足。
-    // 部署前務必在 Netlify 環境變數設定 SECRET_KEY。
-    return "dev-secret-change-me-in-production";
+  if (s) return s;
+  if (!ephemeralSecret) {
+    const buf = new Uint8Array(32);
+    crypto.getRandomValues(buf);
+    ephemeralSecret = Array.from(buf, (b) => b.toString(16).padStart(2, "0")).join("");
+    console.error("[auth] 未設定 SECRET_KEY，已改用本次啟動的隨機金鑰；"
+      + "session 無法跨函式實例存活。請在環境變數設定 SECRET_KEY。");
   }
-  return s;
+  return ephemeralSecret;
 }
 
 async function sign(payload: string): Promise<string> {

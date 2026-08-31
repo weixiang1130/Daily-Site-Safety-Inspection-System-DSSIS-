@@ -46,8 +46,9 @@ const SNAPSHOT_MAX_AGE_SEC = 180;
 /** 儀表板是否免登入。公開網際網路上務必維持 false。 */
 
 function ingestTokens(): Record<string, string> {
-  const raw = Netlify.env.get("INGEST_TOKENS")
-    || "vendor-a:demo-token-vendor-a,vendor-b:demo-token-vendor-b,vendor-c:demo-token-vendor-c";
+  // 刻意沒有預設值：預設權杖印在公開 repo 裡，等於任何人都能推送偽造的
+  // 設備數據。未設定時清單為空，所有推送一律 401。
+  const raw = Netlify.env.get("INGEST_TOKENS") || "";
   const out: Record<string, string> = {};
   for (const pair of raw.split(",")) {
     const i = pair.indexOf(":");

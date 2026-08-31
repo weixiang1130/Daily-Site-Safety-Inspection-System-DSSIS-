@@ -44,12 +44,12 @@ SIG_DIR = os.path.join(UPLOAD_DIR, "signatures")
 for d in (PHOTO_DIR, SIG_DIR):
     os.makedirs(d, exist_ok=True)
 
-# 設備廠商推送資料用的權杖。正式環境請改用環境變數，並一家廠商一組。
+# 設備廠商推送資料用的權杖，一家廠商一組（格式 vendor-a:xxx,vendor-b:yyy）。
+# 刻意沒有預設值：預設權杖印在公開 repo 裡，等於任何人都能推送偽造的
+# 環境數據與人數——而疏散點名會照著牆上的數字。未設定時端點直接停用。
 INGEST_TOKENS = {
     t.split(":")[0]: t.split(":")[1]
-    for t in os.environ.get("INGEST_TOKENS", "vendor-a:demo-token-vendor-a,"
-                                             "vendor-b:demo-token-vendor-b,"
-                                             "vendor-c:demo-token-vendor-c").split(",")
+    for t in os.environ.get("INGEST_TOKENS", "").split(",")
     if ":" in t
 }
 
@@ -578,8 +578,11 @@ def cctv_snapshot(request: Request, channel: int = 0):
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:                              # noqa: BLE001
         # 監視器離線不該讓整個牆面看起來像壞掉，回 503 讓前端只在那一格
-        # 顯示訊息。訊息要具體，否則現場只會看到「失敗」而無從查起。
-        raise HTTPException(status_code=503, detail=f"取像失敗：{e}")
+        # 顯示訊息。例外原文只進伺服器記錄——它可能含內部主機位址，
+        # 不該回給未登入就看得到的牆面。
+        print(f"[cctv] 頻道 {channel} 取像失敗：{e}")
+        raise HTTPException(status_code=503,
+                            detail="取像失敗，請查看伺服器記錄")
 
     return Response(
         content=data, media_type="image/jpeg",
@@ -963,6 +966,9 @@ def ingest_device(request: Request, payload: dict = Body(...),
     """
     token = request.headers.get("X-Vendor-Token", "")
     vendor_code = payload.get("vendor_code", "")
+    if not INGEST_TOKENS:
+        raise HTTPException(status_code=503,
+                            detail="未設定 INGEST_TOKENS，推送端點停用")
     if INGEST_TOKENS.get(vendor_code) != token:
         raise HTTPException(401, "廠商權杖驗證失敗")
 
@@ -1006,7 +1012,18 @@ def root():
     return RedirectResponse("/static/index.html")
 
 
-app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+# 上傳檔（缺失照片、手寫簽名）需登入才能取用。原本用免驗證的靜態掛載，
+# 內網任何人拿到網址就能看——雲端版有登入把關，地端必須比照。
+# 網址形狀維持 /uploads/...，既有的資料庫路徑不必改。
+@app.get("/uploads/{subpath:path}")
+def serve_upload(subpath: str, user=Depends(need_login)):
+    full = os.path.realpath(os.path.join(UPLOAD_DIR, subpath))
+    # realpath 之後再驗證前綴，.. 與符號連結都繞不出上傳目錄
+    if not full.startswith(os.path.realpath(UPLOAD_DIR) + os.sep):
+        raise HTTPException(status_code=404, detail="檔案不存在")
+    if not os.path.isfile(full):
+        raise HTTPException(status_code=404, detail="檔案不存在")
+    return FileResponse(full)
 
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(BASE_DIR)), "frontend")
 
