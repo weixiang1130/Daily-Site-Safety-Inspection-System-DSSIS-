@@ -120,6 +120,38 @@
 // 那會讓整段 script 因語法錯誤而完全不執行。
 const NEWLINE = String.fromCharCode(10);
 
+// ---------------------------------------------------------------------------
+// 舞台縮放：整合在一個視窗、永遠沒有捲軸
+//
+// 版面固定以 1920x1080 設計（所有分頁量測都以此為準），整頁等比縮放貼合
+// 目前視窗——筆電、投影、開了 125% 顯示縮放的螢幕，看到的都是完整的一頁。
+// 資訊過多由輪播與卡內翻頁消化；縮放只負責保證「不用捲」。
+// 長寬比不同時上下或左右留信箱邊，底色與畫布一致。
+// ---------------------------------------------------------------------------
+const DESIGN_W = 1920, DESIGN_H = 1080;
+
+function fitStage() {
+  const s = Math.min(innerWidth / DESIGN_W, innerHeight / DESIGN_H);
+  const b = document.body;
+  document.documentElement.classList.add('staged');
+  b.style.width = DESIGN_W + 'px';
+  b.style.height = DESIGN_H + 'px';
+  b.style.transformOrigin = 'top left';
+  b.style.transform = `scale(${s})`;
+  b.style.position = 'absolute';
+  b.style.left = ((innerWidth - DESIGN_W * s) / 2) + 'px';
+  b.style.top = ((innerHeight - DESIGN_H * s) / 2) + 'px';
+}
+// resize 事件可能在視窗定形前觸發（最大化動畫、面板調整都會），
+// 尾隨再算一次，用的才是最終尺寸
+let fitTimer = null;
+addEventListener('resize', () => {
+  fitStage();
+  clearTimeout(fitTimer);
+  fitTimer = setTimeout(fitStage, 250);
+});
+fitStage();
+
 let PRIMARY_CODE = '';     // 主場站代碼，由 /api/branding 提供
 let SITES = [];
 

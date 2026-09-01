@@ -471,6 +471,17 @@ td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
    版面就會出現「欄寬放大、欄裡的字沒放大」的錯位。 */
 html.war { font-size: clamp(12px, min(0.62vw + 6px, 1.15vh + 6px), 22px); }
 
+/* 舞台縮放啟用後（fitStage 掛上 .staged）：
+   - 根字級釘在流體式於 1920x1080 的取值（0.62vw+6 → 17.9px）。
+     舞台內的版面盒固定 1920 寬，vw 卻仍指真實視窗，不釘死會失真。
+   - html 撐滿並隱藏捲軸；縮放後的殘餘空間（信箱邊）用畫布色補滿。 */
+html.war.staged {
+  font-size: 17.9px;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-canvas);
+}
+
 body.war {
   height: 100dvh;
   overflow: hidden;
@@ -528,7 +539,8 @@ body.war {
 /* 現場即時：左邊數據、右邊監視畫面 */
 .band-live {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) clamp(200px, 19vw, 400px);
+  /* 監視畫面欄寬。舞台固定 1920 設計，用常數；19vw 會抓到真實視窗 */
+  grid-template-columns: minmax(0, 1fr) 365px;
   gap: var(--sp-4);
   align-items: start;
 }
@@ -1004,9 +1016,9 @@ body.war {
   inset: 0;
   z-index: 50;
   margin: auto;
-  width: min(760px, 82vw);
+  width: 760px;
   height: fit-content;
-  max-height: 80vh;
+  max-height: 80%;
   overflow-y: auto;
   background: var(--bg-surface);
   border: 2px solid var(--critical-600);
@@ -1101,43 +1113,10 @@ table.fixed th {
 .cols-overdue th:nth-child(5) { width: 11%; }
 .cols-overdue th:nth-child(6) { width: 8%; }
 
-/* 矮螢幕（1080 實體螢幕開 125% 顯示縮放＝864 CSS 高，很常見）。
-   上半部的固定區塊會把下半部壓到排行的橫條只剩十幾像素高而讀不出來，
-   因此收掉最不即時的一塊、並縮小數字字級，把高度讓給看得懂的內容。
-   趨勢是回顧性資訊，牆上少了它不影響當下判斷；排行被壓扁則是直接失效。 */
-@media (max-height: 950px) {
-  .rank-trend { display: none; }
-  .tile .t-value { font-size: 1.75rem; }
-  .tile-hero .t-value { font-size: 2.4rem; }
-  .tile { padding: 4px var(--sp-3); }
-}
-
-/* 太矮的螢幕（筆電 768）放不下一個戰情牆。
-   硬壓成一屏的結果是每一塊都被擠到讀不出來——那比捲動更糟。
-   因此低於這個高度就還原正常捲動，一屏只保證給牆上的大螢幕。 */
-@media (max-height: 800px) {
-  body.war { height: auto; overflow: visible; }
-  .band-main { min-height: 420px; }
-  .band-rank { overflow: visible; }
-  .barlist { overflow: visible; }
-}
-
-/* 窄螢幕（筆電、平板）：磚塊改為多列，並還原正常捲動。
-   一屏的前提是大螢幕；在小螢幕硬壓成一屏，只會每一格都讀不到。 */
-@media (max-width: 1200px) {
-  .tiles-kpi { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .band-main { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); }
-}
-@media (max-width: 1100px) {
-  body.war { height: auto; overflow: visible; display: block; }
-  .band-live { grid-template-columns: 1fr; }
-  .tiles-env { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .tiles-people { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .band-main { grid-template-columns: 1fr; }
-  .band-rank { overflow: visible; }
-  .barlist { overflow: visible; }
-  .rota-body { overflow-x: auto; }
-}
+/* 戰情室不再有依真實視窗高寬的退路（矮螢幕縮字、更矮還原捲動、
+   窄螢幕重排）。改用舞台縮放：版面固定以 1920x1080 設計，整頁等比縮放
+   貼合視窗（見 dashboard.html 的 fitStage）。任何視窗都是完整一頁，
+   資訊過多由輪播與卡內翻頁消化，不會出現捲軸。 */
 
 /* 工地號誌 */
 .light { display: inline-block; width: 9px; height: 9px; flex: none; }
@@ -1200,7 +1179,8 @@ table.fixed th {
 
 @media (max-width: 640px) {
   .wrap { padding: var(--sp-5) var(--sp-4) var(--sp-8); }
-  .topbar { padding: var(--sp-3) var(--sp-4); }
-  .brand .sub { display: none; }
+  /* 戰情室走舞台縮放，真實視窗寬度的手機規則不可動到它 */
+  body:not(.war) .topbar { padding: var(--sp-3) var(--sp-4); }
+  body:not(.war) .brand .sub { display: none; }
   :root { --fs-display: 2rem; --fs-metric: 2.25rem; }
 }
