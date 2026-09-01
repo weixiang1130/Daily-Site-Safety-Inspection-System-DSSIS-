@@ -23,6 +23,8 @@
   <div class="spacer"></div>
   <span class="stamp" id="stamp"></span>
   <span class="clock" id="clock"></span>
+  <button class="ghost" id="snap"
+    title="擷取目前畫面存成 PNG（瀏覽器會請你確認分享此分頁）">截圖</button>
   <a href="/static/home.html"><button class="ghost">回首頁</button></a>
 </div>
 
@@ -119,6 +121,53 @@
 // 提示文字用的換行。直接寫成跳脫字元容易在編輯過程被誤寫成真實換行，
 // 那會讓整段 script 因語法錯誤而完全不執行。
 const NEWLINE = String.fromCharCode(10);
+
+// ---------------------------------------------------------------------------
+// 截圖：把目前牆面存成 PNG（會議紀錄、回報群組用）
+//
+// 用瀏覽器原生的畫面擷取而不是 DOM 轉畫布的函式庫：零相依，而且拍到的
+// 就是實際渲染結果——舞台縮放、監視畫面、深色主題都原樣入鏡。
+// 代價是每次會跳一個「分享此分頁」的確認框（瀏覽器的安全要求，繞不掉），
+// preferCurrentTab 讓它預設選中本分頁，按一下確認即可。
+// ---------------------------------------------------------------------------
+async function snapshot() {
+  const btn = document.getElementById('snap');
+  try {
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { displaySurface: 'browser' },
+      preferCurrentTab: true,
+      audio: false,
+    });
+    const video = document.createElement('video');
+    video.srcObject = stream;
+    await video.play();
+    // 等一小段讓第一幀穩定；太早畫會拿到黑幀
+    await new Promise(r => setTimeout(r, 350));
+
+    const c = document.createElement('canvas');
+    c.width = video.videoWidth;
+    c.height = video.videoHeight;
+    c.getContext('2d').drawImage(video, 0, 0);
+    stream.getTracks().forEach(t => t.stop());
+
+    const now = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const name = `戰情室_${now.getFullYear()}${pad(now.getMonth() + 1)}`
+               + `${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}.png`;
+    const a = document.createElement('a');
+    a.download = name;
+    a.href = c.toDataURL('image/png');
+    a.click();
+
+    btn.textContent = '已下載';
+  } catch (e) {
+    // 使用者按了取消也會走到這裡——不是錯誤，安靜復原即可
+    btn.textContent = '截圖';
+    return;
+  }
+  setTimeout(() => { btn.textContent = '截圖'; }, 2500);
+}
+document.getElementById('snap').onclick = snapshot;
 
 // ---------------------------------------------------------------------------
 // 舞台縮放：整合在一個視窗、永遠沒有捲軸
