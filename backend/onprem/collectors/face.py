@@ -124,14 +124,27 @@ def poll_once() -> str:
             for metric, val in (("headcount_in", c["in"]),
                                 ("headcount_out", c["out"]),
                                 ("headcount_present", c["present"])):
-                db.add(DeviceReading(
-                    site_id=site_ids.get(code), site_code=code,
-                    vendor_code="face-device", device_type="people",
-                    device_id=code, metric=metric, value_num=val,
-                    reading_at=now,
-                    # 刻意不存門名與任何原始欄位：本系統只需要人數
-                    raw_payload=None,
-                ))
+                # 每個工地每個指標只保留「目前值」一列，就地更新而非每輪新增。
+                # 儀表板只讀最新一筆、人數也沒有歷史趨勢圖；每 5 分鐘各插三列
+                # 會讓 device_readings 無上限成長，數月後拖慢查詢。
+                # 以 vendor_code 限定，不會動到門禁資料庫來源（access-db）的列。
+                row = (db.query(DeviceReading)
+                       .filter(DeviceReading.vendor_code == "face-device",
+                               DeviceReading.site_code == code,
+                               DeviceReading.metric == metric).first())
+                if row:
+                    row.value_num = val
+                    row.reading_at = now
+                    row.site_id = site_ids.get(code)
+                else:
+                    db.add(DeviceReading(
+                        site_id=site_ids.get(code), site_code=code,
+                        vendor_code="face-device", device_type="people",
+                        device_id=code, metric=metric, value_num=val,
+                        reading_at=now,
+                        # 刻意不存門名與任何原始欄位：本系統只需要人數
+                        raw_payload=None,
+                    ))
                 written += 1
         db.commit()
     finally:

@@ -130,39 +130,103 @@ const NEWLINE = String.fromCharCode(10);
 // 代價是每次會跳一個「分享此分頁」的確認框（瀏覽器的安全要求，繞不掉），
 // preferCurrentTab 讓它預設選中本分頁，按一下確認即可。
 // ---------------------------------------------------------------------------
+function snapName() {
+  const n = new Date(), pad = x => String(x).padStart(2, '0');
+  return `戰情室_${n.getFullYear()}${pad(n.getMonth() + 1)}${pad(n.getDate())}`
+       + `_${pad(n.getHours())}${pad(n.getMinutes())}.png`;
+}
+
+function download(dataUrl) {
+  const a = document.createElement('a');
+  a.download = snapName();
+  a.href = dataUrl;
+  a.click();
+}
+
+// 安全情境（https 或 localhost）用畫面擷取，畫質最好、監視畫面也原樣入鏡。
+async function snapViaCapture() {
+  const stream = await navigator.mediaDevices.getDisplayMedia({
+    video: { displaySurface: 'browser' }, preferCurrentTab: true, audio: false,
+  });
+  const video = document.createElement('video');
+  video.srcObject = stream;
+  await video.play();
+  await new Promise(r => setTimeout(r, 350));   // 等第一幀穩定，太早畫會黑
+  const c = document.createElement('canvas');
+  c.width = video.videoWidth; c.height = video.videoHeight;
+  c.getContext('2d').drawImage(video, 0, 0);
+  stream.getTracks().forEach(t => t.stop());
+  return c.toDataURL('image/png');
+}
+
+// http 的區網牆機不是安全情境，getDisplayMedia 不可用（navigator.mediaDevices
+// 為 undefined）。改用純前端方式：把整個舞台序列化進 SVG 的 foreignObject，
+// 再畫到 canvas。頁面上唯一的圖片是監視畫面，且它是同源 blob，畫進 canvas
+// 不會汙染、匯得出 PNG。外部樣式表要內嵌進 SVG，否則畫出來是無樣式的裸 DOM。
+async function snapViaDom() {
+  // 1. 內嵌樣式表（foreignObject 不會自己去抓 <link>）
+  const css = (await Promise.all(
+    [...document.querySelectorAll('link[rel=stylesheet]')].map(l =>
+      fetch(l.href).then(r => r.text()).catch(() => '')))).join(NEWLINE);
+
+  // 2. 監視畫面 blob → dataURL；blob URL 在序列化後的新文件裡解不開，必須內嵌
+  const cam = document.getElementById('camImg');
+  let camData = '';
+  if (cam && cam.src && cam.naturalWidth) {
+    const cc = document.createElement('canvas');
+    cc.width = cam.naturalWidth; cc.height = cam.naturalHeight;
+    cc.getContext('2d').drawImage(cam, 0, 0);
+    camData = cc.toDataURL('image/png');
+  }
+
+  // 3. 複製 body，去掉舞台縮放（改以自然的 1920x1080 出圖），換上內嵌的監視畫面
+  const clone = document.body.cloneNode(true);
+  clone.style.transform = 'none';
+  clone.style.left = '0'; clone.style.top = '0';
+  clone.style.position = 'static';
+  clone.style.width = DESIGN_W + 'px';
+  clone.style.height = DESIGN_H + 'px';
+  clone.style.background = getComputedStyle(document.body).backgroundColor;
+  const cloneCam = clone.querySelector('#camImg');
+  if (cloneCam && camData) cloneCam.setAttribute('src', camData);
+  clone.querySelector('#snap')?.remove();   // 按鈕本身不必入鏡
+
+  // 4. 組 SVG。用 XMLSerializer 確保是合法 XHTML（未閉合標籤會讓 SVG 解析失敗）
+  const bodyXml = new XMLSerializer().serializeToString(clone);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${DESIGN_W}" `
+    + `height="${DESIGN_H}"><foreignObject width="100%" height="100%">`
+    + `<div xmlns="http://www.w3.org/1999/xhtml"><style>${css}</style>`
+    + `${bodyXml}</div></foreignObject></svg>`;
+
+  const img = new Image();
+  img.width = DESIGN_W; img.height = DESIGN_H;
+  await new Promise((res, rej) => {
+    img.onload = res; img.onerror = rej;
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  });
+  const c = document.createElement('canvas');
+  c.width = DESIGN_W; c.height = DESIGN_H;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+  return c.toDataURL('image/png');
+}
+
 async function snapshot() {
   const btn = document.getElementById('snap');
+  const secure = window.isSecureContext
+    && navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia;
+  btn.textContent = '擷取中…';
   try {
-    const stream = await navigator.mediaDevices.getDisplayMedia({
-      video: { displaySurface: 'browser' },
-      preferCurrentTab: true,
-      audio: false,
-    });
-    const video = document.createElement('video');
-    video.srcObject = stream;
-    await video.play();
-    // 等一小段讓第一幀穩定；太早畫會拿到黑幀
-    await new Promise(r => setTimeout(r, 350));
-
-    const c = document.createElement('canvas');
-    c.width = video.videoWidth;
-    c.height = video.videoHeight;
-    c.getContext('2d').drawImage(video, 0, 0);
-    stream.getTracks().forEach(t => t.stop());
-
-    const now = new Date();
-    const pad = n => String(n).padStart(2, '0');
-    const name = `戰情室_${now.getFullYear()}${pad(now.getMonth() + 1)}`
-               + `${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}.png`;
-    const a = document.createElement('a');
-    a.download = name;
-    a.href = c.toDataURL('image/png');
-    a.click();
-
+    const dataUrl = secure ? await snapViaCapture() : await snapViaDom();
+    download(dataUrl);
     btn.textContent = '已下載';
   } catch (e) {
-    // 使用者按了取消也會走到這裡——不是錯誤，安靜復原即可
-    btn.textContent = '截圖';
+    // 安全情境下多半是使用者按了取消——安靜復原。
+    // 非安全情境的 DOM 內繪若失敗，明講原因，不要讓按鈕看起來沒反應。
+    if (secure) { btn.textContent = '截圖'; return; }
+    console.error('[snap] DOM 內繪失敗', e);
+    btn.textContent = '截圖失敗';
+    setTimeout(() => { btn.textContent = '截圖'; }, 2500);
     return;
   }
   setTimeout(() => { btn.textContent = '截圖'; }, 2500);
