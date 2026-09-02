@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-"""清除示範／測試資料，只保留由 tools/import_paper_records.py 補登的實際單據。
+"""清除示範／測試資料，只保留由 backend/tools/import_paper_records.py 補登的實際單據。
 
 判斷依據：凡是掛在已停用工地（示範工地）上的單據與缺失一律刪除。
 真實工地上的資料不會被動到。
 
 用法：
-    BASE=https://<站台網址> ADMIN_PASS=<密碼> python tools/purge_demo_data.py
+    BASE=https://<站台網址> ADMIN_PASS=<密碼> python backend/tools/purge_demo_data.py
     --dry-run  只列出將刪除的項目，不實際刪除
 """
 import http.cookiejar

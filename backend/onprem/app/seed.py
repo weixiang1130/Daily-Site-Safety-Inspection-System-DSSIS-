@@ -18,7 +18,7 @@ from .db import (
 
 # 表單定義與專案根目錄的 data/ 共用（雲端版也讀同一份）
 ROOT_DIR = os.path.dirname(os.path.dirname(BASE_DIR))
-FORMS_JSON = os.path.join(ROOT_DIR, "data", "forms.json")
+FORMS_JSON = os.path.join(ROOT_DIR, "backend", "data", "forms.json")
 
 SITES = [
     ("SITE-A", "示範工地 A"),

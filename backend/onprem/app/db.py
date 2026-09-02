@@ -67,12 +67,25 @@ IS_MSSQL = DATABASE_URL.startswith("mssql")
 
 _engine_kwargs = {"echo": False, "pool_pre_ping": True}
 if IS_SQLITE:
-    _engine_kwargs["connect_args"] = {"check_same_thread": False}
+    # timeout：工地檢視器（site_runner）是三條收集執行緒＋API 同進程共用
+    # 這一個檔，「更新工項.cmd」還會另開一個程序寫入。預設 5 秒的鎖等待
+    # 在首輪全量同步的長交易期間不夠，撞上就是 database is locked、
+    # 該輪資料靜默消失。
+    _engine_kwargs["connect_args"] = {"check_same_thread": False, "timeout": 30}
 elif IS_MSSQL:
     # pyodbc 批次寫入加速，僅 mssql+pyodbc 支援，其他方言傳入會直接報錯
     _engine_kwargs["fast_executemany"] = True
 
 engine = create_engine(DATABASE_URL, **_engine_kwargs)
+
+if IS_SQLITE:
+    from sqlalchemy import event
+
+    @event.listens_for(engine, "connect")
+    def _sqlite_concurrency(dbapi_conn, _record):
+        # WAL 讓「讀」不被「寫」擋住：牆面每分鐘查詢、收集程式隨時寫入，
+        # 預設 rollback journal 之下兩者互斥
+        dbapi_conn.execute("PRAGMA journal_mode=WAL")
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 Base = declarative_base()
 
@@ -117,7 +130,7 @@ class User(Base):
 
 
 # --------------------------------------------------------------------------
-# 表單模板（由 data/forms.json 匯入，來源為公司自主檢查表範本）
+# 表單模板（由 backend/data/forms.json 匯入，來源為公司自主檢查表範本）
 # --------------------------------------------------------------------------
 class FormTemplate(Base):
     __tablename__ = "form_templates"
@@ -358,7 +371,7 @@ class DeviceReading(Base):
 class PlannedTask(Base):
     """排程工項——儀表板「今日重點工項」的資料來源。
 
-    目前由 tools/import_schedule.py 從各工地的列控表（MS Project 匯出的
+    目前由 backend/tools/import_schedule.py 從各工地的列控表（MS Project 匯出的
     project 工作表）整份匯入，source='schedule'。未來現場改為每日回報
     實際進度時，以 source='daily_report' 寫入即可並存：儀表板可優先取
     日報、沒有日報的日子退回排程，不必改資料結構。
@@ -466,7 +479,17 @@ def _scalar_default_sql(col):
 DDL_LOCK_TIMEOUT_MS = 15000
 
 
+_INIT_DONE = False
+
+
 def init_db():
+    # 同一進程只做一次。工地檢視器（site_runner）會先自己呼叫一次、
+    # FastAPI 的 startup 事件又呼叫一次——建表與補欄位是啟動成本，
+    # 不必付兩遍。
+    global _INIT_DONE
+    if _INIT_DONE:
+        return
+    _INIT_DONE = True
     if IS_MSSQL:
         from sqlalchemy import event, text as _text
 

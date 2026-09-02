@@ -49,6 +49,11 @@ from .config import env, load_env, log
 
 TIMEOUT = 60
 
+# SYNC_INTERVAL 未設定時的預設輪距。工地填報不頻繁，12 小時是文件化的
+# 建議節奏（.env.onprem.example）。site_runner 也 import 這個值——
+# 兩個進入點各寫一個預設數字的話，改一邊另一邊不會跟上。
+DEFAULT_INTERVAL = 43200
+
 # 同步進度存成檔案而不是資料庫欄位：這是這支程式自己的狀態，
 # 跟業務資料無關，混進資料表只會讓人以為它有什麼業務意義。
 STATE_FILE = Path(BASE_DIR) / "sync_state.json"
@@ -256,7 +261,7 @@ def sync_once(full: bool = False) -> tuple:
 def main() -> None:
     load_env()
     init_db()
-    interval = int(env("SYNC_INTERVAL", "300") or 300)
+    interval = int(env("SYNC_INTERVAL", str(DEFAULT_INTERVAL)) or DEFAULT_INTERVAL)
     loop = "--loop" in sys.argv
     full = "--full" in sys.argv
 

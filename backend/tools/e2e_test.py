@@ -2,7 +2,7 @@
 """端到端煙霧測試。
 
 需先啟動服務：uvicorn app.main:app --port 8010
-執行：       python tools/e2e_test.py
+執行：       python backend/tools/e2e_test.py
 
 依序驗證：登入 → 取表單 → 送出巡檢單（含缺失＋簽名）→ 取回 PDF
           → 送出協議巡視表 → 設備廠商推送 → 儀表板彙總

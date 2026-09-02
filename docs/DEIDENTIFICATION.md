@@ -23,7 +23,7 @@
 ```
 deid_rules.local.json     真實 ↔ 代稱對照表（本機限定，.gitignore 排除）
 deid_rules.example.json   結構範例（進版控，內容全為假資料）
-tools/deidentify.py       掃描 / 置換 / 還原
+backend/tools/deidentify.py       掃描 / 置換 / 還原
 .githooks/pre-commit      commit 前自動掃描，發現真實字詞即擋下
 ```
 
@@ -50,13 +50,13 @@ tools/deidentify.py       掃描 / 置換 / 還原
 
 ```bash
 # 1. 掃描（pre-commit hook 會自動執行，這裡是手動確認）
-python tools/deidentify.py --check
+python backend/tools/deidentify.py --check
 
 # 2. 若有發現，自動置換
-python tools/deidentify.py --apply <被標記的檔案>
+python backend/tools/deidentify.py --apply <被標記的檔案>
 
 # 3. 再掃一次，確認乾淨
-python tools/deidentify.py --check
+python backend/tools/deidentify.py --check
 
 # 4. 更新本文件的「變更紀錄」
 
@@ -81,7 +81,7 @@ git config core.hooksPath .githooks
 用還原功能產生，輸出檔已被 `.gitignore` 排除：
 
 ```bash
-python tools/deidentify.py --restore API_SPEC.md -o API_SPEC.internal.md
+python backend/tools/deidentify.py --restore API_SPEC.md -o API_SPEC.internal.md
 ```
 
 ---
@@ -108,12 +108,12 @@ repo 中的預設值一律為中性名稱。
 
 視覺風格（色彩、字型、版型）本身不含識別資訊，正常進版控。
 
-### 注意：`data/forms.json`
+### 注意：`backend/data/forms.json`
 
 此檔為公司自主檢查表的 541 個項目全文，屬公司內部標準文件（非個資）。
 目前選擇保留在 repo 中，因為它是系統運作的必要資料且不含個人資訊。
 **若日後公司認定不宜公開，將其加入 `.gitignore`，改由使用者自行執行
-`tools/extract_forms.py` 從內部範本產生即可，程式不需修改。**
+`backend/tools/extract_forms.py` 從內部範本產生即可，程式不需修改。**
 
 ---
 
@@ -132,7 +132,7 @@ repo 中的預設值一律為中性名稱。
 | 2026-08-19 | 介接門禁人數（只取彙總、不落地個資）；PDF 改為建置期精簡字型＋不子集化；戰情室加入最新填報表單、表格改單行截斷、修正面板被裁切 | 通過 |
 | 2026-08-19 | 戰情室改版：改用填報系統的淺色視覺、環境與人數放大、排行橫列、清單自動換頁不用捲軸、加入現場監視畫面與回首頁；填報加入檢查人員欄位 | 通過 |
 | 2026-08-20 | 監視畫面改為可顯示失敗原因並加上時間預算；戰情室預設全部工地，但環境、人數與監視畫面固定以主場站為準 | 通過 |
-| 2026-08-20 | 監視畫面改為內網推送（雲端直連被監視器以 403 拒絕）；新增 tools/push_snapshots.py 與 /api/v1/ingest/snapshot | 通過 |
+| 2026-08-20 | 監視畫面改為內網推送（雲端直連被監視器以 403 拒絕）；新增 backend/tools/push_snapshots.py 與 /api/v1/ingest/snapshot | 通過 |
 | 2026-08-20 | 熱指數標示為體感溫度並附判定依據說明；修正儀表板更新時間顯示 UTC 而與時鐘差八小時 | 通過 |
 | 2026-08-20 | 熱危害門檻改為指引附表二法定值（原先四捨五入會少判一級）；新增熱危害警示帶與升級彈出提醒 | 通過 |
 | 2026-08-20 | 修正戰情室版面被擠壓：排行改與清單並排、警示帶收成兩行、分頁平均分配、矮螢幕還原捲動 | 通過 |

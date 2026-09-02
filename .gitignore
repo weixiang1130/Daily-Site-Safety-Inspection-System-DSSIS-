@@ -21,14 +21,19 @@ uploads/
 .env.*
 !.env.example
 !.env.onprem.example
+# 工地檢視器的設定檔名（envfile.py 也認得它）——內含真實帳密
+連線設定.env
 
 # 去識別化對照表 —— 等同還原金鑰，嚴禁進版控
 deid_rules.local.json
 
 # 含公司真實資料的本機主檔（工地名稱、人員名冊等），不進版控。
 # 這些資料由匯入工具在執行時送進站台，不隨程式碼發布。
+# 2026-09-02 data/ 搬進 backend/data/，規則要跟著搬——舊規則失效時
+# git check-ignore backend/data/xxx.local.md 會回 1，敏感檔就等著被 add -A。
 *.local.json
-data/*.local.*
+*.local.md
+backend/data/*.local.*
 *.internal
 *.internal.*
 docs.internal/

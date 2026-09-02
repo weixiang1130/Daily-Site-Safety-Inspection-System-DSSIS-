@@ -207,6 +207,54 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       return json({ ok: true, accepted });
     }
 
+    // ---- 工地看板（地端推快照 → 工地電腦唯讀顯示）----
+    //
+    // 工地辦公室的電腦什麼都不能裝、也連不到公司內網，只有一個瀏覽器。
+    // 因此由公司內網的地端主機定時把整份儀表板資料 POST 上來存成 Blob，
+    // 工地電腦開網址讀這一份。
+    //
+    // **只寫 Blob，絕不觸發重新部署。** 每 5 分鐘 deploy 一次會在三天內
+    // 燒光免費的 300 分鐘建置額度；寫 Blob 則只算一次函式呼叫。
+    //
+    // 快照是「一份固定的視圖」——地端產生時就決定了天數與工地範圍。
+    // 工地電腦上的天數／工地下拉因此不會作用，前端在看板模式會隱藏它們。
+    const WALL_KEY = "wallboard/snapshot.json";
+
+    if (p === "/api/v1/ingest/wallboard" && method === "POST") {
+      const expected = Netlify.env.get("SITE_AGENT_TOKEN") || "";
+      const token = req.headers.get("x-agent-token") || "";
+      if (!expected || token !== expected) return fail(401, "代理權杖驗證失敗");
+
+      const body = await req.text();
+      // 存原始字串而非重新序列化：這份資料只會被原樣讀出去，
+      // 中間多一次 parse/stringify 只是多一個出錯的地方。
+      await files().set(WALL_KEY, body, {
+        metadata: { pushed_at: new Date().toISOString() },
+      });
+      // Buffer.byteLength：內容以中文為主，.length 是字元數，會少報三倍
+      return json({ ok: true, bytes: Buffer.byteLength(body, "utf8") });
+    }
+
+    // 這個看板會在公開網際網路上，內容含缺失描述與廠商名稱，
+    // 因此以 WALL_TOKEN 驗證。權杖外流時改一次環境變數即可撤換。
+    if (p === "/api/wallboard" && method === "GET") {
+      const expected = Netlify.env.get("WALL_TOKEN") || "";
+      const key = url.searchParams.get("k") || "";
+      if (!expected) return fail(503, "看板尚未啟用（未設定 WALL_TOKEN）");
+      if (key !== expected) return fail(401, "看板權杖錯誤");
+
+      const body = await files().get(WALL_KEY, { type: "text" });
+      if (!body) return fail(404, "尚無快照，地端還沒推送過");
+      return new Response(body, {
+        headers: {
+          "content-type": "application/json; charset=utf-8",
+          // 地端每 5 分鐘推一次，快取 60 秒可擋掉多台看板的重複讀取，
+          // 又不會讓畫面看起來停住。
+          "cache-control": "public, max-age=60",
+        },
+      });
+    }
+
     if (p === "/api/v1/device/latest") {
       const siteCode = url.searchParams.get("site_code");
       const deviceType = url.searchParams.get("device_type");

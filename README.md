@@ -31,18 +31,23 @@ safety-ops/
 │  │  ├─ lib/auth.ts         密碼驗證與 session
 │  │  ├─ lib/pdf.ts          PDF 產出
 │  │  └─ assets/fonts/       PDF 用中文字型（Noto Sans TC, OFL）
-│  └─ onprem/         內網版　FastAPI + SQL Server
-│     ├─ app/                與雲端版共用同一套資料模型與 API 契約
-│     ├─ requirements*.txt
-│     └─ Dockerfile
+│  ├─ onprem/         內網版　FastAPI + SQL Server
+│  │  ├─ app/                與雲端版共用同一套資料模型與 API 契約
+│  │  ├─ collectors/         資料收集程式（氣象站、人臉、表單同步…）
+│  │  ├─ requirements*.txt
+│  │  └─ Dockerfile
+│  ├─ tools/          建置、匯入與維運腳本（含工地檢視器打包）
+│  ├─ scripts/        工作排程進入點與主機安裝腳本
+│  └─ data/           表單定義（forms.json）與本機主檔（*.local.*，不進版控）
 │
 ├─ netlify/database/migrations/   資料表定義與種子資料
 │      ※ Netlify 規定的固定路徑，因此未併入 backend/
 │
-├─ data/             表單定義（forms.json）與本機主檔（*.local.json，不進版控）
-├─ tools/            建置、匯入與維運腳本
 ├─ docs/             文件
 │  ├─ README.md            系統說明（本檔的完整版）
+│  ├─ 專案結構.md           檔案地圖
+│  ├─ 地端戰情室.md         中央主機安裝與各部分狀態
+│  ├─ 工地檢視器.md         工地免安裝包與需要申請的權限
 │  ├─ DEPLOY.md            部署指南
 │  ├─ API_SPEC.md          給設備廠商的串接規格
 │  └─ DEIDENTIFICATION.md  去識別化規範與變更紀錄
@@ -63,12 +68,12 @@ safety-ops/
 | 目的 | 指令 |
 |---|---|
 | 部署到雲端 | 見 [docs/DEPLOY.md](docs/DEPLOY.md) |
-| 本機跑內網版 | `pip install -r backend/onprem/requirements-mssql.txt`　`python tools/create_db.py`　`python -m app.seed --demo`（於 `backend/onprem/` 下）|
-| 建置前端 | `python tools/build_frontend.py` |
-| 重新產生表單定義 | `python tools/extract_forms.py <docx>` |
-| 重新產生 migration | `python tools/gen_migrations.py` |
-| 匯入工地主檔 | `BASE=<網址> python tools/import_sites.py` |
-| 端到端測試 | `python tools/e2e_test.py` |
+| 本機跑內網版 | `pip install -r backend/onprem/requirements-mssql.txt`　`python backend/tools/create_db.py`　`python -m app.seed --demo`（於 `backend/onprem/` 下）|
+| 建置前端 | `python backend/tools/build_frontend.py` |
+| 重新產生表單定義 | `python backend/tools/extract_forms.py <docx>` |
+| 重新產生 migration | `python backend/tools/gen_migrations.py` |
+| 匯入工地主檔 | `BASE=<網址> python backend/tools/import_sites.py` |
+| 端到端測試 | `python backend/tools/e2e_test.py` |
 
 ---
 
@@ -79,7 +84,7 @@ safety-ops/
 
 ```bash
 git config core.hooksPath .githooks     # clone 後執行一次
-python tools/deidentify.py --check
+python backend/tools/deidentify.py --check
 ```
 
 完整規範見 **[docs/DEIDENTIFICATION.md](docs/DEIDENTIFICATION.md)**。

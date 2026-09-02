@@ -2,7 +2,7 @@
 """產生 Netlify Database（Postgres）的 migration SQL。
 
 Netlify 會在部署時自動套用 netlify/database/migrations/ 下的 SQL。
-本腳本由 data/forms.json 與 app/seed.py 的主檔定義產生：
+本腳本由 backend/data/forms.json 與 app/seed.py 的主檔定義產生：
 
     001_init          資料表與索引
     002_seed_forms    28 張檢查表模板與 541 個檢查項目
@@ -13,13 +13,16 @@ Netlify 會在部署時自動套用 netlify/database/migrations/ 下的 SQL。
    要調整既有資料，請新增一支編號更大的 migration。
 
 用法：
-    python tools/gen_migrations.py
+    python backend/tools/gen_migrations.py
 """
 import json
 import os
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# tools/ 搬進 backend/ 後要多剝一層才是 repo 根目錄——
+# MIG_DIR 必須指到根目錄的 netlify/（Netlify 規定的固定路徑），指錯位置
+# 產出的 migration 永遠不會被套用
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(ROOT, 'backend', 'onprem'))
 
 from app.auth import hash_password          # noqa: E402
@@ -27,7 +30,7 @@ from app.seed import SITES, USERS, VENDORS  # noqa: E402
 
 BASE_DIR = ROOT
 MIG_DIR = os.path.join(BASE_DIR, "netlify", "database", "migrations")
-FORMS_JSON = os.path.join(BASE_DIR, "data", "forms.json")
+FORMS_JSON = os.path.join(BASE_DIR, "backend", "data", "forms.json")
 
 
 def q(v):
@@ -64,7 +67,7 @@ def write(name, sql):
 
 
 INIT_SQL = """-- 職安填報系統 —— 資料表定義
--- 由 tools/gen_migrations.py 產生，請勿手動編輯。
+-- 由 backend/tools/gen_migrations.py 產生，請勿手動編輯。
 --
 -- 對應 app/db.py 的 SQLAlchemy 模型。內網版使用 SQL Server，
 -- 雲端版使用 Postgres，兩者欄位與語意一致，僅型別名稱不同：
@@ -245,7 +248,7 @@ def gen_forms():
         forms = json.load(f)["forms"]
 
     out = ["-- 28 張自主檢查表模板與檢查項目",
-           "-- 由 tools/gen_migrations.py 依 data/forms.json 產生，請勿手動編輯。", ""]
+           "-- 由 backend/tools/gen_migrations.py 依 backend/data/forms.json 產生，請勿手動編輯。", ""]
 
     rows = ",\n".join(
         f"  ({q(f['form_code'])}, {q(f['title'])}, {q(f['short_name'])}, "
@@ -279,7 +282,7 @@ def gen_forms():
 
 def gen_master():
     out = ["-- 工地、廠商、使用者主檔",
-           "-- 由 tools/gen_migrations.py 產生，請勿手動編輯。",
+           "-- 由 backend/tools/gen_migrations.py 產生，請勿手動編輯。",
            "-- 密碼雜湊格式與 Python 版 app/auth.py 相同（PBKDF2-SHA256），",
            "-- TypeScript 端以 Web Crypto 驗證，兩邊可互通。", ""]
 

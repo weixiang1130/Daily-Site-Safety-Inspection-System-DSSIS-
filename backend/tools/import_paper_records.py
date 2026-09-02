@@ -7,7 +7,7 @@
   3. 應變小組日報（電子檔，含缺失照片與責任廠商）
 
 用法：
-    BASE=https://<站台網址> python tools/import_paper_records.py
+    BASE=https://<站台網址> python backend/tools/import_paper_records.py
     # 預設連本機 http://127.0.0.1:8010
 
     --real  改用真實姓名、廠商名與工地名。
@@ -68,7 +68,8 @@ P = {"p1": "王小明", "p2": "陳小華", "p3": "林小美",
      "p4": "張小龍", "p5": "李小強", "p6": "黃小天",
      "p7": "吳小方", "p8": "鄭小雲"}
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# tools/ 搬進 backend/ 後要多剝一層才是 repo 根目錄（對照表在根目錄）
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 RULES = os.path.join(BASE_DIR, "deid_rules.local.json")
 
 
@@ -195,7 +196,7 @@ def build(doc, sites, vendors, rev):
 
     site = next((x for x in sites if x["code"] == doc["site_code"]), None)
     if site is None:
-        raise SystemExit(f"找不到工地代碼 {doc['site_code']}，請先執行 tools/import_sites.py")
+        raise SystemExit(f"找不到工地代碼 {doc['site_code']}，請先執行 backend/tools/import_sites.py")
 
     return {
         "site_id": site["id"],

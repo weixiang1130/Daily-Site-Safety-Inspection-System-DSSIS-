@@ -15,10 +15,10 @@
 
 用法
 ----
-    python tools/import_schedule.py <列控表.xlsx> --site <工地代碼>
+    python backend/tools/import_schedule.py <列控表.xlsx> --site <工地代碼>
 
-    例：python tools/import_schedule.py 列控表.xlsx --site BD04
-        python tools/import_schedule.py 列控表.xlsx --site BD05 --dry-run
+    例：python backend/tools/import_schedule.py 列控表.xlsx --site BD04
+        python backend/tools/import_schedule.py 列控表.xlsx --site BD05 --dry-run
 
 列控表更新時重跑一次即可。檔案路徑與工地代碼由參數提供，
 本工具不寫死任何工地名稱或內部路徑（本 repo 公開）。
@@ -33,7 +33,7 @@ import sys
 from datetime import date, datetime
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__))), "backend", "onprem"))
+    os.path.abspath(__file__))), "onprem"))
 
 try:
     import openpyxl

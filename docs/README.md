@@ -11,7 +11,7 @@
 
 ```bash
 pip install -r backend/onprem/requirements-mssql.txt
-python tools/create_db.py       # 在 SQL Server LocalDB 建立 SafetyOps 資料庫
+python backend/tools/create_db.py       # 在 SQL Server LocalDB 建立 SafetyOps 資料庫
 python -m app.seed --demo       # 匯入 28 張表模板 + 示範資料
 uvicorn app.main:app --host 0.0.0.0 --port 8010
 ```
@@ -244,7 +244,7 @@ Digest 規定用 MD5，而 Web Crypto 只有 SHA 系列，因此該檔內含一�
 
 因此改為以推送為主、直連為輔：
 
-    tools/push_snapshots.py            在公司網路內定時取像，POST 回本站
+    backend/tools/push_snapshots.py            在公司網路內定時取像，POST 回本站
     POST /api/v1/ingest/snapshot       以 SITE_AGENT_TOKEN 驗證，存進 Blobs
     GET  /api/cctv/snapshot?channel=N  優先回傳推上來的畫面，過期才嘗試直連
 
@@ -332,7 +332,7 @@ Digest 規定用 MD5，而 Web Crypto 只有 SHA 系列，因此該檔內含一�
 
 ### PDF 中文字型
 
-`backend/cloud/assets/fonts/NotoSansTC-Regular.ttf` 由 `tools/build_pdf_font.py`
+`backend/cloud/assets/fonts/NotoSansTC-Regular.ttf` 由 `backend/tools/build_pdf_font.py`
 產生：先把輪廓轉成 TrueType，再縮到系統需要的字。
 
 **兩件事都不可以改**：
@@ -342,7 +342,7 @@ Digest 規定用 MD5，而 Web Crypto 只有 SHA 系列，因此該檔內含一�
 
 fontkit 的子集化對這支字型是壞的，會掉字——實測 21 個字裡只畫得出 3～13 個，
 且不同格式掉的字還不一樣，正是先前 PDF 中文全空白的原因。完整實測數據見
-`tools/build_pdf_font.py` 的說明。代價是 PDF 約 1.8 MB，換來的是字一定畫得出來。
+`backend/tools/build_pdf_font.py` 的說明。代價是 PDF 約 1.8 MB，換來的是字一定畫得出來。
 
 字型收錄範圍是 ASCII、常用標點、系統本身的文字，加上 Big5 常用字（5401 字）。
 範圍外的字不會靜默消失：`font-coverage.ts` 讓 `pdf.ts` 把它畫成 □ 並在記錄檔
@@ -373,8 +373,8 @@ fontkit 的子集化對這支字型是壞的，會掉字——實測 21 個字�
 ### 工具
 
 ```bash
-python tools/create_db.py            # 建立資料庫（--drop 可重建）
-python tools/inspect_db.py           # 檢視實際 DDL、筆數、中文抽樣驗證
+python backend/tools/create_db.py            # 建立資料庫（--drop 可重建）
+python backend/tools/inspect_db.py           # 檢視實際 DDL、筆數、中文抽樣驗證
 curl http://localhost:8010/api/health # 確認目前連到哪個資料庫
 ```
 
@@ -453,7 +453,7 @@ set BRAND_SHORT_NAME=○○營造
 
 ```bash
 git config core.hooksPath .githooks     # clone 後執行一次，啟用 hook
-python tools/deidentify.py --check      # 手動掃描
+python backend/tools/deidentify.py --check      # 手動掃描
 ```
 
 完整規範見 **[DEIDENTIFICATION.md](DEIDENTIFICATION.md)**。
@@ -470,7 +470,7 @@ safety-ops/
 │  ├─ auth.py      帳密驗證（日後可換 AD／SSO）
 │  ├─ pdf.py       PDF 產出（reportlab，內建中文 CID 字型）
 │  └─ seed.py      初始化：匯入 28 張表模板、建立示範資料
-├─ data/forms.json 28 張檢查表定義（由 tools/extract_forms.py 產生）
+├─ backend/data/forms.json 28 張檢查表定義（由 backend/tools/extract_forms.py 產生）
 ├─ static/         前端網頁（無框架、無 CDN）
 ├─ tools/
 │  ├─ extract_forms.py   從自主檢查表 docx 範本重新抽取表單定義
@@ -488,7 +488,7 @@ safety-ops/
 公司若修訂了自主檢查表 docx 範本，重跑：
 
 ```bash
-python tools/extract_forms.py "<新版 docx 路徑>"
+python backend/tools/extract_forms.py "<新版 docx 路徑>"
 python -m app.seed
 ```
 

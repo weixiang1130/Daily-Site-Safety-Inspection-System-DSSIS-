@@ -20,7 +20,13 @@ from pathlib import Path
 
 # app/ → onprem/ → backend/ → 專案根目錄
 ROOT = Path(__file__).resolve().parents[3]
-ENV_FILE = ROOT / ".env.onprem"
+
+# 兩個候選檔名：.env.onprem 是開發與地端主機用的慣例名；
+# 「連線設定.env」是工地檢視器安裝包用的名字——工地的人打開資料夾
+# 要一眼看得出哪個檔是設定，點號開頭的隱藏檔式命名對他們是障礙。
+# 兩個都在就取 .env.onprem（開發機可能同時有測試用的兩份）。
+_CANDIDATES = (ROOT / ".env.onprem", ROOT / "連線設定.env")
+ENV_FILE = next((p for p in _CANDIDATES if p.exists()), _CANDIDATES[0])
 
 _loaded = False
 
@@ -39,15 +45,30 @@ def load_env() -> bool:
     if not ENV_FILE.exists():
         return False
 
-    for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
+    # utf-8-sig：檔案若被記事本存成「UTF-8 (BOM)」，用純 utf-8 讀第一個
+    # 鍵會黏著一個 U+FEFF，比對永遠不中——症狀是「第一行的設定莫名沒生效」
+    for k, v in parse_env(ENV_FILE.read_text(encoding="utf-8-sig")).items():
+        os.environ.setdefault(k, v)
+    return True
+
+
+def parse_env(text: str) -> dict:
+    """解析 .env 內容成 dict。
+
+    這是唯一的一份解析規則——打包工具（backend/tools/make_site_package.py）
+    也用它讀設定代填進安裝包。兩邊各寫一份的話，這裡修了邊角案例
+    （例如含 # 的密碼）那邊不會跟上，烤進包裡的憑證就默默解析得不一樣。
+    """
+    values: dict = {}
+    for line in text.splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         k, v = line.split("=", 1)
         # 只切第一個 =，也不去掉行內的 #：密碼常含這兩個字元，
         # 自作聰明地清理會讓密碼悄悄變成錯的
-        os.environ.setdefault(k.strip(), v.strip())
-    return True
+        values[k.strip()] = v.strip()
+    return values
 
 
 def env(key: str, default: str = "") -> str:

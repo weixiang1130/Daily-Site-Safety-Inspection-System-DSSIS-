@@ -5,8 +5,8 @@
 由本工具在執行時透過 API 送進站台，不隨程式碼進版控。
 
 用法：
-    BASE=https://<站台網址> python tools/import_sites.py
-    BASE=... python tools/import_sites.py --deactivate-others
+    BASE=https://<站台網址> python backend/tools/import_sites.py
+    BASE=... python backend/tools/import_sites.py --deactivate-others
         另把不在清單內的既有工地停用（示範工地等）。
         停用不會刪除既有紀錄，只是不再出現在填報選單。
 

@@ -28,7 +28,7 @@ DNS 也解析得到，但 TCP 不通，是網段之間的防火牆規則。因�
     python -m collectors.access            # 跑一輪就結束，用來驗證設定
     python -m collectors.access --loop     # 持續執行，交給工作排程器開機啟動
 
-先確認結構請跑：python tools/inspect_access_view.py（會遮蔽姓名與證號）
+先確認結構請跑：python backend/tools/inspect_access_view.py（會遮蔽姓名與證號）
 
 個資
 ----

@@ -26,7 +26,7 @@ Wi-Fi 網段連不到資料庫網段的 1433 埠：主機 ping 得到、DNS 也�
 
 用法
 ----
-    python tools/inspect_access_view.py
+    python backend/tools/inspect_access_view.py
 
 輸出欄位清單、型別、總筆數，以及去識別化後的樣本列。
 樣本會遮蔽看起來像姓名或證號的欄位，避免把個資貼進聊天或文件。
@@ -43,7 +43,7 @@ try:
 except ImportError:
     sys.exit("需要 pyodbc，請先執行：pip install pyodbc")
 
-ENV_FILE = Path(__file__).resolve().parent.parent / ".env.onprem"
+ENV_FILE = Path(__file__).resolve().parent.parent.parent / ".env.onprem"
 
 # 這些欄位一律遮蔽。門禁資料含姓名與員工編號，屬第三人個資，
 # 探測結構不需要看到真實內容。

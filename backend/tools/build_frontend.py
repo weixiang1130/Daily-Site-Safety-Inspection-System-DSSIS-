@@ -5,12 +5,12 @@
 API 由同一個 Netlify 站台的 Functions 提供（/api/*），因此不需要任何代理設定。
 
 本機執行：
-    python tools/build_frontend.py
+    python backend/tools/build_frontend.py
 """
 import os
 import shutil
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SRC = os.path.join(BASE_DIR, "frontend")
 DIST = os.path.join(BASE_DIR, "dist")
 
@@ -34,13 +34,14 @@ REDIRECTS = "/  /static/index.html  302\n"
 
 # 不上雲端的頁面。
 #
-# 戰情室已改在公司內網執行（見 docs/地端戰情室.md）：它是大螢幕整天開著、
-# 每分鐘更新監視畫面與環境數據的東西，掛在雲端會持續吃掉方案額度，而它要的
-# 資料來源本來就都在公司網路內。雲端只留填報。
+# 戰情室主體在公司內網執行（見 docs/地端戰情室.md）。dashboard.html 曾經被
+# 排除在雲端之外，因為當時它會在雲端持續查資料庫、代理監視畫面，整天開著
+# 就一直吃額度。
 #
-# 檔案本身不刪 —— 地端服務讀的是同一個 frontend/ 目錄，
-# 這裡只是不把它複製進雲端的產出物。
-CLOUD_EXCLUDE = ("dashboard.html",)
+# 現在它回到雲端，但角色不同：帶 ?k=<看板權杖> 開啟時走「看板模式」，
+# 只讀地端每 5 分鐘推上來的一份靜態快照（Blob），不查資料庫、不接監視器。
+# 這是為了工地辦公室的電腦——那裡什麼都不能裝，也連不到公司內網。
+CLOUD_EXCLUDE = ()
 
 
 def main():
@@ -53,8 +54,8 @@ def main():
     n = sum(len(f) for _, _, f in os.walk(os.path.join(DIST, "static")))
     print(f"[build] 複製 frontend/ → dist/static/（{n} 個檔案）")
 
-    print("[build] not deployed to cloud: "
-          + ", ".join(CLOUD_EXCLUDE))
+    if CLOUD_EXCLUDE:
+        print("[build] not deployed to cloud: " + ", ".join(CLOUD_EXCLUDE))
 
     with open(os.path.join(DIST, "index.html"), "w", encoding="utf-8") as f:
         f.write(ROOT_INDEX)

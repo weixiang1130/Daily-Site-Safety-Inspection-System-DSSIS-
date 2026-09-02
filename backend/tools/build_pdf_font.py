@@ -34,7 +34,7 @@ PDF 產出時遇到收錄範圍外的字會畫成 □ 並在記錄檔留下警�
 
 用法
 ----
-    python tools/build_pdf_font.py
+    python backend/tools/build_pdf_font.py
 
 產出
     backend/cloud/assets/fonts/NotoSansTC-Regular.ttf   （約 1.7 MB）
@@ -56,7 +56,7 @@ from fontTools.pens.cu2quPen import Cu2QuPen
 from fontTools.pens.ttGlyphPen import TTGlyphPen
 from fontTools.ttLib import TTFont, newTable
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent.parent
 FONT_DIR = ROOT / "backend/cloud/assets/fonts"
 SRC = FONT_DIR / "NotoSansTC-Regular.otf"
 DST = FONT_DIR / "NotoSansTC-Regular.ttf"
@@ -71,7 +71,7 @@ DROP_TABLES = ["CFF ", "VORG", "DSIG"]
 PUNCT = "　、。，；：？！（）「」『』【】《》〈〉—…～·※°µμ³²±§％＃＠"
 
 # 系統文字的來源：檢查表題庫、後端會印出的標籤、前端頁面上的字
-TEXT_SOURCES = ["data/forms.json", "backend/cloud/lib/*.ts", "frontend/*.html"]
+TEXT_SOURCES = ["backend/data/forms.json", "backend/cloud/lib/*.ts", "frontend/*.html"]
 
 
 def repertoire() -> set[str]:
@@ -156,7 +156,7 @@ def write_coverage(font: TTFont) -> None:
 
     body = ",\n  ".join(f"[{a}, {b}]" for a, b in ranges)
     COVERAGE_TS.write_text(
-        "// 由 tools/build_pdf_font.py 自動產生，請勿手動編輯。\n"
+        "// 由 backend/tools/build_pdf_font.py 自動產生，請勿手動編輯。\n"
         "//\n"
         "// PDF 用的字型是建置階段就縮好的（原因見該工具說明），因此收錄範圍外\n"
         "// 的字畫不出來。這份碼位清單讓 pdf.ts 能在產出前就發現缺字，改畫成 □\n"

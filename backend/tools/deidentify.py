@@ -9,13 +9,13 @@
   - deid_rules.example.json 結構範例（進版控，內容全為假資料）
 
 用法：
-    python tools/deidentify.py --check              # 掃描 git 追蹤中的所有檔案
-    python tools/deidentify.py --check --staged     # 只掃描已 staged 的檔案（給 hook 用）
-    python tools/deidentify.py --check path1 path2  # 掃描指定檔案
-    python tools/deidentify.py --apply <檔案>        # 真實 → 代稱（就地改寫）
-    python tools/deidentify.py --restore <檔案> [-o 輸出]
+    python backend/tools/deidentify.py --check              # 掃描 git 追蹤中的所有檔案
+    python backend/tools/deidentify.py --check --staged     # 只掃描已 staged 的檔案（給 hook 用）
+    python backend/tools/deidentify.py --check path1 path2  # 掃描指定檔案
+    python backend/tools/deidentify.py --apply <檔案>        # 真實 → 代稱（就地改寫）
+    python backend/tools/deidentify.py --restore <檔案> [-o 輸出]
                                                     # 代稱 → 真實，產生對內用版本
-    python tools/deidentify.py --rules              # 顯示規則統計（不顯示內容）
+    python backend/tools/deidentify.py --rules              # 顯示規則統計（不顯示內容）
 
 退出碼：0 = 乾淨；1 = 發現真實字詞（pre-commit hook 會據此擋下 commit）
 """
@@ -26,15 +26,14 @@ import re
 import subprocess
 import sys
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 RULES_LOCAL = os.path.join(BASE_DIR, "deid_rules.local.json")
 RULES_EXAMPLE = os.path.join(BASE_DIR, "deid_rules.example.json")
 
 # 不掃描的路徑（二進位、產出物、工具自身）
 SKIP_PREFIXES = ("uploads/", ".git/", "__pycache__/")
 SKIP_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp", ".pdf", ".db", ".ico", ".zip")
-SKIP_FILES = {"tools/deidentify.py", "deid_rules.local.json",
-              "docs/DEIDENTIFICATION.md"}
+SKIP_FILES = {"deid_rules.local.json", "docs/DEIDENTIFICATION.md"}
 
 
 def load_rules():
@@ -73,6 +72,11 @@ def tracked_files(staged: bool):
 
 def should_skip(rel: str) -> bool:
     rel = rel.replace("\\", "/")
+    # 自我排除用身分比對而不是寫死路徑：這支的說明文字含示例字詞，
+    # 掃到自己必誤報。寫死路徑的版本在 tools/ 搬進 backend/ 時就默默
+    # 失效過一次——路徑會過期，__file__ 不會。
+    if os.path.abspath(os.path.join(BASE_DIR, rel)) == os.path.abspath(__file__):
+        return True
     if rel in SKIP_FILES:
         return True
     if rel.startswith(SKIP_PREFIXES):
@@ -133,7 +137,7 @@ def check(paths, terms) -> int:
               file=sys.stderr)
     print(f"\n共 {len(hits)} 處。可執行下列指令自動置換：", file=sys.stderr)
     for rel in sorted({h[0] for h in hits}):
-        print(f"  python tools/deidentify.py --apply {rel}", file=sys.stderr)
+        print(f"  python backend/tools/deidentify.py --apply {rel}", file=sys.stderr)
     print("", file=sys.stderr)
     return 1
 

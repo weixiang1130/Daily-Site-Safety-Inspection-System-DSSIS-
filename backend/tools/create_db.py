@@ -2,8 +2,8 @@
 """在 SQL Server LocalDB 上建立 SafetyOps 資料庫。
 
 用法：
-    python tools/create_db.py            # 建立（已存在則略過）
-    python tools/create_db.py --drop     # 先刪除再重建（會清空所有資料！）
+    python backend/tools/create_db.py            # 建立（已存在則略過）
+    python backend/tools/create_db.py --drop     # 先刪除再重建（會清空所有資料！）
 """
 import sys
 

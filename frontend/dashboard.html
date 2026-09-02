@@ -25,7 +25,7 @@
   <span class="clock" id="clock"></span>
   <button class="ghost" id="snap"
     title="擷取目前畫面存成 PNG（瀏覽器會請你確認分享此分頁）">截圖</button>
-  <a href="/static/home.html"><button class="ghost">回首頁</button></a>
+  <a href="/static/home.html" id="homeLink"><button class="ghost">回首頁</button></a>
 </div>
 
 <div class="war-body">
@@ -268,6 +268,29 @@ fitStage();
 let PRIMARY_CODE = '';     // 主場站代碼，由 /api/branding 提供
 let SITES = [];
 
+// ---------------------------------------------------------------------------
+// 看板模式
+//
+// 工地辦公室的電腦什麼都不能裝、也連不到公司內網，只有一個瀏覽器。
+// 因此地端主機把整份資料推到雲端存成快照，工地電腦用
+//     https://<站台>/static/dashboard.html?k=<看板權杖>
+// 唯讀顯示。帶了 ?k= 就走這條路：
+//
+//   * 一次讀回 branding + sites + dashboard，不做任何需要登入的呼叫
+//   * 快照是固定視圖（天數與工地在地端產生時就決定了），因此隱藏兩個下拉
+//   * 監視畫面是即時代理到工地攝影機的，雲端碰不到，改顯示說明而非留白
+// ---------------------------------------------------------------------------
+const WALL_KEY = new URLSearchParams(location.search).get('k') || '';
+const WALL = !!WALL_KEY;
+
+async function fetchWall() {
+  const r = await fetch('/api/wallboard?k=' + encodeURIComponent(WALL_KEY));
+  if (r.status === 401) throw new Error('看板權杖錯誤，請確認網址是否完整');
+  if (r.status === 404) throw new Error('尚無資料：地端主機還沒推送過快照');
+  if (!r.ok) throw new Error('讀取看板失敗（HTTP ' + r.status + '）');
+  return await r.json();
+}
+
 function tick() {
   document.getElementById('clock').textContent =
     new Date().toLocaleTimeString('zh-TW', { hour12: false });
@@ -504,7 +527,15 @@ function renderFocus(d) {
     const bld = siteName.split('-').pop();
 
     let chip = '<span class="prog-chip dim">進度 —</span>', sub = '';
-    if (g) {
+    if (g && g.source === 'schedule') {
+      // 列控表工期推算的「預定進度」：沒有實際值可對照，看不出超前落後，
+      // 用中性樣式且寫明推算依據——絕不能長得像左邊那種可下判斷的數字
+      chip = `<span class="prog-chip dim">預定 ${g.plan}%</span>`;
+      sub = `<span class="fcard-sub">預定進度 ${g.plan}％（依列控表工期推算，無實際值可對照）</span>`;
+    } else if (g && g.gap != null) {
+      // gap 有值才進「超前/落後」判讀。用欄位存在與否而不是排除法判斷：
+      // 後端將來加第三種 source（例如 daily_report）時，排除法會讓它
+      // 掉進這個分支，在牆上印出「落後 NaN%」
       const ahead = g.gap >= 0;
       const cls = ahead ? 'ok' : (g.gap <= -PROG_BEHIND_RED ? 'critical' : 'warn');
       chip = `<span class="prog-chip ${cls}">${ahead ? '超前' : '落後'} ${Math.abs(g.gap)}%</span>`;
@@ -601,6 +632,8 @@ function renderVerdict(d) {
   // 財務進度明顯落後也值得抬頭——但門檻要高（紅色門檻），
   // 小幅落後天天掛在膠囊上會稀釋真正的警示
   for (const g of d.progress || []) {
+    // 列控表推算的預定進度沒有實際值，判斷不了落後，不進警示
+    if (g.source === 'schedule') continue;
     if (g.gap <= -PROG_BEHIND_RED) {
       const bld = (g.site || '').split('-').pop();
       items.push(`${bld}進度落後 ${Math.abs(g.gap)}%`);
@@ -816,7 +849,10 @@ function buildRota(d) {
     head: ['日期', '工地', '表單', '填報人', '結果'],
     rows: d.recent_forms || [],
     row: f => {
-      const name = f.pdf_url
+      // 看板模式不掛 PDF 連結：pdf_url 是地端的相對路徑與地端流水號，
+      // 在雲端網域上會解析成雲端資料庫「同號」的另一張表單——點下去
+      // 開到別人的 PDF 比 404 更糟
+      const name = (f.pdf_url && !WALL)
         ? `<a href="${esc(f.pdf_url)}" target="_blank">${esc(f.title)}</a>`
         : esc(f.title);
       return `<tr>
@@ -933,14 +969,26 @@ const Cam = {
   },
 };
 
-async function load() {
+async function load(preloaded) {
   const site = document.getElementById('site').value;
   const days = document.getElementById('days').value;
 
   // 預設不指定工地：缺失統計、排行與趨勢都看全公司，
   // 而環境與人數仍以主場站為主（由 renderEnvironment 依工地代碼挑出）。
-  const d = await API.get(`/api/dashboard?days=${days}`
-    + (site ? '&site_id=' + site : ''));
+  //
+  // 看板模式讀的是地端推上來的快照，範圍在地端就決定了，忽略這裡的兩個選單
+  // （它們在看板模式已隱藏）。preloaded 是初始化流程已抓到的那份快照，
+  // 明確用參數傳進來，不透過共享變數猜「現在是不是第一次」。
+  let d;
+  if (WALL) {
+    const snap = preloaded || await fetchWall();
+    d = snap.dashboard;
+  } else {
+    d = await API.get(`/api/dashboard?days=${days}`
+      + (site ? '&site_id=' + site : ''));
+  }
+  // 這輪成功了，收掉上一輪失敗時掛出的警示
+  document.getElementById('stamp').classList.remove('stale');
 
   // generated_at 是 UTC。直接印出來會和旁邊的時鐘差八小時，
   // 值班人員只會覺得資料是八小時前的。
@@ -968,12 +1016,31 @@ async function load() {
 }
 
 (async () => {
+  let firstSnap = null;   // 看板模式初始化抓的第一份快照，交給第一次 load() 沿用
+  if (WALL) {
+    // 先隱藏，再取資料——這兩個選單在看板模式一律無效，不該等抓取成功才藏。
+    // 否則連線失敗時，畫面會是一則錯誤訊息配上兩個按了沒反應的選單。
+    //
+    // 快照是固定視圖（範圍在地端產生時就決定了），選單按了也不會變；
+    // 「回首頁」在看板上是死路：首頁要登入，工地電腦沒有帳號。
+    for (const id of ['site', 'days', 'homeLink']) {
+      document.getElementById(id).classList.add('hidden');
+    }
+    // 用快照裡的品牌設定餵給 loadBranding 的快取——雲端站台的品牌環境變數
+    // 不一定與地端一致，牆上不能出現示範用的預設公司名。
+    firstSnap = await fetchWall();
+    BRANDING = firstSnap.branding || {};
+    SITES = firstSnap.sites || [];
+  }
+
   const brand = await renderBrand('war_room_name');
   PRIMARY_CODE = (brand && brand.primary_site_code) || '';
 
-  // 戰情室大螢幕可不登入直接開啟，因此這裡不使用會導向登入頁的 API.get
-  const r = await fetch('/api/sites', { credentials: 'same-origin' });
-  if (r.ok) SITES = await r.json();
+  if (!WALL) {
+    // 戰情室大螢幕可不登入直接開啟，因此這裡不使用會導向登入頁的 API.get
+    const r = await fetch('/api/sites', { credentials: 'same-origin' });
+    if (r.ok) SITES = await r.json();
+  }
 
   // 預設「全部工地」：統計面看全公司，即時面（環境、人數、監視）仍以主場站為主
   document.getElementById('site').innerHTML =
@@ -982,9 +1049,23 @@ async function load() {
   document.getElementById('site').onchange = load;
   document.getElementById('days').onchange = load;
 
-  await load();
-  Cam.init();
-  setInterval(load, 60000);              // 每分鐘更新一次
+  await load(firstSnap);
+  // 監視畫面是即時代理到工地攝影機的，雲端連不到，看板模式連試都不用試。
+  // 這裡讓監視格整個不出現，而不是擺一個永遠寫著「看不到」的方框——
+  // 牆上這塊位置很貴，放一句永遠不會改變的話等於浪費掉它。
+  if (!WALL) Cam.init();
+  // 定期更新的失敗一定要接住：整面牆沒有人在旁邊按 F5，一次 unhandled
+  // rejection 就會讓畫面永遠停在最後一張好快照，而「更新於」的時間戳
+  // 來自凍結的舊資料，看起來跟活的一模一樣。失敗時把時間戳標成警示。
+  const tick = () => load().catch(err => {
+    const el = document.getElementById('stamp');
+    el.classList.add('stale');
+    el.textContent = '⚠ 更新失敗（' + (err && err.message || '連線問題')
+      + '），顯示的是最後一次成功的畫面';
+  });
+  // 看板讀的是地端每 300 秒推一次的快照，讀得比它勤只是白燒雲端額度
+  // （額度算式見 push_wallboard.py）。地端直連版維持每分鐘。
+  setInterval(tick, WALL ? 300000 : 60000);
   window.addEventListener('resize', () => { Rota.rowH = 0; Rota.headH = 0; Rota.render(); });
 })().catch(err => {
   // 未登入的情況 API.get 已自行導向登入頁；其他錯誤要顯示出來，

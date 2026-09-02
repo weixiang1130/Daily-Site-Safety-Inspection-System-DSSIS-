@@ -9,7 +9,7 @@
 PY=python
 command -v python >/dev/null 2>&1 || PY=python3
 
-PYTHONIOENCODING=utf-8 "$PY" tools/deidentify.py --check --staged
+PYTHONIOENCODING=utf-8 "$PY" backend/tools/deidentify.py --check --staged
 status=$?
 
 if [ $status -ne 0 ]; then

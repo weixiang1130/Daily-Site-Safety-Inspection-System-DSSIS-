@@ -552,7 +552,7 @@ async def upload_photo(file: UploadFile = File(...), user=Depends(need_login)):
 # 監視器
 #
 # 地端伺服器就在公司網路內，直接向 NVR 取像即可；雲端那套推送機制
-# （tools/push_snapshots.py + 儲存區 + 權杖）在這裡都不需要。
+# （backend/tools/push_snapshots.py + 儲存區 + 權杖）在這裡都不需要。
 # ---------------------------------------------------------------------------
 
 @app.get("/api/cctv/channels")
@@ -832,17 +832,19 @@ def dashboard(request: Request, site_id: int = None, days: int = 30,
     # 今日重點工項
     #
     # 回答牆上的第二個問題：「今天在做什麼、要注意什麼」。
-    # 資料來自列控表匯入（tools/import_schedule.py）；未來現場改為每日
+    # 資料來自列控表匯入（backend/tools/import_schedule.py）；未來現場改為每日
     # 回報實際進度時，同一張表以 source='daily_report' 並存即可。
     # 只取葉工項——上層的「基礎工程」是彙總，掛上牆沒有意義。
     # ------------------------------------------------------------------
     tt = date.today()
-    ptasks = (db.query(PlannedTask)
-              .filter(PlannedTask.is_leaf == True,  # noqa: E712
-                      PlannedTask.start_date <= tt,
-                      PlannedTask.end_date >= tt)
-              .order_by(PlannedTask.site_code, PlannedTask.start_date)
-              .all())
+    # 一次抓回全部葉工項：「今日進行中」在 Python 內過濾，「預定進度」
+    # （下方）用同一份清單加總。原本各查一次，第二次還是無日期條件的
+    # 全表掃描——這個端點每分鐘被牆面與每台檢視器各打一次，省一趟是一趟。
+    leaf_tasks = (db.query(PlannedTask)
+                  .filter(PlannedTask.is_leaf == True)  # noqa: E712
+                  .order_by(PlannedTask.site_code, PlannedTask.start_date)
+                  .all())
+    ptasks = [t for t in leaf_tasks if t.start_date <= tt <= t.end_date]
     today_tasks = []
     for t in ptasks:
         t_site = site_by_id.get(t.site_id)
@@ -889,11 +891,42 @@ def dashboard(request: Request, site_id: int = None, days: int = 30,
         progress.append({
             "site": p_site.name if p_site else sc,
             "site_code": sc,
+            "source": "finops",
             "actual": actual, "est": est,
             "gap": round(actual - est, 1),      # 正＝超前、負＝落後
             "time_rate": slot.get("progress_time"),
             # 公司慣用民國年月；月結成本落後當期約一個月，標明截止月份
             "month": f"{at.year - 1911}/{at.month:02d}",
+        })
+
+    # ------------------------------------------------------------------
+    # 沒有 FinOps 月結的部署（工地檢視器完全不碰公司資料庫）退而求其次：
+    # 依列控表工期推算「預定進度」——每個葉工項算已過工期，工期加權加總。
+    #
+    # 這與 FinOps 的意義完全不同：工期加權而非產值加權（與全程營運的
+    # S 曲線會有出入），而且**沒有實際值可對照、看不出超前落後**。
+    # 前端據 source 欄位分開呈現並標明推算依據，不與實際進度混用。
+    # 已有 FinOps 資料的工地不覆蓋——實際值永遠優先。
+    # ------------------------------------------------------------------
+    covered = {p["site_code"] for p in progress}
+    sched_acc: dict = {}
+    for t in leaf_tasks:        # 與「今日重點工項」共用同一次查詢的結果
+        if t.site_code in covered:
+            continue
+        total = max((t.end_date - t.start_date).days + 1, 1)
+        done = min(max((tt - t.start_date).days + 1, 0), total)
+        acc = sched_acc.setdefault(t.site_code, [0, 0])
+        acc[0] += done
+        acc[1] += total
+    for sc, (done, total) in sched_acc.items():
+        if not total:
+            continue
+        s_site = site_by_code.get(sc)
+        progress.append({
+            "site": s_site.name if s_site else sc,
+            "site_code": sc,
+            "source": "schedule",
+            "plan": round(done / total * 100, 1),
         })
     progress.sort(key=lambda x: x["site_code"])
 
