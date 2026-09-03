@@ -55,6 +55,18 @@ def loop_sync() -> None:
                    or sync_forms.DEFAULT_INTERVAL)
     full = not os.path.exists(os.path.join(os.path.dirname(
         os.path.abspath(__file__)), "sync_state.json"))
+
+    # 重啟後不要無條件立刻同步。這支程式所在的 .cmd 會在當掉後每 10 秒
+    # 重啟一次；若每次啟動都打一次雲端，一台故障的機器就會每 13 秒呼叫
+    # 一次雲端 API——實測約 20 萬次／月，是整站正常用量的十倍以上，
+    # 足以把免費額度燒光、讓所有工地一起沒得看。
+    # 上次同步還沒過一輪的話，先睡到該同步的時間再開始。
+    elapsed = sync_forms.seconds_since_last_sync()
+    if elapsed is not None and elapsed < interval:
+        wait = interval - elapsed
+        log(f"[sync] 距上次同步 {elapsed/60:.0f} 分鐘，{wait/60:.0f} 分鐘後才輪到")
+        time.sleep(wait)
+
     while True:
         try:
             more = True

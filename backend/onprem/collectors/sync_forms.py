@@ -59,20 +59,43 @@ DEFAULT_INTERVAL = 43200
 STATE_FILE = Path(BASE_DIR) / "sync_state.json"
 
 
-def read_state() -> Optional[str]:
+def _state() -> dict:
     if not STATE_FILE.exists():
-        return None
+        return {}
     try:
-        return json.loads(STATE_FILE.read_text(encoding="utf-8")).get("since")
+        return json.loads(STATE_FILE.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         # 進度檔壞掉就當作沒同步過。全部重抓比較慢，但不會漏資料。
         log("同步進度檔讀取失敗，本輪改為全量同步")
+        return {}
+
+
+def read_state() -> Optional[str]:
+    return _state().get("since")
+
+
+def seconds_since_last_sync() -> Optional[float]:
+    """距離上次成功同步過了幾秒；沒同步過回 None。
+
+    給「重啟後要不要立刻同步」用。工地檢視器若因故障每十幾秒重啟一次，
+    而每次啟動都無條件同步，就會變成對自家雲端額度的攻擊——實測一台
+    這樣的機器每月產生約 20 萬次呼叫，是整站正常用量的十倍以上。
+    """
+    at = _state().get("last_sync_at")
+    if not at:
+        return None
+    try:
+        return (datetime.now() - datetime.fromisoformat(at)).total_seconds()
+    except ValueError:
         return None
 
 
 def write_state(since: Optional[str]) -> None:
     if since:
-        STATE_FILE.write_text(json.dumps({"since": since}), encoding="utf-8")
+        STATE_FILE.write_text(
+            json.dumps({"since": since,
+                        "last_sync_at": datetime.now().isoformat(timespec="seconds")}),
+            encoding="utf-8")
 
 
 SYNC_USER = "cloud-sync"
