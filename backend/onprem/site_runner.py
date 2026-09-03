@@ -67,6 +67,31 @@ def loop_sync() -> None:
         time.sleep(interval)
 
 
+def open_browser_when_ready(port: int, timeout_sec: int = 120) -> None:
+    """等伺服器真的在聽了，才開瀏覽器。
+
+    這件事以前由啟動用的 .cmd 拿 powershell 做，但那裡把埠寫死成 8000，
+    使用者一改 VIEWER_PORT 就會等錯埠、開錯網址。由這支程式做才拿得到
+    真正的埠號——它本來就是決定埠號的人。
+
+    冷開機的工地電腦（防毒逐一掃描 2795 個檔案）可能要 20~60 秒才起得來，
+    太早開瀏覽器只會顯示「無法連線」，讓人以為壞了。
+    """
+    import socket
+    import webbrowser
+    url = f"http://127.0.0.1:{port}/static/dashboard.html"
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=1):
+                webbrowser.open(url)
+                return
+        except OSError:
+            time.sleep(0.8)
+    log(f"等了 {timeout_sec} 秒仍未聽到 {port} 埠，未自動開啟瀏覽器；"
+        f"伺服器起來後請手動開 {url}")
+
+
 def main() -> None:
     # 讓編譯型套件（FastAPI 依賴的 pydantic_core 等）找得到包內自帶的
     # VC++ runtime。Python 3.8+ 載入延伸模組時，不會自動把 python.exe
@@ -101,16 +126,25 @@ def main() -> None:
     try:
         import uvicorn
         from app.main import app
-    except BaseException as e:                          # noqa: BLE001
+    except (KeyboardInterrupt, SystemExit):
+        raise                                           # 正常關閉，不是故障
+    except Exception as e:                              # noqa: BLE001
         import traceback
         log("網頁伺服器模組載入失敗：" + repr(e))
         log(traceback.format_exc())
         raise
     log(f"模組載入完成，開始服務 http://127.0.0.1:{port}")
+    threading.Thread(target=open_browser_when_ready, args=(port,),
+                     name="browser", daemon=True).start()
     try:
         # 只聽本機：這台電腦自己看，不對外服務
         uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
-    except BaseException as e:                          # noqa: BLE001
+    except (KeyboardInterrupt, SystemExit):
+        # 使用者自己按 Ctrl+C 或關視窗——這是正常關閉，不是故障。
+        # 記成「啟動失敗」會在日後查 log 時製造假線索。
+        log("已停止")
+        raise
+    except Exception as e:                              # noqa: BLE001
         import traceback
         log("網頁伺服器啟動失敗：" + repr(e))
         log(traceback.format_exc())

@@ -93,16 +93,20 @@ rem so a hard kill (antivirus / crash) loses the buffer and the log misses
 rem where it died. Force line-by-line writes.
 set PYTHONUNBUFFERED=1
 if not exist "%~dp0logs" mkdir "%~dp0logs"
-rem Open the browser only AFTER the server is actually listening. A fresh
-rem launch on a slow office PC (first-run antivirus scanning every file)
-rem can take 20-60s to bind; opening the browser at once just shows
-rem ERR_CONNECTION_REFUSED and looks broken. This waiter polls the port
-rem for up to ~90s, then opens the dashboard the moment it answers.
-start "" powershell -NoProfile -WindowStyle Hidden -Command "for($i=0;$i -lt 120;$i++){try{$c=New-Object Net.Sockets.TcpClient;$c.Connect('127.0.0.1',8000);$c.Close();Start-Process 'http://127.0.0.1:8000/static/dashboard.html';break}catch{Start-Sleep -Milliseconds 800}}"
+rem Rotate the log once it passes ~5 MB, keeping one previous copy. A crash
+rem loop restarts every 10s and appends every time, so without this the
+rem diagnostic log becomes the problem it was meant to diagnose.
+set "LOG=%~dp0logs\\viewer.log"
+for %%A in ("%LOG%") do if %%~zA GTR 5000000 (
+  if exist "%LOG%.1" del "%LOG%.1"
+  move /y "%LOG%" "%LOG%.1" >nul
+)
+rem The browser is opened by site_runner.py once the port is actually
+rem listening - it is the side that knows the real port (VIEWER_PORT).
 :loop
 rem Log startup to a file: on a headless kiosk any crash is otherwise
 rem invisible. If the dashboard never comes up, logs\viewer.log has why.
-"%~dp0python\\python.exe" site_runner.py >> "%~dp0logs\\viewer.log" 2>&1
+"%~dp0python\\python.exe" site_runner.py >> "%LOG%" 2>&1
 rem Auto-restart on crash; wait so repeated failures do not spin the CPU.
 timeout /t 10 /nobreak >nul
 goto loop

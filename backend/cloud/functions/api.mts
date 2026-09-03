@@ -43,9 +43,10 @@ const BRANDING = {
   wallboard: true,
 };
 
-/** 內網推上來的畫面超過這個秒數就算過期。推送間隔的兩倍多一些，
-    容得下一次漏推，又不會讓牆上長時間顯示舊畫面而沒人察覺。 */
-const SNAPSHOT_MAX_AGE_SEC = 180;
+// 過期判定改在前端做（frontend/dashboard.html 的 STALE_AFTER_MIN）：
+// 它手上有快照的 generated_at，也是唯一能把警示顯示給人看的地方。
+// 這裡原本留了一個 SNAPSHOT_MAX_AGE_SEC 常數但從來沒有被引用過——
+// 有常數卻沒人用，比沒有更危險：審查時會誤以為這塊已經防守過了。
 
 /** 儀表板是否免登入。公開網際網路上務必維持 false。 */
 
@@ -258,13 +259,17 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
 
       const body = await files().get(WALL_KEY, { type: "text" });
       if (!body) return fail(404, "尚無快照，地端還沒推送過");
+      // 快取分兩種身分處理：
+      //   憑權杖：同一組 ?k= 網址對所有大螢幕都一樣，可讓 CDN 共用，
+      //           多面牆就只回源一次——這才讓快取真的省到呼叫次數。
+      //   憑 session：內容因人而異，只能存在自己的瀏覽器裡。
+      // max-age 對齊推送間隔（300 秒）：設得比它短，快取在被讀到之前
+      // 就過期了，等於白寫；設得比它長則會顯示更舊的資料。
+      const cache = tokenOk ? "public, max-age=300" : "private, max-age=300";
       return new Response(body, {
         headers: {
           "content-type": "application/json; charset=utf-8",
-          // private：回應可能是憑 session 取得的，不可讓共用快取存下來
-          // 再發給別人。60 秒足以擋掉多台看板的重複讀取，而地端本來
-          // 就是 5 分鐘才推一次，畫面不會因此看起來停住。
-          "cache-control": "private, max-age=60",
+          "cache-control": cache,
         },
       });
     }

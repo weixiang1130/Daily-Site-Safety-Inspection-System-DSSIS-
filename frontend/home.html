@@ -70,7 +70,7 @@ let me = null;
 
   // 戰情室入口只在跑得起戰情室的那一側顯示。雲端已把它移到公司內網，
   // 留著按鈕只會連到 404。
-  const brand = await loadBranding();
+  const brand = (await loadBranding()) || {};
   if (brand.war_room) document.getElementById('warRoomLink').classList.remove('hidden');
 
   // 只取三個數字。戰情室搬到地端後 /api/dashboard 已不在雲端，

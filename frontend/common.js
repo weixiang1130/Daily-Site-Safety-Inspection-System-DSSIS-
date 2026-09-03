@@ -7,20 +7,26 @@
 // ---------------------------------------------------------------------------
 let BRANDING = null;
 
+/** 取品牌設定。**失敗不快取**——快取一個空物件等於把暫時的連線問題
+    變成永久的：之後每次呼叫都拿到那份空的，重試永遠不會成功。
+    回 null 讓呼叫端能分辨「拿不到」與「拿到但沒設定」。 */
 async function loadBranding() {
   if (BRANDING) return BRANDING;
   try {
     const r = await fetch('/api/branding', { credentials: 'same-origin' });
-    BRANDING = r.ok ? await r.json() : {};
+    if (!r.ok) return null;
+    BRANDING = await r.json();
   } catch (e) {
-    BRANDING = {};
+    return null;
   }
   return BRANDING;
 }
 
 /** 在 #brand 容器渲染版頭品牌標記。 */
 async function renderBrand(subtitleKey = 'system_name') {
-  const b = await loadBranding();
+  // 取不到就當作沒有設定：版頭少幾個字沒關係，整頁因為讀不到品牌而
+  // 掛掉才是問題（loadBranding 失敗會回 null）。
+  const b = (await loadBranding()) || {};
   const el = document.getElementById('brand');
   if (!el) return b;
   const org = b.org_short || b.org_name || '';

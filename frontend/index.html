@@ -41,7 +41,7 @@
 (async () => {
   renderBrand('system_name');
   injectArchFrame();
-  const b = await loadBranding();
+  const b = (await loadBranding()) || {};
   if (b.system_name) document.getElementById('hero').textContent = b.system_name;
   const r = await fetch('/api/me', { credentials: 'same-origin' }).then(r => r.json());
   if (r.user) location.href = '/static/home.html';

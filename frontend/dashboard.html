@@ -290,6 +290,10 @@ const KIOSK = !!WALL_KEY;
 // 由 /api/branding 的 wallboard 旗標決定，在初始化時設定。
 let WALL = false;
 
+// 資料超過幾分鐘沒更新就在版頭示警。地端每 5 分鐘推一次快照，
+// 15 分鐘容得下連續漏推兩次，又不會讓牆上長時間顯示舊資料而沒人察覺。
+const STALE_AFTER_MIN = 15;
+
 async function fetchWall() {
   const q = WALL_KEY ? '?k=' + encodeURIComponent(WALL_KEY) : '';
   const r = await fetch('/api/wallboard' + q, { credentials: 'same-origin' });
@@ -1000,14 +1004,26 @@ async function load(preloaded) {
       + (site ? '&site_id=' + site : ''));
   }
   // 這輪成功了，收掉上一輪失敗時掛出的警示
-  document.getElementById('stamp').classList.remove('stale');
+  const stamp = document.getElementById('stamp');
+  stamp.classList.remove('stale');
 
   // generated_at 是 UTC。直接印出來會和旁邊的時鐘差八小時，
   // 值班人員只會覺得資料是八小時前的。
-  document.getElementById('stamp').textContent = '更新於 ' +
-    new Date(d.generated_at).toLocaleString('zh-TW',
-      { timeZone: 'Asia/Taipei', hour12: false,
-        month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const genAt = new Date(d.generated_at);
+  stamp.textContent = '更新於 ' + genAt.toLocaleString('zh-TW',
+    { timeZone: 'Asia/Taipei', hour12: false,
+      month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+  // 資料過期要看得出來。看板模式下「讀取成功」不等於「資料是新的」：
+  // 地端主機關機或推送排程停掉時，雲端會繼續回傳最後那份快照並回 200，
+  // 牆上只會顯示一個舊時間戳、樣式完全正常——長官照著三天前的在場人數
+  // 做判斷，比畫面直接壞掉更危險。超過門檻就把時間戳標紅講明白。
+  const ageMin = (Date.now() - genAt.getTime()) / 60000;
+  if (ageMin > STALE_AFTER_MIN) {
+    stamp.classList.add('stale');
+    stamp.textContent = `⚠ 資料已停止更新 ${Math.floor(ageMin)} 分鐘`
+      + (WALL ? '（地端主機或推送排程可能已停止）' : '');
+  }
 
   renderEnvironment(d.environment || [], d.environment_spec || {});
   Cam.setTitle(d.environment || []);
@@ -1030,7 +1046,13 @@ async function load(preloaded) {
 (async () => {
   // 先問這一側是哪種戰情室：地端有即時資料庫，雲端只有快照。
   // 這一步要在任何取資料之前完成，後面的流程都看它分岔。
-  WALL = (await loadBranding()).wallboard === true;
+  //
+  // 取不到就明確失敗，不要猜。猜錯的代價是：雲端被當成地端，
+  // 於是去打根本不存在的 /api/dashboard，使用者看到的是莫名其妙的
+  // 錯誤而不是「暫時讀不到」。丟出去由外層的重試接手。
+  const brand0 = await loadBranding();
+  if (!brand0) throw new Error('讀不到站台設定');
+  WALL = brand0.wallboard === true;
 
   let firstSnap = null;   // 快照模式初始化抓的第一份，交給第一次 load() 沿用
   if (WALL) {
@@ -1047,9 +1069,12 @@ async function load(preloaded) {
     // 用快照裡的品牌設定覆蓋雲端的——快照來自地端，主場站代碼與公司名
     // 才是對的；雲端的環境變數不一定同步。
     firstSnap = await fetchWall();
-    // 合併而非整份取代：保留雲端才有的旗標（例如 wallboard），
-    // 只讓地端的品牌與主場站代碼覆蓋過來。
-    if (firstSnap.branding) BRANDING = { ...BRANDING, ...firstSnap.branding };
+    // 只讓地端的品牌與主場站代碼覆蓋過來，但 wallboard 這個「我是哪一側」
+    // 的旗標必須留雲端的——快照來自地端，它帶的是 false，整份覆蓋會把
+    // 雲端標成地端（WALL 已先取好所以目前不會立即出錯，但那是巧合）。
+    if (firstSnap.branding) {
+      BRANDING = { ...BRANDING, ...firstSnap.branding, wallboard: true };
+    }
     SITES = firstSnap.sites || [];
   }
 
@@ -1074,11 +1099,37 @@ async function load(preloaded) {
   // 這裡讓監視格整個不出現，而不是擺一個永遠寫著「看不到」的方框——
   // 牆上這塊位置很貴，放一句永遠不會改變的話等於浪費掉它。
   if (!WALL) Cam.init();
-  // 定期更新的失敗一定要接住：整面牆沒有人在旁邊按 F5，一次 unhandled
-  // rejection 就會讓畫面永遠停在最後一張好快照，而「更新於」的時間戳
-  // 來自凍結的舊資料，看起來跟活的一模一樣。失敗時把時間戳標成警示。
-  const tick = () => load().catch(err => {
+  window.addEventListener('resize', () => { Rota.rowH = 0; Rota.headH = 0; Rota.render(); });
+})().catch(showLoadError)
+  // 不論初始化成功或失敗，都要把定時更新掛上。
+  // 這一行以前在 IIFE 裡面，於是初次載入一失敗（開機時網路慢一拍、
+  // 地端還沒推第一份快照）就連重試都不會註冊，整面牆整天停在錯誤畫面，
+  // 沒有人按 F5 它永遠不會自己好——對無人看管的大螢幕這是致命的。
+  .finally(startAutoRefresh);
+
+/** 把錯誤顯示在畫面上（初次載入用整頁，之後只標時間戳，見 tick）。 */
+function showLoadError(err) {
+  // 未登入的情況 API.get 已自行導向登入頁；其他錯誤要顯示出來，
+  // 不能一律跳轉，否則畫面只會莫名其妙彈回登入頁而查不出原因。
+  if (String(err && err.message) === '未登入') return;
+  document.querySelector('.war-body').innerHTML =
+    `<div class="band"><h3>載入失敗</h3>
+     <p class="muted">${esc(err && err.message || '未知錯誤')}</p>
+     <p class="muted">畫面會自動重試；若持續發生，請聯絡系統管理員。</p></div>`;
+}
+
+/** 掛上定時更新。整面牆沒有人在旁邊按 F5，所以：
+     1. 每一輪的失敗都要接住，否則一次 unhandled rejection 就再也不更新；
+     2. 初始化失敗時也要掛，讓暫時性的問題能自己恢復（恢復時整頁重畫）。 */
+function startAutoRefresh() {
+  let broken = document.querySelector('.war-body .band h3') !== null;
+  const tick = () => load().then(() => {
+    // 上一輪是錯誤畫面，這輪成功了——整頁已被錯誤訊息取代，重新載入
+    // 才能把版面找回來（DOM 元素都被 innerHTML 洗掉了）。
+    if (broken) location.reload();
+  }).catch(err => {
     const el = document.getElementById('stamp');
+    if (!el) { broken = true; return; }   // 錯誤畫面時時間戳不存在
     el.classList.add('stale');
     el.textContent = '⚠ 更新失敗（' + (err && err.message || '連線問題')
       + '），顯示的是最後一次成功的畫面';
@@ -1086,16 +1137,7 @@ async function load(preloaded) {
   // 看板讀的是地端每 300 秒推一次的快照，讀得比它勤只是白燒雲端額度
   // （額度算式見 push_wallboard.py）。地端直連版維持每分鐘。
   setInterval(tick, WALL ? 300000 : 60000);
-  window.addEventListener('resize', () => { Rota.rowH = 0; Rota.headH = 0; Rota.render(); });
-})().catch(err => {
-  // 未登入的情況 API.get 已自行導向登入頁；其他錯誤要顯示出來，
-  // 不能一律跳轉，否則畫面只會莫名其妙彈回登入頁而查不出原因。
-  if (String(err && err.message) === '未登入') return;
-  document.querySelector('.war-body').innerHTML =
-    `<div class="band"><h3>載入失敗</h3>
-     <p class="muted">${esc(err && err.message || '未知錯誤')}</p>
-     <p class="muted">請重新整理；若持續發生，請聯絡系統管理員。</p></div>`;
-});
+}
 </script>
 </body>
 </html>

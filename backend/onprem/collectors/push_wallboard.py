@@ -76,16 +76,18 @@ def build_snapshot() -> dict:
     site_id = env("WALL_SITE_ID")
     q = f"/api/dashboard?days={days}" + (f"&site_id={site_id}" if site_id else "")
 
-    # 工地清單只餵下拉選單，而看板模式沒有下拉選單（快照是固定視圖）。
-    # /api/sites 需要登入，這支程式沒有 session——取不到就空著，
-    # 不要為了一個用不到的欄位在收集程式裡放帳密。
+    # 工地清單直接讀資料庫。/api/sites 要登入而這支程式沒有 session，
+    # 之前改成「取不到就空著」——但那讓快照永遠帶一個空陣列，形同虛設：
+    # 哪天有人把工地下拉打開、或寫了依賴它的功能，就會拿到空清單。
+    # 這支程式本來就跑在地端、本來就連得到資料庫，沒有理由繞 HTTP。
+    from app.db import Site, SessionLocal
+    db = SessionLocal()
     try:
-        sites = local("/api/sites")
-    except requests.HTTPError as e:
-        if e.response is not None and e.response.status_code in (401, 403):
-            sites = []
-        else:
-            raise
+        sites = [{"id": s.id, "code": s.code, "name": s.name,
+                  "department": s.department, "active": bool(s.active)}
+                 for s in db.query(Site).order_by(Site.sort_order).all()]
+    finally:
+        db.close()
 
     return {
         "schema": SCHEMA,
