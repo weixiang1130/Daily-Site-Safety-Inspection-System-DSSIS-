@@ -20,6 +20,18 @@
 [build]
   publish = "dist"
   command = "python3 backend/tools/build_frontend.py"
+  # 只在真正影響雲端的檔案有變時才建置。
+  #
+  # 這個 repo 大部分的改動（backend/onprem、backend/tools、docs）只跟公司
+  # 內網的地端主機與工地檢視器有關，雲端一行都不會用到；但每一次 push
+  # 預設都會觸發一次完整部署，而部署是這個站台最大的 credits 消耗來源
+  # ——2026 年 8 月的用量高峰全部對應到當天的密集 commit。
+  #
+  # git diff --quiet 在「沒有差異」時回傳 0，而 Netlify 規定 ignore 指令
+  # 回傳 0 就跳過建置——語意剛好吻合，不需要額外的判斷邏輯。
+  # 首次建置或取不到 CACHED_COMMIT_REF 時 git 會回非 0，於是照常建置，
+  # 失敗方向是安全的（寧可多建一次，不要漏掉該上線的變更）。
+  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- frontend backend/cloud netlify netlify.toml package.json"
 
 [build.environment]
   PYTHON_VERSION = "3.11"
