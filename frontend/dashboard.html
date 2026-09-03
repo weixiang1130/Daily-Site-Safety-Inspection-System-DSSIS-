@@ -1134,9 +1134,10 @@ function startAutoRefresh() {
     el.textContent = '⚠ 更新失敗（' + (err && err.message || '連線問題')
       + '），顯示的是最後一次成功的畫面';
   });
-  // 看板讀的是地端每 300 秒推一次的快照，讀得比它勤只是白燒雲端額度
-  // （額度算式見 push_wallboard.py）。地端直連版維持每分鐘。
-  setInterval(tick, WALL ? 300000 : 60000);
+  // 看板讀的是地端推上來的快照，輪詢間隔與推送節奏（15 分）對齊：
+  // 讀得比資料更新還勤，只是對同一份內容重複付費。地端直連沒有這個
+  // 顧慮（不經雲端），維持每分鐘。
+  setInterval(tick, WALL ? 900000 : 60000);
 }
 </script>
 </body>

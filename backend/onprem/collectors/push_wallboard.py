@@ -35,7 +35,9 @@
                       （與 sync_forms 共用同一組，不另外設）
     WALL_DAYS         快照涵蓋幾天的統計，預設 30
     WALL_SITE_ID      只看單一工地時填其 id；留空＝全部工地
-    WALL_INTERVAL     每輪間隔秒數，預設 300
+    WALL_INTERVAL     每輪間隔秒數，預設 900（15 分，與前端輪詢對齊）
+    WALL_HOURS        推送時段，預設 6-20；時段外不推（牆前沒有人）
+    CLOUD_DAILY_BUDGET 每台機器每日雲端呼叫上限，預設 300（見 cloud_budget.py）
     ONPREM_API_URL    本機 API 位址，預設 http://127.0.0.1:8000
 
 用法（在 backend/onprem 目錄下執行）
@@ -48,19 +50,63 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 import time
+from datetime import datetime
+from pathlib import Path
 
 try:
     import requests
 except ImportError:
     sys.exit("需要 requests 套件，請先執行：pip install requests")
 
+from .cloud_budget import spend, status as budget_status
 from .config import env, load_env, log
 
 TIMEOUT = 30
 SCHEMA = 1
+
+# 上次推上去的內容指紋。內容沒變就不重推——夜間與假日常常整段時間
+# 數字都一樣，重推只是把同一份資料再寫一次，白花一次呼叫。
+DIGEST_FILE = None          # 延後到第一次用時才決定（要等 app.db 載入）
+
+
+def _digest_path() -> Path:
+    global DIGEST_FILE
+    if DIGEST_FILE is None:
+        from app.db import BASE_DIR
+        DIGEST_FILE = Path(BASE_DIR) / "wallboard_digest.txt"
+    return DIGEST_FILE
+
+
+def _digest(snap: dict) -> str:
+    """算內容指紋，排除每次必變的時間戳。
+
+    generated_at 每一輪都不同，不排除的話「內容有沒有變」永遠是有變，
+    這個最佳化就完全失效了。
+    """
+    d = dict(snap.get("dashboard") or {})
+    d.pop("generated_at", None)
+    payload = {"branding": snap.get("branding"), "sites": snap.get("sites"),
+               "dashboard": d}
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _last_digest() -> str:
+    try:
+        return _digest_path().read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def _save_digest(d: str) -> None:
+    try:
+        _digest_path().write_text(d, encoding="utf-8")
+    except OSError as e:                                # noqa: BLE001
+        log(f"無法記錄內容指紋（{e}），下一輪會重推一次")
 
 
 def local(path: str) -> dict | list:
@@ -104,6 +150,18 @@ def push_once() -> str:
     # 不能拿它們當開關，要另設 WALL_ENABLED。
     if (env("WALL_ENABLED", "false") or "").lower() != "true":
         return "WALL_ENABLED 未開啟，已跳過（雲端看板為備援，預設不推）"
+
+    # 只在上班時段推。牆上沒有人的時候把快照推上去，是把額度花在
+    # 沒有人會看的畫面上——夜間與假日佔掉一天的四成以上。
+    hours = env("WALL_HOURS", "6-20")
+    try:
+        start_h, end_h = (int(x) for x in hours.split("-", 1))
+        now_h = datetime.now().hour
+        if not (start_h <= now_h < end_h):
+            return f"目前非看板時段（{hours} 時），已跳過"
+    except ValueError:
+        log(f"WALL_HOURS 格式錯誤（{hours}），本輪不做時段限制")
+
     base = env("CLOUD_API_URL").rstrip("/")
     token = env("CLOUD_SYNC_TOKEN")
     if not base:
@@ -113,6 +171,18 @@ def push_once() -> str:
 
     snap = build_snapshot()
     body = json.dumps(snap, ensure_ascii=False, default=str)
+
+    # 內容沒變就不要推。收集程式在夜間、假日常常抓到一模一樣的數字，
+    # 推上去只是把同一份資料重寫一次，白白花掉一次呼叫。
+    # generated_at 每次都不同，比對時要排除，否則永遠「有變動」。
+    digest = _digest(snap)
+    if digest == _last_digest():
+        return "內容與上次相同，已跳過（省一次雲端呼叫）"
+
+    # 走每日硬上限。這是上次額度被燒光後加的保護：不論上游怎麼壞，
+    # 這台機器每天最多只會打固定次數。
+    if not spend("wallboard"):
+        return f"今日雲端呼叫已達上限，已跳過（{budget_status()}）"
 
     r = requests.post(
         f"{base}/api/v1/ingest/wallboard",
@@ -125,6 +195,7 @@ def push_once() -> str:
         return "權杖驗證失敗：CLOUD_SYNC_TOKEN 與雲端的 SITE_AGENT_TOKEN 不一致"
     r.raise_for_status()
 
+    _save_digest(digest)
     d = snap["dashboard"]
     kpi = d.get("kpi") or {}
     # 用位元組數不用字元數：這份 JSON 以中文為主，UTF-8 一字三位元組，
@@ -135,7 +206,7 @@ def push_once() -> str:
 
 def main() -> None:
     load_env()
-    interval = int(env("WALL_INTERVAL", "300") or 300)
+    interval = int(env("WALL_INTERVAL", "900") or 900)
     loop = "--loop" in sys.argv
     while True:
         try:

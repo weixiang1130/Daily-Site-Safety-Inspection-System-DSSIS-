@@ -48,8 +48,6 @@ const BRANDING = {
 // 這裡原本留了一個 SNAPSHOT_MAX_AGE_SEC 常數但從來沒有被引用過——
 // 有常數卻沒人用，比沒有更危險：審查時會誤以為這塊已經防守過了。
 
-/** 儀表板是否免登入。公開網際網路上務必維持 false。 */
-
 function ingestTokens(): Record<string, string> {
   // 刻意沒有預設值：預設權杖印在公開 repo 裡，等於任何人都能推送偽造的
   // 設備數據。未設定時清單為空，所有推送一律 401。
@@ -263,9 +261,10 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       //   憑權杖：同一組 ?k= 網址對所有大螢幕都一樣，可讓 CDN 共用，
       //           多面牆就只回源一次——這才讓快取真的省到呼叫次數。
       //   憑 session：內容因人而異，只能存在自己的瀏覽器裡。
-      // max-age 對齊推送間隔（300 秒）：設得比它短，快取在被讀到之前
+      // max-age 對齊推送間隔（900 秒）：設得比它短，快取在被讀到之前
       // 就過期了，等於白寫；設得比它長則會顯示更舊的資料。
-      const cache = tokenOk ? "public, max-age=300" : "private, max-age=300";
+      // 對齊之後，多面牆的讀取會落在 CDN 上，回源次數不隨螢幕數增加。
+      const cache = tokenOk ? "public, max-age=900" : "private, max-age=900";
       return new Response(body, {
         headers: {
           "content-type": "application/json; charset=utf-8",

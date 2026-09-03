@@ -45,6 +45,7 @@ except ImportError:
 from app.db import (BASE_DIR, Coordination, Finding, Inspection, SessionLocal,
                     Site, User, Vendor, init_db)
 
+from .cloud_budget import spend
 from .config import env, load_env, log
 
 TIMEOUT = 60
@@ -142,6 +143,11 @@ def fetch(since: Optional[str]) -> dict:
     token = env("CLOUD_SYNC_TOKEN")
     if not base or not token:
         raise RuntimeError("未設定 CLOUD_API_URL 或 CLOUD_SYNC_TOKEN")
+
+    # 每日硬上限：不論上游怎麼壞，這台機器每天最多只打固定次數。
+    # 2026-09-03 就是「重啟即同步」的迴圈把免費額度燒光的。
+    if not spend("sync_forms"):
+        raise RuntimeError("今日雲端呼叫已達上限，本輪不同步（保護機制）")
 
     r = requests.get(
         f"{base}/api/v1/export",

@@ -63,3 +63,6 @@ sync_state.json
 
 # 排程執行的記錄檔，各機器自己的執行時產物
 logs/
+# 雲端呼叫用量與快照指紋：各機器自己的執行時狀態，不是專案內容
+cloud_budget.json
+wallboard_digest.txt
