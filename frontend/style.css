@@ -541,15 +541,42 @@ body.war {
 .band-head h3 { font-size: var(--fs-h3); margin: 0; }
 .band .small { font-size: var(--fs-xs); }
 
-/* 現場即時：左邊數據、右邊監視畫面 */
+/* 現場即時：左邊數據、右邊監視畫面。
+   沒有監視畫面時（雲端看板、或未接攝影機的地端）預設就是滿版單欄——
+   若固定留著 365px 的空欄，右邊會開一個永遠不會被填滿的洞。
+   有畫面時由 Cam.init 掛上 .has-cam 才切成兩欄。 */
 .band-live {
   display: grid;
-  /* 監視畫面欄寬。舞台固定 1920 設計，用常數；19vw 會抓到真實視窗 */
-  grid-template-columns: minmax(0, 1fr) 365px;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--sp-4);
   align-items: start;
 }
+/* 監視畫面欄寬。舞台固定 1920 設計，用常數；19vw 會抓到真實視窗 */
+.band-live.has-cam { grid-template-columns: minmax(0, 1fr) 365px; }
 .live-main { min-width: 0; display: flex; flex-direction: column; gap: var(--sp-3); }
+
+/* 滿版時把環境與人數並排：橫向有 1920 可用，直向才是稀缺資源——
+   省下來的高度讓給下方的缺失清單與排行。 */
+.band-live:not(.has-cam) .live-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.58fr);
+  grid-template-areas:
+    "head   head"
+    "env    people"
+    "basis  people"
+    "others people";
+  align-content: start;
+  column-gap: var(--sp-4);
+}
+.band-live:not(.has-cam) .live-main > .band-head   { grid-area: head; }
+.band-live:not(.has-cam) .live-main > .tiles-env   { grid-area: env; }
+.band-live:not(.has-cam) .live-main > .env-basis   { grid-area: basis; }
+.band-live:not(.has-cam) .live-main > .other-sites { grid-area: others; }
+.band-live:not(.has-cam) .live-main > .tiles-people {
+  grid-area: people;
+  grid-template-columns: 1.5fr 1fr 1fr;
+  align-content: start;
+}
 
 /* 數值磚：牆上要在數公尺外讀得到，因此數字大、標籤小 */
 .tiles { display: grid; gap: var(--sp-2); }

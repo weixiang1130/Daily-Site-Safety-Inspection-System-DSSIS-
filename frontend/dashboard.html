@@ -280,12 +280,22 @@ let SITES = [];
 //   * 快照是固定視圖（天數與工地在地端產生時就決定了），因此隱藏兩個下拉
 //   * 監視畫面是即時代理到工地攝影機的，雲端碰不到，改顯示說明而非留白
 // ---------------------------------------------------------------------------
+// 看板權杖：牆上大螢幕整天開著、沒有人登入，靠網址帶的權杖取得資料。
+// 從填報站首頁點進來的人已經登入，不必帶——所以這個值可以是空的。
 const WALL_KEY = new URLSearchParams(location.search).get('k') || '';
-const WALL = !!WALL_KEY;
+// 免登入的大螢幕：藏掉「回首頁」這種沒有帳號就走不通的入口。
+const KIOSK = !!WALL_KEY;
+// 快照模式。雲端沒有即時的 /api/dashboard（監視畫面與每分鐘查詢放雲端
+// 會燒光額度，見 docs/地端戰情室.md），只能讀地端推上來的快照。
+// 由 /api/branding 的 wallboard 旗標決定，在初始化時設定。
+let WALL = false;
 
 async function fetchWall() {
-  const r = await fetch('/api/wallboard?k=' + encodeURIComponent(WALL_KEY));
-  if (r.status === 401) throw new Error('看板權杖錯誤，請確認網址是否完整');
+  const q = WALL_KEY ? '?k=' + encodeURIComponent(WALL_KEY) : '';
+  const r = await fetch('/api/wallboard' + q, { credentials: 'same-origin' });
+  if (r.status === 401) throw new Error(KIOSK
+    ? '看板權杖錯誤，請確認網址是否完整'
+    : '請先登入填報站，再從首頁進入戰情儀表板');
   if (r.status === 404) throw new Error('尚無資料：地端主機還沒推送過快照');
   if (!r.ok) throw new Error('讀取看板失敗（HTTP ' + r.status + '）');
   return await r.json();
@@ -894,6 +904,8 @@ const Cam = {
 
     this.channels = info.channels;
     document.getElementById('camPanel').classList.remove('hidden');
+    // 有畫面了才把「現場即時」切成兩欄，替監視格讓出右側欄位
+    document.querySelector('.band-live').classList.add('has-cam');
     this.show();
     // 一張快照約 385 KB，全部經由後端代理。牆上的畫面整天開著，
     // 換得太勤會吃掉可觀的流量與函式呼叫次數，15 秒已足夠讓畫面「活著」。
@@ -1016,20 +1028,28 @@ async function load(preloaded) {
 }
 
 (async () => {
-  let firstSnap = null;   // 看板模式初始化抓的第一份快照，交給第一次 load() 沿用
+  // 先問這一側是哪種戰情室：地端有即時資料庫，雲端只有快照。
+  // 這一步要在任何取資料之前完成，後面的流程都看它分岔。
+  WALL = (await loadBranding()).wallboard === true;
+
+  let firstSnap = null;   // 快照模式初始化抓的第一份，交給第一次 load() 沿用
   if (WALL) {
-    // 先隱藏，再取資料——這兩個選單在看板模式一律無效，不該等抓取成功才藏。
-    // 否則連線失敗時，畫面會是一則錯誤訊息配上兩個按了沒反應的選單。
-    //
-    // 快照是固定視圖（範圍在地端產生時就決定了），選單按了也不會變；
-    // 「回首頁」在看板上是死路：首頁要登入，工地電腦沒有帳號。
-    for (const id of ['site', 'days', 'homeLink']) {
+    // 先隱藏，再取資料——選單在快照模式一律無效，不該等抓取成功才藏，
+    // 否則連線失敗時畫面會是一則錯誤訊息配上兩個按了沒反應的選單。
+    // 快照是固定視圖（範圍在地端產生時就決定了），選單按了也不會變。
+    for (const id of ['site', 'days']) {
       document.getElementById(id).classList.add('hidden');
     }
-    // 用快照裡的品牌設定餵給 loadBranding 的快取——雲端站台的品牌環境變數
-    // 不一定與地端一致，牆上不能出現示範用的預設公司名。
+    // 「回首頁」只在免登入的大螢幕上藏起來——那裡沒有帳號，點了是死路。
+    // 從填報站登入進來的人反而需要它回去填表。
+    if (KIOSK) document.getElementById('homeLink').classList.add('hidden');
+
+    // 用快照裡的品牌設定覆蓋雲端的——快照來自地端，主場站代碼與公司名
+    // 才是對的；雲端的環境變數不一定同步。
     firstSnap = await fetchWall();
-    BRANDING = firstSnap.branding || {};
+    // 合併而非整份取代：保留雲端才有的旗標（例如 wallboard），
+    // 只讓地端的品牌與主場站代碼覆蓋過來。
+    if (firstSnap.branding) BRANDING = { ...BRANDING, ...firstSnap.branding };
     SITES = firstSnap.sites || [];
   }
 

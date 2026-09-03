@@ -34,9 +34,13 @@ const BRANDING = {
   group_name: Netlify.env.get("BRAND_GROUP") || "",
   // 戰情室預設聚焦的工地。現階段以單一主場站為主，其餘工地的填報仍會列出。
   primary_site_code: Netlify.env.get("PRIMARY_SITE_CODE") || "",
-  // 戰情室已改在公司內網執行，雲端不再提供（見 docs/地端戰情室.md）。
-  // 前端據此隱藏入口——留著按鈕只會連到 404。
-  war_room: false,
+  // 雲端的戰情室是「唯讀看板」：顯示地端每 5 分鐘推上來的快照，
+  // 不查資料庫、不接監視器（監視畫面用串流的方式放雲端會在兩週內
+  // 燒光免費額度，算式見 docs/地端戰情室.md）。首頁入口因此打開。
+  war_room: true,
+  // 前端據此決定走「快照模式」：雲端沒有即時的 /api/dashboard，
+  // 一律讀 /api/wallboard 的快照。地端則為 false，走即時查詢。
+  wallboard: true,
 };
 
 /** 內網推上來的畫面超過這個秒數就算過期。推送間隔的兩倍多一些，
@@ -237,20 +241,30 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
 
     // 這個看板會在公開網際網路上，內容含缺失描述與廠商名稱，
     // 因此以 WALL_TOKEN 驗證。權杖外流時改一次環境變數即可撤換。
+    // 兩種身分都可以看板：
+    //   1. 已登入的使用者——從填報站首頁點「戰情儀表板」進來的人。
+    //   2. 帶 ?k=<WALL_TOKEN> 的牆上大螢幕——整天開著、沒有人登入。
+    // 刻意不讓首頁的按鈕帶權杖：那等於把權杖攤在每個登入者眼前，
+    // 而他們本來就有 session，不需要它。
     if (p === "/api/wallboard" && method === "GET") {
       const expected = Netlify.env.get("WALL_TOKEN") || "";
       const key = url.searchParams.get("k") || "";
-      if (!expected) return fail(503, "看板尚未啟用（未設定 WALL_TOKEN）");
-      if (key !== expected) return fail(401, "看板權杖錯誤");
+      const tokenOk = expected !== "" && key === expected;
+      if (!tokenOk && !me) {
+        return fail(401, key
+          ? "看板權杖錯誤"
+          : "請先登入，或使用看板權杖網址（未設定 WALL_TOKEN 時大螢幕無法免登入）");
+      }
 
       const body = await files().get(WALL_KEY, { type: "text" });
       if (!body) return fail(404, "尚無快照，地端還沒推送過");
       return new Response(body, {
         headers: {
           "content-type": "application/json; charset=utf-8",
-          // 地端每 5 分鐘推一次，快取 60 秒可擋掉多台看板的重複讀取，
-          // 又不會讓畫面看起來停住。
-          "cache-control": "public, max-age=60",
+          // private：回應可能是憑 session 取得的，不可讓共用快取存下來
+          // 再發給別人。60 秒足以擋掉多台看板的重複讀取，而地端本來
+          // 就是 5 分鐘才推一次，畫面不會因此看起來停住。
+          "cache-control": "private, max-age=60",
         },
       });
     }

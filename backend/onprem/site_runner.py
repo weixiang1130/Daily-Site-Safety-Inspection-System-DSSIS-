@@ -68,6 +68,18 @@ def loop_sync() -> None:
 
 
 def main() -> None:
+    # 讓編譯型套件（FastAPI 依賴的 pydantic_core 等）找得到包內自帶的
+    # VC++ runtime。Python 3.8+ 載入延伸模組時，不會自動把 python.exe
+    # 所在目錄納入 DLL 搜尋——乾淨的辦公電腦上，這會讓網頁框架的元件
+    # 載入失敗，而且不一定留下 Python 錯誤（行程直接死）。
+    try:
+        pydir = os.path.abspath(os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "..", "..", "python"))
+        if hasattr(os, "add_dll_directory") and os.path.isdir(pydir):
+            os.add_dll_directory(pydir)
+    except Exception as e:                              # noqa: BLE001
+        log(f"（提醒）加入 DLL 搜尋路徑失敗，可忽略：{e}")
+
     init_db()   # 本機 SQLite：打包時已含結構與工項，這裡只補缺
 
     jobs = [
@@ -82,11 +94,27 @@ def main() -> None:
     for j in jobs:
         j.start()
 
-    import uvicorn
-    from app.main import app
     port = int(env("VIEWER_PORT", "8000") or 8000)
-    # 只聽本機：這台電腦自己看，不對外服務
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+    # 逐步記錄，且任何失敗都強制寫進 log——網頁伺服器起不來時，這幾行
+    # 是唯一能看出「死在哪一步」的線索（headless 機器沒人看得到主控台）。
+    log("收集程式已啟動，正在載入網頁伺服器模組…")
+    try:
+        import uvicorn
+        from app.main import app
+    except BaseException as e:                          # noqa: BLE001
+        import traceback
+        log("網頁伺服器模組載入失敗：" + repr(e))
+        log(traceback.format_exc())
+        raise
+    log(f"模組載入完成，開始服務 http://127.0.0.1:{port}")
+    try:
+        # 只聽本機：這台電腦自己看，不對外服務
+        uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+    except BaseException as e:                          # noqa: BLE001
+        import traceback
+        log("網頁伺服器啟動失敗：" + repr(e))
+        log(traceback.format_exc())
+        raise
 
 
 if __name__ == "__main__":

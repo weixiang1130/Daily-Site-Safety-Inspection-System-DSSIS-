@@ -64,8 +64,11 @@ BRANDING = {
     "group_name": os.environ.get("BRAND_GROUP", ""),
     # 戰情室的主場站。環境與進出場人次以它為主，缺失統計仍涵蓋全部工地。
     "primary_site_code": os.environ.get("PRIMARY_SITE_CODE", ""),
-    # 戰情室就跑在這裡，首頁要顯示入口。雲端那側固定為 false。
+    # 戰情室就跑在這裡，首頁要顯示入口。
     "war_room": True,
+    # 這一側有即時的 /api/dashboard，前端走即時查詢而不是讀快照。
+    # 雲端那側為 True（只有地端推上去的快照可讀）。
+    "wallboard": False,
 }
 
 # 戰情室大螢幕是否免登入。放在公司內網時可設為 true（大螢幕不必有人登入）；
