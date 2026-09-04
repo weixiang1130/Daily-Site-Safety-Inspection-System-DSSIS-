@@ -336,7 +336,10 @@ export async function buildInspectionPdf(
   d.hr();
 
   d.table([70, 200, 60, CONTENT_W - 330], [
-    ["工程名稱", insp.site_name, "檢查日期", fmtDate(insp.inspect_date)],
+    // 兩張建照、同一塊工地：工程名稱後標註棟別，存查文件才分得出這張表
+    // 是在哪一棟做的檢查
+    ["工程名稱", insp.building ? `${insp.site_name}（${insp.building}）` : insp.site_name,
+      "檢查日期", fmtDate(insp.inspect_date)],
     ["檢查地點", insp.location || "－", "天氣", insp.weather || "－"],
     ["檢查人員", insp.inspector_name, "提交時間", fmtTime(insp.submitted_at)],
   ]);
@@ -393,7 +396,8 @@ export async function buildCoordinationPdf(
   // 紀錄人員必須進 PDF：現場共用同一組帳號，這份簽核後存查的文件是稽核
   // 與事故調查實際會調閱的東西，少了填表人就答不出「這張表是誰填的」。
   d.table([70, 150, 70, 100, 60, CONTENT_W - 450], [
-    ["工程名稱", co.site_name, "開會日期", fmtDate(co.meeting_date),
+    ["工程名稱", co.building ? `${co.site_name}（${co.building}）` : co.site_name,
+      "開會日期", fmtDate(co.meeting_date),
       "作業日期", fmtDate(co.work_date)],
     ["紀錄人員", co.recorder_name || "—", "提交時間", fmtTime(co.submitted_at),
       "", ""],

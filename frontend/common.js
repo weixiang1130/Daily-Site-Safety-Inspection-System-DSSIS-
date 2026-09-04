@@ -181,6 +181,32 @@ function siteOptions(sites, selectedId = null, allLabel = null) {
 }
 
 /* ---------------------------------------------------------------------------
+   棟別
+   主場站領有兩張建照，但實際上是同一塊工地、同一批人在管，因此填報
+   不拆成兩個工地，改以棟別區分。儀表板的缺失統計不分棟、不分工地，
+   一律以填報資料整體計算；棟別只用來回答「這筆缺失在哪一棟」。
+   名稱是通用詞（建物用途），不涉及任何公司識別。
+   --------------------------------------------------------------------------- */
+const BUILDINGS = ['商辦棟', '住宅棟'];
+
+function buildingOptions(selected = null) {
+  return BUILDINGS.map(b =>
+    `<option${b === selected ? ' selected' : ''}>${b}</option>`).join('');
+}
+
+/** 同一個人通常連續多天填同一棟，記住上次選的棟別省去每天重選。 */
+function recallBuilding() {
+  try {
+    const v = localStorage.getItem('lastBuilding');
+    return BUILDINGS.includes(v) ? v : null;   // 選項改名後，舊值直接作廢
+  } catch (e) { return null; }                 // 無痕模式沒有 localStorage
+}
+
+function rememberBuilding(value) {
+  try { localStorage.setItem('lastBuilding', value); } catch (e) { /* 同上 */ }
+}
+
+/* ---------------------------------------------------------------------------
    廠商輸入
    協力商在各工地差異很大、且會隨工程階段更換，無法由管理員預先建好完整清單。
    因此填報時用可輸入的 datalist（既能從既有廠商挑選，也能直接打新名稱），

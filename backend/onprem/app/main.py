@@ -149,8 +149,16 @@ def me(request: Request):
 @app.get("/api/sites")
 def list_sites(db: Session = Depends(get_db), user=Depends(need_login)):
     # 布林欄位一律用 == True；.is_(True) 在 SQL Server 會編譯成不合法的 `IS 1`
-    return [{"id": s.id, "code": s.code, "name": s.name}
-            for s in db.query(Site).filter(Site.active == True).all()]  # noqa: E712
+    rows = db.query(Site).filter(Site.active == True).all()  # noqa: E712
+    # 單一主場站模式：目前全公司的填報都以主場站為準（兩張建照、同一塊
+    # 工地，棟別由填報時的「棟別」欄位區分），設定 PRIMARY_SITE_CODE 後
+    # 填報選單只列主場站。代碼對不上時退回完整清單——寧可多列，
+    # 也不能讓現場選不到工地而無法填報。
+    primary_code = os.environ.get("PRIMARY_SITE_CODE", "").strip()
+    primary = [s for s in rows if s.code == primary_code]
+    if primary:
+        rows = primary
+    return [{"id": s.id, "code": s.code, "name": s.name} for s in rows]
 
 
 @app.get("/api/vendors")
@@ -236,7 +244,9 @@ def create_inspection(payload: dict = Body(...), db: Session = Depends(get_db),
         raise HTTPException(400, "表單代碼錯誤")
 
     insp = Inspection(
-        site_id=int(payload["site_id"]), form_code=form.form_code,
+        site_id=int(payload["site_id"]),
+        building=(payload.get("building") or "").strip() or None,
+        form_code=form.form_code,
         inspect_date=date.fromisoformat(payload.get("inspect_date")
                                         or date.today().isoformat()),
         location=payload.get("location"), weather=payload.get("weather"),
@@ -260,7 +270,8 @@ def create_inspection(payload: dict = Body(...), db: Session = Depends(get_db),
         due = f.get("due_date")
         action = f.get("action_type", "onsite")
         fd = Finding(
-            site_id=insp.site_id, inspection_id=insp.id,
+            # 缺失沿用表單的棟別：缺失是在填這張表時發現的，棟別必然相同
+            site_id=insp.site_id, building=insp.building, inspection_id=insp.id,
             item_id=item.id if item else None, source="inspection",
             found_at=datetime.now(), location=insp.location,
             hazard_code=f.get("hazard_code") or (item.hazard_code if item else "OTHER"),
@@ -315,6 +326,7 @@ def list_inspections(site_id: int = None, days: int = 30,
         fails = sum(1 for r in i.results if r.result == "fail")
         out.append({
             "id": i.id, "site": i.site.name, "site_id": i.site_id,
+            "building": i.building,
             "form_code": i.form_code, "form_title": i.form.title,
             "inspect_date": i.inspect_date.isoformat(), "location": i.location,
             "inspector": i.inspector_name or i.inspector.display_name, "status": i.status,
@@ -363,6 +375,7 @@ def create_coordination(payload: dict = Body(...), db: Session = Depends(get_db)
                         request: Request = None, user=Depends(need_login)):
     co = Coordination(
         site_id=int(payload["site_id"]),
+        building=(payload.get("building") or "").strip() or None,
         meeting_date=date.fromisoformat(payload.get("meeting_date")
                                         or date.today().isoformat()),
         work_date=date.fromisoformat(payload.get("work_date") or date.today().isoformat()),
@@ -390,7 +403,7 @@ def create_coordination(payload: dict = Body(...), db: Session = Depends(get_db)
         action = f.get("action_type", "onsite")
         due = f.get("due_date")
         fd = Finding(
-            site_id=co.site_id, coordination_id=co.id,
+            site_id=co.site_id, building=co.building, coordination_id=co.id,
             source="coordination", found_at=datetime.now(),
             location=f.get("location"), hazard_code=f.get("hazard_code", "OTHER"),
             hazard_label=f.get("hazard_label", "其他"), description=f["description"],
@@ -431,7 +444,8 @@ def list_coordinations(days: int = 30, db: Session = Depends(get_db),
     rows = db.query(Coordination)\
         .filter(Coordination.work_date >= date.today() - timedelta(days=days))\
         .order_by(Coordination.work_date.desc()).limit(200).all()
-    return [{"id": c.id, "site": c.site.name, "work_date": c.work_date.isoformat(),
+    return [{"id": c.id, "site": c.site.name, "building": c.building,
+             "work_date": c.work_date.isoformat(),
              "attendee_count": len(c.attendees), "status": c.status,
              "pdf_url": f"/api/coordinations/{c.id}/pdf" if c.pdf_path else None}
             for c in rows]
@@ -466,6 +480,7 @@ def list_findings(site_id: int = None, status: str = None, overdue: bool = False
         rows = [f for f in rows if f.is_overdue]
     return [{
         "id": f.id, "no": f"F{f.id:06d}", "site": f.site.name, "site_id": f.site_id,
+        "building": f.building,
         "source": f.source, "found_at": f.found_at.isoformat(timespec="minutes"),
         "location": f.location, "hazard_code": f.hazard_code,
         "hazard_label": f.hazard_label, "description": f.description,
@@ -709,6 +724,16 @@ def dashboard(request: Request, site_id: int = None, days: int = 30,
     # ------------------------------------------------------------------
     primary_code = os.environ.get("PRIMARY_SITE_CODE", "").strip()
 
+    # site_code → 棟別標籤（如 BD04:商辦棟,BD05:住宅棟）。
+    # 主場站的兩張建照各自匯入列控表（site_code 不同），牆上的重點工項與
+    # 進度卡片原本從工地名稱的「-」後綴切出棟別；工地主檔改成單一工地後
+    # 後綴消失，改由 BUILDING_LABELS 提供對應。未設定時前端退回後綴切法。
+    bld_labels = {}
+    for _pair in os.environ.get("BUILDING_LABELS", "").split(","):
+        _code, _, _label = _pair.partition(":")
+        if _code.strip() and _label.strip():
+            bld_labels[_code.strip()] = _label.strip()
+
     # 環境：每個測站每個指標取三小時內最新的一筆
     env_since = datetime.now() - timedelta(hours=3)
     env_rows = (db.query(DeviceReading)
@@ -810,7 +835,7 @@ def dashboard(request: Request, site_id: int = None, days: int = 30,
             fails = i.fail_count
         recent_forms.append({
             "kind": "inspection", "on_date": i.inspect_date.isoformat(),
-            "site": i.site.name if i.site else "",
+            "site": i.site.name if i.site else "", "building": i.building,
             "title": i.form.title if getattr(i, "form", None) else i.form_code,
             "person": _person_of(i),
             "result": ("未知" if fails is None else
@@ -821,7 +846,7 @@ def dashboard(request: Request, site_id: int = None, days: int = 30,
     for c in recent_coord:
         recent_forms.append({
             "kind": "coordination", "on_date": c.work_date.isoformat(),
-            "site": c.site.name if c.site else "",
+            "site": c.site.name if c.site else "", "building": c.building,
             "title": "每日協議、巡視及處理紀錄表",
             "person": c.recorder_name or "",
             "result": f"{len(c.attendees) or c.attendee_count or 0} 家廠商",
@@ -855,6 +880,7 @@ def dashboard(request: Request, site_id: int = None, days: int = 30,
         today_tasks.append({
             "site": t_site.name if t_site else t.site_code,
             "site_code": t.site_code,
+            "building": bld_labels.get(t.site_code),
             "name": t.name,
             "start": t.start_date.isoformat(),
             "end": t.end_date.isoformat(),
@@ -894,6 +920,7 @@ def dashboard(request: Request, site_id: int = None, days: int = 30,
         progress.append({
             "site": p_site.name if p_site else sc,
             "site_code": sc,
+            "building": bld_labels.get(sc),
             "source": "finops",
             "actual": actual, "est": est,
             "gap": round(actual - est, 1),      # 正＝超前、負＝落後
@@ -928,6 +955,7 @@ def dashboard(request: Request, site_id: int = None, days: int = 30,
         progress.append({
             "site": s_site.name if s_site else sc,
             "site_code": sc,
+            "building": bld_labels.get(sc),
             "source": "schedule",
             "plan": round(done / total * 100, 1),
         })
@@ -962,13 +990,14 @@ def dashboard(request: Request, site_id: int = None, days: int = 30,
         "trend": [{"date": k, "count": v} for k, v in trend.items()],
         "sites": site_rows,
         "overdue_list": sorted([{
-            "no": f"F{f.id:06d}", "site": f.site.name, "description": f.description,
+            "no": f"F{f.id:06d}", "site": f.site.name, "building": f.building,
+            "description": f.description,
             "vendor": f.vendor.name if f.vendor else "", "person": f.responsible_person,
             "due_date": f.due_date.isoformat() if f.due_date else None,
             "days_over": (today - f.due_date).days if f.due_date else 0,
         } for f in overdue], key=lambda x: -x["days_over"])[:20],
         "recent": [{
-            "no": f"F{f.id:06d}", "site": f.site.name,
+            "no": f"F{f.id:06d}", "site": f.site.name, "building": f.building,
             "found_at": f.found_at.isoformat(timespec="minutes"),
             "hazard_label": f.hazard_label, "description": f.description,
             "vendor": f.vendor.name if f.vendor else "", "status": f.status,

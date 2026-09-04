@@ -78,15 +78,18 @@ async function load() {
   const rows = await API.get('/api/findings?' + q.toString());
   const canVerify = ['safety', 'manager', 'admin'].includes(me.role);
 
+  // 單一工地之後，棟別才是有資訊量的欄位；舊資料沒有棟別時退回工地名，
+  // 完整工地名放進 title 供懸停查看。
+
   document.getElementById('list').innerHTML = rows.length ? `
     <div class="table-scroll"><table><thead><tr>
-      <th>單號</th><th>發現時間</th><th>工地</th><th>災害類別</th><th>缺失內容</th>
+      <th>單號</th><th>發現時間</th><th>棟別／工地</th><th>災害類別</th><th>缺失內容</th>
       <th>責任廠商／人</th><th>改善方式</th><th>期限</th><th>狀態</th><th>照片</th><th></th>
     </tr></thead><tbody>
     ${rows.map(f => `<tr>
       <td>${esc(f.no)}</td>
       <td>${esc(f.found_at.replace('T', ' '))}</td>
-      <td>${esc(f.site)}</td>
+      <td title="${esc(f.site)}">${esc(f.building || f.site)}</td>
       <td>${esc(f.hazard_label || '')}</td>
       <td>${esc(f.description)}</td>
       <td>${esc(f.vendor || '')}${f.responsible_person ? '／' + esc(f.responsible_person) : ''}</td>

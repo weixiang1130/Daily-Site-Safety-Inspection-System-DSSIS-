@@ -538,7 +538,10 @@ function renderFocus(d) {
     const g = progBy[code];
     const rows = tasks.filter(t => t.site_code === code);
     const siteName = (g && g.site) || (rows[0] && rows[0].site) || code;
-    const bld = siteName.split('-').pop();
+    // 棟別標籤：優先用地端 BUILDING_LABELS 的對應（工地主檔改成單一工地
+    // 之後，名稱不再帶「-棟別」後綴）；沒有對應時退回原本的後綴切法
+    const bld = (g && g.building) || (rows[0] && rows[0].building)
+                || siteName.split('-').pop();
 
     let chip = '<span class="prog-chip dim">進度 —</span>', sub = '';
     if (g && g.source === 'schedule') {
@@ -649,7 +652,7 @@ function renderVerdict(d) {
     // 列控表推算的預定進度沒有實際值，判斷不了落後，不進警示
     if (g.source === 'schedule') continue;
     if (g.gap <= -PROG_BEHIND_RED) {
-      const bld = (g.site || '').split('-').pop();
+      const bld = g.building || (g.site || '').split('-').pop();
       items.push(`${bld}進度落後 ${Math.abs(g.gap)}%`);
     }
   }
@@ -830,16 +833,21 @@ const Rota = {
 function buildRota(d) {
   const views = [];
 
+  // 單一工地之後，每列都印同一個工地名沒有資訊量，改顯示填報時選的
+  // 棟別（商辦棟／住宅棟）。舊資料沒有棟別，退回工地名；
+  // 完整工地名一律放進 title 供懸停查看。
+  const bldOf = x => x.building || x.site;
+
   // 逾期排第一輪：這是清單裡唯一「需要立即行動」的內容。
   // 排在最後的話，只看七秒的人看到的是最新動態，而不是最該處理的事。
   // 沒有逾期時不佔一輪（Rota.set 會濾掉空清單）。
   views.push({
     title: '逾期未改善　需立即處理', cls: 'cols-overdue',
-    head: ['單號', '工地', '缺失內容', '責任廠商／人', '期限', '逾期'],
+    head: ['單號', '棟別', '缺失內容', '責任廠商／人', '期限', '逾期'],
     rows: d.overdue_list,
     row: o => `<tr>
       <td class="num">${esc(o.no)}</td>
-      <td title="${esc(o.site)}">${esc(o.site)}</td>
+      <td title="${esc(o.site)}">${esc(bldOf(o))}</td>
       <td title="${esc(o.description)}">${esc(o.description)}</td>
       <td>${esc(o.vendor)}${o.person ? '／' + esc(o.person) : ''}</td>
       <td class="num">${esc(o.due_date || '')}</td>
@@ -848,11 +856,11 @@ function buildRota(d) {
 
   views.push({
     title: '最新缺失動態', cls: 'cols-recent',
-    head: ['時間', '工地', '缺失內容', '責任廠商', '狀態'],
+    head: ['時間', '棟別', '缺失內容', '責任廠商', '狀態'],
     rows: d.recent,
     row: r => `<tr>
       <td class="num">${esc(r.found_at.replace('T', ' ').slice(5))}</td>
-      <td title="${esc(r.site)}">${esc(r.site)}</td>
+      <td title="${esc(r.site)}">${esc(bldOf(r))}</td>
       <td title="${esc(r.hazard_label)}：${esc(r.description)}">${esc(r.description)}</td>
       <td>${esc(r.vendor)}</td>
       <td>${statusTag(r.status)}</td></tr>`,
@@ -860,7 +868,7 @@ function buildRota(d) {
 
   views.push({
     title: '最新填報表單', cls: 'cols-forms',
-    head: ['日期', '工地', '表單', '填報人', '結果'],
+    head: ['日期', '棟別', '表單', '填報人', '結果'],
     rows: d.recent_forms || [],
     row: f => {
       // 看板模式不掛 PDF 連結：pdf_url 是地端的相對路徑與地端流水號，
@@ -871,7 +879,7 @@ function buildRota(d) {
         : esc(f.title);
       return `<tr>
         <td class="num">${esc(String(f.on_date).slice(5))}</td>
-        <td title="${esc(f.site)}">${esc(f.site)}</td>
+        <td title="${esc(f.site)}">${esc(bldOf(f))}</td>
         <td title="${esc(f.title)}">${name}</td>
         <td>${esc(f.person || '—')}</td>
         <td><span class="tag ${f.ok ? 'closed' : 'open'}">${esc(f.result)}</span></td>

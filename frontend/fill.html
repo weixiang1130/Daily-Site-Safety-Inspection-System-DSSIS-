@@ -26,6 +26,8 @@
     <h2>基本資料</h2>
     <div class="row">
       <div><label>工地</label><select id="site"></select></div>
+      <!-- 兩張建照、同一塊工地：不拆成兩個工地，用棟別區分 -->
+      <div><label>棟別</label><select id="building"></select></div>
       <div><label>檢查日期</label><input type="date" id="date"></div>
       <div><label>天氣</label>
         <select id="weather">
@@ -111,6 +113,7 @@ const hazardOptions = HAZARDS.map(h => `<option value="${h[0]}">${h[1]}</option>
   vendors = vs;
   installVendorDatalist(vendors);
   document.getElementById('site').innerHTML = siteOptions(sites, me.site_id);
+  document.getElementById('building').innerHTML = buildingOptions(recallBuilding());
   document.getElementById('inspector').value = recallName('inspector');
   document.getElementById('form').innerHTML =
     forms.map(f => `<option value="${f.form_code}">${esc(f.title)}（${f.item_count} 項）</option>`).join('');
@@ -124,6 +127,7 @@ document.getElementById('go').onclick = async () => {
   if (!requireName(inspector, '請先填寫檢查人員姓名')) return;
   // 同一個人通常連續多天填報，記住上次填的名字省去重打
   rememberName('inspector', inspector.value);
+  rememberBuilding(document.getElementById('building').value);
 
   const code = document.getElementById('form').value;
   formDef = await API.get('/api/forms/' + code);
@@ -299,6 +303,7 @@ document.getElementById('submit').onclick = async () => {
   try {
     const res = await API.post('/api/inspections', {
       site_id: parseInt(document.getElementById('site').value),
+      building: document.getElementById('building').value,
       form_code: formDef.form_code,
       inspect_date: document.getElementById('date').value,
       location: document.getElementById('location').value,

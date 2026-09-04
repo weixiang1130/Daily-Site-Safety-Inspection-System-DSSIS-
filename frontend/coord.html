@@ -25,6 +25,8 @@
     <h2>基本資料</h2>
     <div class="row">
       <div><label>工地</label><select id="site"></select></div>
+      <!-- 兩張建照、同一塊工地：不拆成兩個工地，用棟別區分 -->
+      <div><label>棟別</label><select id="building"></select></div>
       <div><label>開會日期</label><input type="date" id="mdate"></div>
       <div><label>作業日期</label><input type="date" id="wdate"></div>
       <div><label>天氣</label>
@@ -112,6 +114,7 @@ const hazardOptions = HAZARDS.map(h => `<option value="${h[0]}">${h[1]}</option>
   vendors = vs;
   installVendorDatalist(vendors);
   document.getElementById('site').innerHTML = siteOptions(sites, me.site_id);
+  document.getElementById('building').innerHTML = buildingOptions(recallBuilding());
   // 用 recorder 這個角色的鍵，不要沿用檢查人員的——兩者常常不是同一個人，
   // 預先填錯的名字會一路進到簽核存查的 PDF。
   document.getElementById('recorder').value = recallName('recorder');
@@ -203,6 +206,7 @@ document.getElementById('submit').onclick = async () => {
   const recorder = document.getElementById('recorder');
   if (!requireName(recorder, '請填寫紀錄人員姓名')) return;
   rememberName('recorder', recorder.value);
+  rememberBuilding(document.getElementById('building').value);
   if (!pad || pad.isEmpty()) { toast('請先簽名'); return; }
   const btn = document.getElementById('submit');
   btn.disabled = true;
@@ -247,6 +251,7 @@ document.getElementById('submit').onclick = async () => {
   try {
     const res = await API.post('/api/coordinations', {
       site_id: parseInt(document.getElementById('site').value),
+      building: document.getElementById('building').value,
       meeting_date: document.getElementById('mdate').value,
       work_date: document.getElementById('wdate').value,
       weather: document.getElementById('weather').value,

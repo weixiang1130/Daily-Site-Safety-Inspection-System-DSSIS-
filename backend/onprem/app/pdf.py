@@ -93,7 +93,11 @@ def build_inspection_pdf(insp, results, findings, signatures) -> str:
     ]
 
     meta = [[
-        Paragraph("<b>工程名稱</b>", cell), Paragraph(insp.site.name, cell),
+        # 兩張建照、同一塊工地：工程名稱後標註棟別，存查文件才分得出
+        # 這張表是在哪一棟做的檢查
+        Paragraph("<b>工程名稱</b>", cell),
+        Paragraph(f"{insp.site.name}（{insp.building}）" if insp.building
+                  else insp.site.name, cell),
         Paragraph("<b>檢查日期</b>", cell), Paragraph(f"{insp.inspect_date:%Y-%m-%d}", cell),
     ], [
         Paragraph("<b>檢查地點</b>", cell), Paragraph(insp.location or "－", cell),
@@ -187,7 +191,9 @@ def build_coordination_pdf(co, attendees, findings, signatures) -> str:
     ]
 
     meta = [[
-        Paragraph("<b>工程名稱</b>", cell), Paragraph(co.site.name, cell),
+        Paragraph("<b>工程名稱</b>", cell),
+        Paragraph(f"{co.site.name}（{co.building}）" if co.building
+                  else co.site.name, cell),
         Paragraph("<b>開會日期</b>", cell), Paragraph(f"{co.meeting_date:%Y-%m-%d}", cell),
         Paragraph("<b>作業日期</b>", cell), Paragraph(f"{co.work_date:%Y-%m-%d}", cell),
     ]]

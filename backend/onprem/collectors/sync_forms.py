@@ -213,6 +213,7 @@ def sync_once(full: bool = False) -> tuple:
                 db.add(obj)
                 counts["檢查表"] += 1
             obj.site_id = sid
+            obj.building = row.get("building")
             obj.inspect_date = parse_date(row.get("inspect_date")) or date.today()
             obj.location = row.get("location")
             obj.inspector_name = row.get("inspector_name")
@@ -233,6 +234,7 @@ def sync_once(full: bool = False) -> tuple:
                 db.add(obj)
                 counts["協議紀錄"] += 1
             obj.site_id = sid
+            obj.building = row.get("building")
             obj.meeting_date = parse_date(row.get("meeting_date")) or date.today()
             obj.work_date = parse_date(row.get("work_date")) or date.today()
             obj.recorder_name = row.get("recorder_name")
@@ -252,6 +254,7 @@ def sync_once(full: bool = False) -> tuple:
                 db.add(obj)
                 counts["缺失"] += 1
             obj.site_id = sid
+            obj.building = row.get("building")
             obj.source = row.get("source") or "inspection"
             obj.found_at = parse_dt(row.get("found_at")) or datetime.now()
             obj.location = row.get("location")

@@ -318,7 +318,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       const vendors = await db.sql`
         SELECT code, name, active FROM vendors`;
       const findings = await db.sql`
-        SELECT f.id, s.code AS site_code, f.source, f.found_at, f.location,
+        SELECT f.id, s.code AS site_code, f.building, f.source, f.found_at, f.location,
                f.hazard_code, f.hazard_label, f.description, v.code AS vendor_code,
                f.severity, f.action_type, f.due_date, f.fixed_at, f.verified_at,
                f.status, f.created_at
@@ -329,8 +329,8 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
                        COALESCE(f.verified_at, f.created_at)) > ${since}
         ORDER BY f.id LIMIT ${LIMIT}`;
       const inspections = await db.sql`
-        SELECT i.id, s.code AS site_code, i.form_code, i.inspect_date, i.location,
-               i.inspector_name, i.status, i.submitted_at, i.created_at,
+        SELECT i.id, s.code AS site_code, i.building, i.form_code, i.inspect_date,
+               i.location, i.inspector_name, i.status, i.submitted_at, i.created_at,
                (SELECT COUNT(*) FROM inspection_results r
                  WHERE r.inspection_id = i.id AND r.result = 'fail') AS fail_count
         FROM inspections i
@@ -338,7 +338,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
         WHERE i.created_at > ${since} OR i.submitted_at > ${since}
         ORDER BY i.id LIMIT ${LIMIT}`;
       const coordinations = await db.sql`
-        SELECT c.id, s.code AS site_code, c.meeting_date, c.work_date,
+        SELECT c.id, s.code AS site_code, c.building, c.meeting_date, c.work_date,
                c.recorder_name, c.status, c.submitted_at, c.created_at,
                (SELECT COUNT(*) FROM coordination_attendees a
                  WHERE a.coordination_id = c.id) AS attendee_count
@@ -382,9 +382,15 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
     if (!me) return fail(401, "請先登入");
 
     if (p === "/api/sites") {
-      return json(await db.sql`
+      const rows = await db.sql`
         SELECT id, code, name, department FROM sites WHERE active = TRUE
-        ORDER BY department NULLS FIRST, sort_order, id`);
+        ORDER BY department NULLS FIRST, sort_order, id`;
+      // 單一主場站模式：目前全公司的填報都以主場站為準（兩張建照、
+      // 同一塊工地，棟別由填報時的「棟別」欄位區分），因此設定
+      // PRIMARY_SITE_CODE 後填報選單只列主場站。未設定或代碼對不上時
+      // 退回完整清單——寧可多列也不能讓現場選不到工地而無法填報。
+      const primary = rows.filter((s: any) => s.code === BRANDING.primary_site_code);
+      return json(primary.length ? primary : rows);
     }
 
     if (p === "/api/vendors") {
@@ -450,7 +456,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       const siteId = url.searchParams.get("site_id");
       const rows = await db.sql`
         SELECT i.id, i.form_code, i.inspect_date, i.location, i.status, i.pdf_key,
-               s.name AS site, i.site_id, ft.title AS form_title,
+               s.name AS site, i.site_id, i.building, ft.title AS form_title,
                COALESCE(i.inspector_name, u.display_name) AS inspector,
                (SELECT COUNT(*)::int FROM inspection_results r
                  WHERE r.inspection_id = i.id) AS item_count,
@@ -480,7 +486,8 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
     if (p === "/api/coordinations" && method === "GET") {
       const days = parseInt(url.searchParams.get("days") || "30", 10);
       const rows = await db.sql`
-        SELECT c.id, c.work_date, c.status, c.pdf_key, c.site_id, s.name AS site,
+        SELECT c.id, c.work_date, c.status, c.pdf_key, c.site_id, c.building,
+               s.name AS site,
                (SELECT COUNT(*)::int FROM coordination_attendees a
                  WHERE a.coordination_id = c.id) AS attendee_count
         FROM coordinations c JOIN sites s ON s.id = c.site_id
@@ -703,6 +710,7 @@ function shapeFinding(f: any) {
     && due < todayISO();
   return {
     id: f.id, no: `F${String(f.id).padStart(6, "0")}`, site: f.site, site_id: f.site_id,
+    building: f.building ?? null,
     source: f.source, found_at: minuteISO(f.found_at), location: f.location,
     hazard_code: f.hazard_code, hazard_label: f.hazard_label, description: f.description,
     vendor: f.vendor ?? null, responsible_person: f.responsible_person,
@@ -721,12 +729,13 @@ async function insertFinding(b: any, me: SessionUser, ids: {
   const foundAt = b.found_at || new Date().toISOString();
   const [row] = await db.sql`
     INSERT INTO findings
-      (site_id, inspection_id, coordination_id, item_id, source, found_at, location,
+      (site_id, building, inspection_id, coordination_id, item_id, source, found_at, location,
        hazard_code, hazard_label, description, vendor_id, responsible_person,
        severity, action_type, due_date, fixed_at, fix_note, status,
        photo_before, photo_after, created_by)
     VALUES (
-      ${ids.siteId ?? b.site_id}, ${ids.inspectionId ?? null}, ${ids.coordinationId ?? null},
+      ${ids.siteId ?? b.site_id}, ${b.building ?? null},
+      ${ids.inspectionId ?? null}, ${ids.coordinationId ?? null},
       ${b.item_id ?? null}, ${b.source ?? "inspection"}, ${foundAt}, ${b.location ?? null},
       ${b.hazard_code ?? "OTHER"}, ${b.hazard_label ?? "其他"}, ${b.description},
       ${b.vendor_id ? Number(b.vendor_id) : null}, ${b.responsible_person ?? null},
@@ -751,13 +760,14 @@ async function createInspection(req: Request, me: SessionUser): Promise<Response
 
   const [insp] = await db.sql`
     INSERT INTO inspections
-      (site_id, form_code, inspect_date, location, weather, inspector_id,
+      (site_id, building, form_code, inspect_date, location, weather, inspector_id,
        inspector_name, status, submitted_at)
-    VALUES (${Number(b.site_id)}, ${b.form_code}, ${b.inspect_date || todayISO()},
+    VALUES (${Number(b.site_id)}, ${(b.building || "").trim() || null},
+            ${b.form_code}, ${b.inspect_date || todayISO()},
             ${b.location ?? null}, ${b.weather ?? null}, ${me.id},
             ${(b.inspector_name || "").trim() || null},
             'submitted', NOW())
-    RETURNING id, site_id, form_code, inspect_date, location, weather,
+    RETURNING id, site_id, building, form_code, inspect_date, location, weather,
               inspector_name, submitted_at`;
 
   for (const r of b.results || []) {
@@ -770,7 +780,9 @@ async function createInspection(req: Request, me: SessionUser): Promise<Response
   const findingIds: number[] = [];
   for (const f of b.findings || []) {
     findingIds.push(await insertFinding(
-      { ...f, source: "inspection", location: f.location ?? insp.location },
+      // 缺失沿用表單的棟別：缺失是在填這張表時發現的，棟別必然相同
+      { ...f, source: "inspection", location: f.location ?? insp.location,
+        building: insp.building },
       me, { siteId: insp.site_id, inspectionId: insp.id },
     ));
   }
@@ -787,7 +799,7 @@ async function createInspection(req: Request, me: SessionUser): Promise<Response
 
 async function renderInspectionPdf(id: number): Promise<string | null> {
   const insp = (await db.sql`
-    SELECT i.id, i.inspect_date, i.location, i.weather, i.submitted_at,
+    SELECT i.id, i.inspect_date, i.location, i.weather, i.submitted_at, i.building,
            s.name AS site_name, ft.title AS form_title,
            -- 共用帳號的情況下，帳號名稱代表不了實際檢查人，
            -- 因此以填報時填寫的姓名優先
@@ -830,15 +842,16 @@ async function createCoordination(req: Request, me: SessionUser): Promise<Respon
   const b = await req.json();
   const [co] = await db.sql`
     INSERT INTO coordinations
-      (site_id, meeting_date, work_date, weather, agreement_text, patrol_text,
+      (site_id, building, meeting_date, work_date, weather, agreement_text, patrol_text,
        handling_text, recorder_name, status, submitted_at, created_by)
-    VALUES (${Number(b.site_id)}, ${b.meeting_date || todayISO()},
+    VALUES (${Number(b.site_id)}, ${(b.building || "").trim() || null},
+            ${b.meeting_date || todayISO()},
             ${b.work_date || todayISO()}, ${b.weather ?? null},
             ${b.agreement_text ?? null}, ${b.patrol_text ?? null},
             ${b.handling_text ?? null},
             ${(b.recorder_name || "").trim() || null},
             'submitted', NOW(), ${me.id})
-    RETURNING id, site_id`;
+    RETURNING id, site_id, building`;
 
   for (const a of b.attendees || []) {
     await db.sql`
@@ -856,7 +869,7 @@ async function createCoordination(req: Request, me: SessionUser): Promise<Respon
     findingIds.push(await insertFinding(
       // 補登紙本時，缺失的發現時間預設跟隨該單的作業日期
       { found_at: b.work_date ? `${b.work_date}T09:00:00+08:00` : undefined,
-        ...f, source: "coordination" },
+        ...f, source: "coordination", building: co.building },
       me, { siteId: co.site_id, coordinationId: co.id },
     ));
   }

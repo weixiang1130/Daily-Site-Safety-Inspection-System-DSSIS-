@@ -87,16 +87,18 @@ let me = null;
   const [insp, coord] = await Promise.all([
     API.get('/api/inspections?days=14'), API.get('/api/coordinations?days=14')
   ]);
+  // 單一工地之後，棟別才是有資訊量的欄位；舊資料沒有棟別時退回工地名
   const rows = [
-    ...insp.map(i => ({ d: i.inspect_date, t: i.form_title, s: i.site,
+    ...insp.map(i => ({ d: i.inspect_date, t: i.form_title, s: i.building || i.site,
                         extra: `不合格 ${i.fail_count} 項`, url: i.pdf_url })),
-    ...coord.map(c => ({ d: c.work_date, t: '每日協議巡視處理紀錄表', s: c.site,
+    ...coord.map(c => ({ d: c.work_date, t: '每日協議巡視處理紀錄表',
+                         s: c.building || c.site,
                          extra: `參加 ${c.attendee_count} 人`, url: c.pdf_url }))
   ].sort((a, b) => b.d.localeCompare(a.d)).slice(0, 15);
 
   document.getElementById('recent').innerHTML = rows.length ? `
     <div class="table-scroll"><table>
-    <thead><tr><th>日期</th><th>單別</th><th>工地</th><th></th><th></th></tr></thead>
+    <thead><tr><th>日期</th><th>單別</th><th>棟別</th><th></th><th></th></tr></thead>
     <tbody>${rows.map(r => `<tr>
       <td class="num">${esc(r.d)}</td><td>${esc(r.t)}</td><td>${esc(r.s)}</td>
       <td class="muted">${esc(r.extra)}</td>

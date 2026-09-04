@@ -168,6 +168,9 @@ class Inspection(Base):
     # 兩邊各自產生流水號，直接沿用會撞號，把不同的資料蓋掉。
     cloud_id = Column(Integer, index=True)
     site_id = Column(Integer, ForeignKey("sites.id"), nullable=False)
+    # 棟別（如商辦棟／住宅棟）。主場站領有兩張建照但實為同一塊工地，
+    # 填報不拆成兩個工地，以棟別區分。允許為空：既有資料沒有這個欄位。
+    building = Column(Unicode(32))
     form_code = Column(Unicode(8), ForeignKey("form_templates.form_code"), nullable=False)
     inspect_date = Column(Date, nullable=False, default=date.today)
     location = Column(Unicode(128))            # 檢查地點 / 位置編號
@@ -224,6 +227,8 @@ class Finding(Base):
     # 兩邊各自產生流水號，直接沿用會撞號，把不同的資料蓋掉。
     cloud_id = Column(Integer, index=True)
     site_id = Column(Integer, ForeignKey("sites.id"), nullable=False)
+    # 棟別，沿用所屬表單（見 Inspection.building 的說明）
+    building = Column(Unicode(32))
     inspection_id = Column(Integer, ForeignKey("inspections.id"))
     coordination_id = Column(Integer, ForeignKey("coordinations.id"))
     item_id = Column(Integer, ForeignKey("form_items.id"))
@@ -305,6 +310,8 @@ class Coordination(Base):
     # 兩邊各自產生流水號，直接沿用會撞號，把不同的資料蓋掉。
     cloud_id = Column(Integer, index=True)
     site_id = Column(Integer, ForeignKey("sites.id"), nullable=False)
+    # 棟別（見 Inspection.building 的說明）
+    building = Column(Unicode(32))
     meeting_date = Column(Date, nullable=False, default=date.today)
     work_date = Column(Date, nullable=False, default=date.today)
     weather = Column(Unicode(16))
