@@ -25,6 +25,18 @@ function files() {
 // ---------------------------------------------------------------------------
 // 設定
 // ---------------------------------------------------------------------------
+/** 逗號分隔的 key:value 環境變數 → 物件。INGEST_TOKENS 與 BUILDING_LABELS
+    共用同一條解析規則，兩邊才不會對「值裡含冒號」這種輸入各自表述。 */
+function envPairs(name: string): Record<string, string> {
+  const raw = Netlify.env.get(name) || "";
+  const out: Record<string, string> = {};
+  for (const pair of raw.split(",")) {
+    const i = pair.indexOf(":");
+    if (i > 0) out[pair.slice(0, i).trim()] = pair.slice(i + 1).trim();
+  }
+  return out;
+}
+
 const BRANDING = {
   system_name: Netlify.env.get("SYSTEM_NAME") || "職安填報系統",
   war_room_name: Netlify.env.get("WAR_ROOM_NAME") || "職安戰情室",
@@ -32,8 +44,13 @@ const BRANDING = {
   org_short: Netlify.env.get("BRAND_SHORT_NAME") || "示範營造",
   org_name_en: Netlify.env.get("BRAND_NAME_EN") || "Demo Construction",
   group_name: Netlify.env.get("BRAND_GROUP") || "",
-  // 戰情室預設聚焦的工地。現階段以單一主場站為主，其餘工地的填報仍會列出。
-  primary_site_code: Netlify.env.get("PRIMARY_SITE_CODE") || "",
+  // 戰情室聚焦的工地。設定後，填報頁（前端）只列這個工地——兩張建照、
+  // 同一塊工地，棟別由「棟別」欄位區分；瀏覽篩選與維運工具仍拿完整清單。
+  // trim：這個值會被各端拿去做字串比對，帶到尾隨空白就是四十個工地的差別。
+  primary_site_code: (Netlify.env.get("PRIMARY_SITE_CODE") || "").trim(),
+  // 棟別選項，來自 BUILDING_LABELS（code:標籤,…）的標籤值、依序去重。
+  // 未設定時前端退回預設清單（frontend/common.js 的 BUILDINGS）。
+  buildings: [...new Set(Object.values(envPairs("BUILDING_LABELS")))],
   // 雲端的戰情室是「唯讀看板」：顯示地端每 5 分鐘推上來的快照，
   // 不查資料庫、不接監視器（監視畫面用串流的方式放雲端會在兩週內
   // 燒光免費額度，算式見 docs/地端戰情室.md）。首頁入口因此打開。
@@ -51,13 +68,7 @@ const BRANDING = {
 function ingestTokens(): Record<string, string> {
   // 刻意沒有預設值：預設權杖印在公開 repo 裡，等於任何人都能推送偽造的
   // 設備數據。未設定時清單為空，所有推送一律 401。
-  const raw = Netlify.env.get("INGEST_TOKENS") || "";
-  const out: Record<string, string> = {};
-  for (const pair of raw.split(",")) {
-    const i = pair.indexOf(":");
-    if (i > 0) out[pair.slice(0, i).trim()] = pair.slice(i + 1).trim();
-  }
-  return out;
+  return envPairs("INGEST_TOKENS");
 }
 
 // ---------------------------------------------------------------------------
@@ -382,15 +393,13 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
     if (!me) return fail(401, "請先登入");
 
     if (p === "/api/sites") {
-      const rows = await db.sql`
+      // 一律回傳完整清單。「填報只列主場站」是填報頁自己的事
+      // （frontend/common.js 的 fillableSites）——這個端點同時供
+      // 缺失清單／儀表板的瀏覽篩選與匯入工具查工地主檔，在這裡過濾
+      // 會讓那些消費者拿到殘缺的主檔（實測害補登工具跟 e2e 測試直接掛）。
+      return json(await db.sql`
         SELECT id, code, name, department FROM sites WHERE active = TRUE
-        ORDER BY department NULLS FIRST, sort_order, id`;
-      // 單一主場站模式：目前全公司的填報都以主場站為準（兩張建照、
-      // 同一塊工地，棟別由填報時的「棟別」欄位區分），因此設定
-      // PRIMARY_SITE_CODE 後填報選單只列主場站。未設定或代碼對不上時
-      // 退回完整清單——寧可多列也不能讓現場選不到工地而無法填報。
-      const primary = rows.filter((s: any) => s.code === BRANDING.primary_site_code);
-      return json(primary.length ? primary : rows);
+        ORDER BY department NULLS FIRST, sort_order, id`);
     }
 
     if (p === "/api/vendors") {
@@ -547,6 +556,8 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
 
     if (p === "/api/findings" && method === "POST") {
       const b = await req.json();
+      const bad = buildingTooLong(b.building);
+      if (bad) return bad;
       const id = await insertFinding({ ...b, source: b.source || "audit" }, me);
       return json({ ok: true, finding_id: id });
     }
@@ -703,6 +714,15 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
 // ---------------------------------------------------------------------------
 // 缺失
 // ---------------------------------------------------------------------------
+
+/** 棟別長度防線。雲端此欄是無上限的 TEXT，但地端是 NVARCHAR(32)：
+    一筆超長值會讓地端同步整批 rollback、進度不推進、每輪重抓同一批——
+    牆面從此停止更新。表單送不出超長值，這裡擋的是直接打 API 的寫入。 */
+function buildingTooLong(v: unknown): Response | null {
+  return String(v ?? "").trim().length > 32
+    ? fail(400, "棟別長度不可超過 32 字") : null;
+}
+
 function shapeFinding(f: any) {
   const due = dateOnly(f.due_date);
   const overdue = f.action_type === "scheduled" && due
@@ -734,7 +754,7 @@ async function insertFinding(b: any, me: SessionUser, ids: {
        severity, action_type, due_date, fixed_at, fix_note, status,
        photo_before, photo_after, created_by)
     VALUES (
-      ${ids.siteId ?? b.site_id}, ${b.building ?? null},
+      ${ids.siteId ?? b.site_id}, ${String(b.building ?? "").trim() || null},
       ${ids.inspectionId ?? null}, ${ids.coordinationId ?? null},
       ${b.item_id ?? null}, ${b.source ?? "inspection"}, ${foundAt}, ${b.location ?? null},
       ${b.hazard_code ?? "OTHER"}, ${b.hazard_label ?? "其他"}, ${b.description},
@@ -757,6 +777,8 @@ async function createInspection(req: Request, me: SessionUser): Promise<Response
   const tpl = (await db.sql`
     SELECT form_code, title FROM form_templates WHERE form_code = ${b.form_code}`)[0];
   if (!tpl) return fail(400, "表單代碼錯誤");
+  const badBuilding = buildingTooLong(b.building);
+  if (badBuilding) return badBuilding;
 
   const [insp] = await db.sql`
     INSERT INTO inspections
@@ -840,6 +862,8 @@ async function renderInspectionPdf(id: number): Promise<string | null> {
 // ---------------------------------------------------------------------------
 async function createCoordination(req: Request, me: SessionUser): Promise<Response> {
   const b = await req.json();
+  const badBuilding = buildingTooLong(b.building);
+  if (badBuilding) return badBuilding;
   const [co] = await db.sql`
     INSERT INTO coordinations
       (site_id, building, meeting_date, work_date, weather, agreement_text, patrol_text,

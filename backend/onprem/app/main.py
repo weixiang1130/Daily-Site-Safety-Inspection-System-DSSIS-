@@ -44,14 +44,31 @@ SIG_DIR = os.path.join(UPLOAD_DIR, "signatures")
 for d in (PHOTO_DIR, SIG_DIR):
     os.makedirs(d, exist_ok=True)
 
+def _env_pairs(name: str) -> dict:
+    """逗號分隔的 key:value 環境變數 → dict。
+
+    INGEST_TOKENS 與 BUILDING_LABELS 共用同一條解析規則。用 partition
+    而不是 split(":")[1]——值裡含冒號時後者會把值截斷，權杖被截斷等於
+    驗證永遠對不上，而且錯誤完全無聲。
+    """
+    out = {}
+    for pair in os.environ.get(name, "").split(","):
+        key, _, value = pair.partition(":")
+        if key.strip() and value.strip():
+            out[key.strip()] = value.strip()
+    return out
+
+
 # 設備廠商推送資料用的權杖，一家廠商一組（格式 vendor-a:xxx,vendor-b:yyy）。
 # 刻意沒有預設值：預設權杖印在公開 repo 裡，等於任何人都能推送偽造的
 # 環境數據與人數——而疏散點名會照著牆上的數字。未設定時端點直接停用。
-INGEST_TOKENS = {
-    t.split(":")[0]: t.split(":")[1]
-    for t in os.environ.get("INGEST_TOKENS", "").split(",")
-    if ":" in t
-}
+INGEST_TOKENS = _env_pairs("INGEST_TOKENS")
+
+# site_code → 棟別標籤（如 BD04:辦公棟,BD05:住宅棟）。
+# 主場站的兩張建照各自匯入列控表（site_code 不同），牆上的重點工項與
+# 進度卡片用這個對應顯示棟別。env 只在啟動時載入（load_env），
+# 因此在模組層解析一次即可，不必每個請求重算。
+BUILDING_LABELS = _env_pairs("BUILDING_LABELS")
 
 # 品牌識別。本 repo 為公開，預設值一律為中性名稱；
 # 實際公司名稱由部署環境的環境變數提供，不寫進程式碼。
@@ -62,8 +79,13 @@ BRANDING = {
     "org_short": os.environ.get("BRAND_SHORT_NAME", "示範營造"),
     "org_name_en": os.environ.get("BRAND_NAME_EN", "Demo Construction"),
     "group_name": os.environ.get("BRAND_GROUP", ""),
-    # 戰情室的主場站。環境與進出場人次以它為主，缺失統計仍涵蓋全部工地。
-    "primary_site_code": os.environ.get("PRIMARY_SITE_CODE", ""),
+    # 戰情室的主場站。環境與進出場人次以它為主，缺失統計仍涵蓋全部工地；
+    # 填報頁（前端）據此只列主場站。strip：這個值到處被拿去做字串比對，
+    # 設定檔帶到尾隨空白就是「一個工地」與「四十個工地」的差別。
+    "primary_site_code": os.environ.get("PRIMARY_SITE_CODE", "").strip(),
+    # 棟別選項：BUILDING_LABELS 的標籤值依序去重。前端填報選單據此建立，
+    # 未設定時退回預設清單（frontend/common.js 的 BUILDINGS）。
+    "buildings": list(dict.fromkeys(BUILDING_LABELS.values())),
     # 戰情室就跑在這裡，首頁要顯示入口。
     "war_room": True,
     # 這一側有即時的 /api/dashboard，前端走即時查詢而不是讀快照。
@@ -102,6 +124,16 @@ def need_login(request: Request):
     if not user:
         raise HTTPException(status_code=401, detail="請先登入")
     return user
+
+
+def clean_building(payload: dict):
+    """棟別欄位淨化。資料庫此欄為 32 字（NVARCHAR(32)），超長值會讓寫入
+    失敗——雲端同步側甚至會因一筆髒值整批 rollback、每輪重試同一批。
+    表單送不出超長值，這裡擋的是直接打 API 的寫入。"""
+    v = (payload.get("building") or "").strip()
+    if len(v) > 32:
+        raise HTTPException(400, "棟別長度不可超過 32 字")
+    return v or None
 
 
 def _save_data_url(data_url: str, folder: str, prefix: str) -> str:
@@ -149,16 +181,13 @@ def me(request: Request):
 @app.get("/api/sites")
 def list_sites(db: Session = Depends(get_db), user=Depends(need_login)):
     # 布林欄位一律用 == True；.is_(True) 在 SQL Server 會編譯成不合法的 `IS 1`
-    rows = db.query(Site).filter(Site.active == True).all()  # noqa: E712
-    # 單一主場站模式：目前全公司的填報都以主場站為準（兩張建照、同一塊
-    # 工地，棟別由填報時的「棟別」欄位區分），設定 PRIMARY_SITE_CODE 後
-    # 填報選單只列主場站。代碼對不上時退回完整清單——寧可多列，
-    # 也不能讓現場選不到工地而無法填報。
-    primary_code = os.environ.get("PRIMARY_SITE_CODE", "").strip()
-    primary = [s for s in rows if s.code == primary_code]
-    if primary:
-        rows = primary
-    return [{"id": s.id, "code": s.code, "name": s.name} for s in rows]
+    #
+    # 一律回傳完整清單。「填報只列主場站」是填報頁自己的事
+    # （frontend/common.js 的 fillableSites）——這個端點同時供缺失清單／
+    # 儀表板的瀏覽篩選與匯入工具查工地主檔，在這裡過濾會讓那些消費者
+    # 拿到殘缺的主檔（實測害補登工具跟 e2e 測試直接掛）。
+    return [{"id": s.id, "code": s.code, "name": s.name}
+            for s in db.query(Site).filter(Site.active == True).all()]  # noqa: E712
 
 
 @app.get("/api/vendors")
@@ -245,7 +274,7 @@ def create_inspection(payload: dict = Body(...), db: Session = Depends(get_db),
 
     insp = Inspection(
         site_id=int(payload["site_id"]),
-        building=(payload.get("building") or "").strip() or None,
+        building=clean_building(payload),
         form_code=form.form_code,
         inspect_date=date.fromisoformat(payload.get("inspect_date")
                                         or date.today().isoformat()),
@@ -375,7 +404,7 @@ def create_coordination(payload: dict = Body(...), db: Session = Depends(get_db)
                         request: Request = None, user=Depends(need_login)):
     co = Coordination(
         site_id=int(payload["site_id"]),
-        building=(payload.get("building") or "").strip() or None,
+        building=clean_building(payload),
         meeting_date=date.fromisoformat(payload.get("meeting_date")
                                         or date.today().isoformat()),
         work_date=date.fromisoformat(payload.get("work_date") or date.today().isoformat()),
@@ -499,7 +528,8 @@ def create_finding(payload: dict = Body(...), db: Session = Depends(get_db),
     action = payload.get("action_type", "onsite")
     due = payload.get("due_date")
     f = Finding(
-        site_id=int(payload["site_id"]), source=payload.get("source", "audit"),
+        site_id=int(payload["site_id"]), building=clean_building(payload),
+        source=payload.get("source", "audit"),
         found_at=datetime.now(), location=payload.get("location"),
         hazard_code=payload.get("hazard_code", "OTHER"),
         hazard_label=payload.get("hazard_label", "其他"),
@@ -722,17 +752,9 @@ def dashboard(request: Request, site_id: int = None, days: int = 30,
     # 這幾塊是戰情室搬到地端的主因——資料源都在公司網路內，雲端根本連不到
     # 監視器，也沒必要讓每張影像來回穿越網際網路。
     # ------------------------------------------------------------------
-    primary_code = os.environ.get("PRIMARY_SITE_CODE", "").strip()
-
-    # site_code → 棟別標籤（如 BD04:辦公棟,BD05:住宅棟）。
-    # 主場站的兩張建照各自匯入列控表（site_code 不同），牆上的重點工項與
-    # 進度卡片原本從工地名稱的「-」後綴切出棟別；工地主檔改成單一工地後
-    # 後綴消失，改由 BUILDING_LABELS 提供對應。未設定時前端退回後綴切法。
-    bld_labels = {}
-    for _pair in os.environ.get("BUILDING_LABELS", "").split(","):
-        _code, _, _label = _pair.partition(":")
-        if _code.strip() and _label.strip():
-            bld_labels[_code.strip()] = _label.strip()
+    primary_code = BRANDING["primary_site_code"]
+    # 牆上重點工項與進度卡片的棟別標籤，模組層解析一次（見 BUILDING_LABELS）
+    bld_labels = BUILDING_LABELS
 
     # 環境：每個測站每個指標取三小時內最新的一筆
     env_since = datetime.now() - timedelta(hours=3)

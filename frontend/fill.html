@@ -101,7 +101,8 @@ let me = null, formDef = null, vendors = [], state = {}, pad = null;
 const hazardOptions = HAZARDS.map(h => `<option value="${h[0]}">${h[1]}</option>`).join('');
 
 (async () => {
-  renderBrand('system_name');
+  // 品牌設定要等：工地過濾與棟別選項都由它決定（primary_site_code、buildings）
+  const brand = (await renderBrand('system_name')) || {};
 
   const r = await API.get('/api/me');
   if (!r.user) { location.href = '/static/index.html'; return; }
@@ -112,8 +113,11 @@ const hazardOptions = HAZARDS.map(h => `<option value="${h[0]}">${h[1]}</option>
   ]);
   vendors = vs;
   installVendorDatalist(vendors);
-  document.getElementById('site').innerHTML = siteOptions(sites, me.site_id);
-  document.getElementById('building').innerHTML = buildingOptions(recallBuilding());
+  document.getElementById('site').innerHTML =
+    siteOptions(fillableSites(sites, brand), me.site_id);
+  const bList = buildingList(brand);
+  document.getElementById('building').innerHTML =
+    buildingOptions(bList, recallBuilding(bList));
   document.getElementById('inspector').value = recallName('inspector');
   document.getElementById('form').innerHTML =
     forms.map(f => `<option value="${f.form_code}">${esc(f.title)}（${f.item_count} 項）</option>`).join('');
@@ -125,9 +129,13 @@ document.getElementById('go').onclick = async () => {
   // 現場已經填完幾十項才被退回，會很挫折。
   const inspector = document.getElementById('inspector');
   if (!requireName(inspector, '請先填寫檢查人員姓名')) return;
+  // 棟別和檢查人員一樣在進入逐項檢查前就把關——沒選就往下走，
+  // 整張表連同每筆缺失都會記在錯的棟名下
+  const building = document.getElementById('building').value;
+  if (!building) { toast('請先選擇棟別'); return; }
   // 同一個人通常連續多天填報，記住上次填的名字省去重打
   rememberName('inspector', inspector.value);
-  rememberBuilding(document.getElementById('building').value);
+  rememberBuilding(building);
 
   const code = document.getElementById('form').value;
   formDef = await API.get('/api/forms/' + code);

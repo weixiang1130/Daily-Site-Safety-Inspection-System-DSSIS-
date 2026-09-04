@@ -181,25 +181,56 @@ function siteOptions(sites, selectedId = null, allLabel = null) {
 }
 
 /* ---------------------------------------------------------------------------
-   棟別
+   填報工地與棟別
    主場站領有兩張建照，但實際上是同一塊工地、同一批人在管，因此填報
    不拆成兩個工地，改以棟別區分。儀表板的缺失統計不分棟、不分工地，
    一律以填報資料整體計算；棟別只用來回答「這筆缺失在哪一棟」。
    名稱是通用詞（建物用途），不涉及任何公司識別。
    --------------------------------------------------------------------------- */
+
+/**
+ * 填報頁用的工地清單：設定主場站後只列主場站——目前全公司的填報都
+ * 以它為準，掛在其他工地的帳號填報也一律記在主場站名下（刻意如此）。
+ * 只有「填報選單」走這條；缺失清單／儀表板的瀏覽篩選與匯入工具
+ * 仍用 /api/sites 的完整清單，在後端過濾會弄壞那些消費者。
+ * 代碼對不上時退回完整清單——寧可多列，不能讓現場選不到工地而無法填報。
+ */
+function fillableSites(sites, brand) {
+  const code = String((brand && brand.primary_site_code) || '').trim();
+  const primary = sites.filter(s => s.code === code);
+  return primary.length ? primary : sites;
+}
+
+// 棟別的預設選項。正式的清單由部署設定 BUILDING_LABELS 經
+// /api/branding 的 buildings 下發（見 buildingList），這裡只是
+// 沒有設定時的退路，讓開發與示範環境不用配置也能填。
 const BUILDINGS = ['辦公棟', '住宅棟'];
 
-function buildingOptions(selected = null) {
-  return BUILDINGS.map(b =>
-    `<option${b === selected ? ' selected' : ''}>${b}</option>`).join('');
+/** 棟別選項清單：branding 有給就用它（單一來源），否則退回預設。 */
+function buildingList(brand) {
+  const fromBrand = (brand && Array.isArray(brand.buildings))
+    ? brand.buildings.filter(Boolean) : [];
+  return fromBrand.length ? fromBrand : BUILDINGS;
+}
+
+/**
+ * 棟別下拉的選項。沒有記住的棟別時放一個不可選的佔位選項——
+ * 瀏覽器對 select 預設選第一項，直接放實際棟別會讓沒注意到這一欄的
+ * 首次填報者整張表（連同每筆缺失與存查 PDF）靜默記在錯的棟名下。
+ */
+function buildingOptions(list, selected = null) {
+  const head = selected ? ''
+    : '<option value="" disabled selected>請選擇棟別</option>';
+  return head + list.map(b =>
+    `<option value="${esc(b)}"${b === selected ? ' selected' : ''}>${esc(b)}</option>`).join('');
 }
 
 /** 同一個人通常連續多天填同一棟，記住上次選的棟別省去每天重選。 */
-function recallBuilding() {
+function recallBuilding(list) {
   try {
     const v = localStorage.getItem('lastBuilding');
-    return BUILDINGS.includes(v) ? v : null;   // 選項改名後，舊值直接作廢
-  } catch (e) { return null; }                 // 無痕模式沒有 localStorage
+    return list.includes(v) ? v : null;   // 選項改名後，舊值直接作廢
+  } catch (e) { return null; }            // 無痕模式沒有 localStorage
 }
 
 function rememberBuilding(value) {

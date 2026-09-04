@@ -73,7 +73,7 @@ def main():
     ]
 
     r = post_json("/api/inspections", {
-        "site_id": sites[1]["id"], "form_code": "F19",
+        "site_id": sites[1]["id"], "building": "辦公棟", "form_code": "F19",
         "location": "地下室 B2 東側", "weather": "晴",
         "results": results, "findings": findings,
         "signatures": [{"role": "檢查人員", "signer_name": me["user"]["name"],
@@ -81,12 +81,18 @@ def main():
     })
     print(f"4) 巡檢單　INSP-{r['inspection_id']:06d}，開立 {len(r['finding_ids'])} 筆缺失")
 
+    # 棟別要一路跟到缺失：表單填的棟別會複製到每筆子缺失，牆上據此顯示
+    fl = get("/api/findings?days=1")
+    bld = fl[0].get("building") if fl else None
+    ok &= bld == "辦公棟"
+    print(f"4b) 缺失棟別　{bld}　{'OK' if bld == '辦公棟' else '失敗'}")
+
     pdf = op.open(BASE + r["pdf_url"]).read()
     ok &= pdf[:5] == b"%PDF-"
     print(f"5) 巡檢 PDF　{len(pdf)} bytes　{'OK' if pdf[:5] == b'%PDF-' else '失敗'}")
 
     c = post_json("/api/coordinations", {
-        "site_id": sites[1]["id"], "weather": "晴",
+        "site_id": sites[1]["id"], "building": "住宅棟", "weather": "晴",
         "agreement_text": "1. 高架作業人員須佩戴全身式安全帶。\n2. 天氣炎熱注意熱危害。",
         "handling_text": "1. 地下室通高位置設置護欄。",
         "attendees": [

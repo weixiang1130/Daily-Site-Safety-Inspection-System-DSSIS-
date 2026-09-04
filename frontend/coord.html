@@ -104,7 +104,8 @@ let me = null, vendors = [], pad = null, attSeq = 0, findSeq = 0;
 const hazardOptions = HAZARDS.map(h => `<option value="${h[0]}">${h[1]}</option>`).join('');
 
 (async () => {
-  renderBrand('system_name');
+  // 品牌設定要等：工地過濾與棟別選項都由它決定（primary_site_code、buildings）
+  const brand = (await renderBrand('system_name')) || {};
   injectArchFrame();
 
   const r = await API.get('/api/me');
@@ -113,8 +114,11 @@ const hazardOptions = HAZARDS.map(h => `<option value="${h[0]}">${h[1]}</option>
   const [sites, vs] = await Promise.all([API.get('/api/sites'), API.get('/api/vendors')]);
   vendors = vs;
   installVendorDatalist(vendors);
-  document.getElementById('site').innerHTML = siteOptions(sites, me.site_id);
-  document.getElementById('building').innerHTML = buildingOptions(recallBuilding());
+  document.getElementById('site').innerHTML =
+    siteOptions(fillableSites(sites, brand), me.site_id);
+  const bList = buildingList(brand);
+  document.getElementById('building').innerHTML =
+    buildingOptions(bList, recallBuilding(bList));
   // 用 recorder 這個角色的鍵，不要沿用檢查人員的——兩者常常不是同一個人，
   // 預先填錯的名字會一路進到簽核存查的 PDF。
   document.getElementById('recorder').value = recallName('recorder');
@@ -205,8 +209,11 @@ document.getElementById('submit').onclick = async () => {
   // 「這張表是誰填的」，而稽核與事故調查都要問這件事。
   const recorder = document.getElementById('recorder');
   if (!requireName(recorder, '請填寫紀錄人員姓名')) return;
+  // 沒選棟別就送出，整張表連同每筆缺失都會記在錯的棟名下
+  const building = document.getElementById('building').value;
+  if (!building) { toast('請先選擇棟別'); return; }
   rememberName('recorder', recorder.value);
-  rememberBuilding(document.getElementById('building').value);
+  rememberBuilding(building);
   if (!pad || pad.isEmpty()) { toast('請先簽名'); return; }
   const btn = document.getElementById('submit');
   btn.disabled = true;

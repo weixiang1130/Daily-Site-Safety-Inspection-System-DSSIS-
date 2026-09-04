@@ -120,6 +120,18 @@ def sync_user_id(db) -> int:
     return u.id
 
 
+def building_of(row) -> Optional[str]:
+    """棟別，防禦性截斷到欄位長度（32 字）。
+
+    雲端此欄是無上限的 TEXT，地端是 NVARCHAR(32)。整批同步共用一個
+    commit，一筆超長值會讓整批 rollback、進度不推進、之後每輪重抓
+    同一批毒資料——牆面從此停止更新。寧可截斷一個標籤，也不能讓
+    整條同步鏈停擺。（雲端入口已擋 >32 的寫入，這裡是第二道防線。）
+    """
+    v = (row.get("building") or "").strip()
+    return v[:32] or None
+
+
 def parse_dt(v) -> Optional[datetime]:
     """雲端回傳的是 ISO 字串（含時區）。地端一律存本地時間。"""
     if not v:
@@ -213,7 +225,7 @@ def sync_once(full: bool = False) -> tuple:
                 db.add(obj)
                 counts["檢查表"] += 1
             obj.site_id = sid
-            obj.building = row.get("building")
+            obj.building = building_of(row)
             obj.inspect_date = parse_date(row.get("inspect_date")) or date.today()
             obj.location = row.get("location")
             obj.inspector_name = row.get("inspector_name")
@@ -234,7 +246,7 @@ def sync_once(full: bool = False) -> tuple:
                 db.add(obj)
                 counts["協議紀錄"] += 1
             obj.site_id = sid
-            obj.building = row.get("building")
+            obj.building = building_of(row)
             obj.meeting_date = parse_date(row.get("meeting_date")) or date.today()
             obj.work_date = parse_date(row.get("work_date")) or date.today()
             obj.recorder_name = row.get("recorder_name")
@@ -254,7 +266,7 @@ def sync_once(full: bool = False) -> tuple:
                 db.add(obj)
                 counts["缺失"] += 1
             obj.site_id = sid
-            obj.building = row.get("building")
+            obj.building = building_of(row)
             obj.source = row.get("source") or "inspection"
             obj.found_at = parse_dt(row.get("found_at")) or datetime.now()
             obj.location = row.get("location")
