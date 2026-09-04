@@ -187,7 +187,7 @@ function siteOptions(sites, selectedId = null, allLabel = null) {
    一律以填報資料整體計算；棟別只用來回答「這筆缺失在哪一棟」。
    名稱是通用詞（建物用途），不涉及任何公司識別。
    --------------------------------------------------------------------------- */
-const BUILDINGS = ['商辦棟', '住宅棟'];
+const BUILDINGS = ['辦公棟', '住宅棟'];
 
 function buildingOptions(selected = null) {
   return BUILDINGS.map(b =>

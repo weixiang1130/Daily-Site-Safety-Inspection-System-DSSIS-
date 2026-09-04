@@ -724,7 +724,7 @@ def dashboard(request: Request, site_id: int = None, days: int = 30,
     # ------------------------------------------------------------------
     primary_code = os.environ.get("PRIMARY_SITE_CODE", "").strip()
 
-    # site_code → 棟別標籤（如 BD04:商辦棟,BD05:住宅棟）。
+    # site_code → 棟別標籤（如 BD04:辦公棟,BD05:住宅棟）。
     # 主場站的兩張建照各自匯入列控表（site_code 不同），牆上的重點工項與
     # 進度卡片原本從工地名稱的「-」後綴切出棟別；工地主檔改成單一工地後
     # 後綴消失，改由 BUILDING_LABELS 提供對應。未設定時前端退回後綴切法。
