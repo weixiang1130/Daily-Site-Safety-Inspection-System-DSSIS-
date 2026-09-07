@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>看板管理</title>
+<link rel="stylesheet" href="/static/brand.css">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/site-board.css">
+</head>
+<body class="board-editor">
+<div class="topbar">
+  <div class="brand" id="brand"></div>
+  <div class="spacer"></div>
+  <a href="/static/dashboard.html"><button class="ghost">回看板</button></a>
+  <a href="/static/home.html"><button class="ghost">首頁</button></a>
+</div>
+
+<div class="wrap">
+  <div class="page-head">
+    <div class="eyebrow">Site Board Settings</div>
+    <h1>看板管理</h1>
+    <p class="lede">緊急連絡人、每日安全作業循環、公告與無災害起算設定。
+      儲存後看板一分鐘內更新。僅管理員或所屬工地的職安人員、主任可維護。</p>
+  </div>
+
+  <div class="card editor-card">
+    <div class="editor-toolbar">
+      <label>工地</label><select id="site"></select>
+      <span class="muted" id="loadState"></span>
+    </div>
+    <p class="muted hidden" id="cloudHint"></p>
+  </div>
+
+  <form id="form"><fieldset id="fields">
+  <div class="card editor-card">
+    <h2>緊急連絡人</h2>
+    <p class="muted">看板右上角的表格，依序顯示（超過 6 筆會分頁輪播）。</p>
+    <div class="editor-rows" id="contacts"></div>
+    <button type="button" class="ghost" id="addContact" style="margin-top:10px">＋ 新增聯絡人</button>
+  </div>
+
+  <div class="card editor-card">
+    <h2>每日安全作業循環</h2>
+    <p class="muted">看板時鐘依這張表標示「現在應做事項」。時間為 24 小時制、時段不可重疊。</p>
+    <div class="editor-rows" id="schedule"></div>
+    <button type="button" class="ghost" id="addSchedule" style="margin-top:10px">＋ 新增時段</button>
+  </div>
+
+  <div class="card editor-card">
+    <h2>公告</h2>
+    <p class="muted">安全佈告輪播的手動內容。起訖日期留空代表一直顯示；
+      環境警示與職安署新知由系統自動加入，不需在此維護。</p>
+    <div class="editor-rows" id="announcements"></div>
+    <button type="button" class="ghost" id="addAnnouncement" style="margin-top:10px">＋ 新增公告</button>
+  </div>
+
+  <div class="card editor-card">
+    <h2>無災害紀錄起算</h2>
+    <p class="muted">累計工時＝起算前累計＋起算日之後的出工人數×8 小時
+      （出工人數取自工務所群組的出工回報）。發生災害後請把起算日改為復工日、
+      起算前累計歸零。</p>
+    <div class="row">
+      <div><label>起算日</label><input type="date" id="safetyStart"></div>
+      <div><label>起算前已累計工時（沒有就填 0）</label>
+        <input type="number" id="safetyBase" min="0" step="1" placeholder="0"></div>
+    </div>
+  </div>
+
+  <div class="editor-actions">
+    <button type="submit" id="save">儲存設定</button>
+    <span class="muted" id="saveState"></span>
+  </div>
+  </fieldset></form>
+</div>
+
+<script src="/static/common.js"></script>
+<script>
+let SITE_ID = null, REVISION = 0;
+let seq = 0;   // 列的流水 id，只在本頁內有意義
+
+(async () => {
+  renderBrand('war_room_name');
+  const r = await API.get('/api/me');
+  if (!r.user) { location.href = '/static/index.html?next=' + encodeURIComponent(location.pathname); return; }
+
+  const sites = await API.get('/api/board-sites');
+  const sel = document.getElementById('site');
+  sel.innerHTML = sites.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
+  SITE_ID = sites.length ? sites[0].id : null;
+  sel.onchange = () => { SITE_ID = parseInt(sel.value, 10); load(); };
+  document.getElementById('addContact').onclick = () => addRow('contacts', {});
+  document.getElementById('addSchedule').onclick = () => addRow('schedule', {});
+  document.getElementById('addAnnouncement').onclick = () => addRow('announcements', {});
+  document.getElementById('form').onsubmit = save;
+  load();
+})();
+
+async function load() {
+  if (!SITE_ID) return;
+  document.getElementById('loadState').textContent = '載入中…';
+  let d;
+  try { d = await API.get('/api/site-board/' + SITE_ID); }
+  catch (e) { document.getElementById('loadState').textContent = '載入失敗：' + e.message; return; }
+  REVISION = d.revision;
+  document.getElementById('loadState').textContent = '';
+
+  // 地端唯讀：設定一律在雲端維護、隨表單同步帶回，兩邊各改會互相蓋掉
+  const hint = document.getElementById('cloudHint');
+  if (d.management_url) {
+    hint.innerHTML = `此站台的看板設定請至雲端填報站維護：
+      <a href="${esc(d.management_url)}/static/board-settings.html" target="_blank">前往雲端看板管理</a>。
+      儲存後最慢下一輪表單同步（預設 12 小時）帶回本機；急用可手動跑一次同步。`;
+    hint.classList.remove('hidden');
+    document.getElementById('fields').disabled = true;
+  } else {
+    hint.classList.add('hidden');
+    document.getElementById('fields').disabled = false;
+  }
+
+  for (const key of ['contacts', 'schedule', 'announcements']) {
+    document.getElementById(key).innerHTML = '';
+    for (const row of d.config[key] || []) addRow(key, row);
+  }
+  const s = d.config.safety || {};
+  document.getElementById('safetyStart').value = s.start_date || '';
+  document.getElementById('safetyBase').value = s.base_hours || '';
+}
+
+const ROW_FIELDS = {
+  contacts: [['role', '項目／職務', 'text', '例：工地負責人'],
+             ['name', '名稱', 'text', '姓名或單位'],
+             ['phone', '電話', 'text', '例：02-xxxx-xxxx／0912-345-678']],
+  schedule: [['start', '開始（HH:MM）', 'time', ''],
+             ['end', '結束（HH:MM）', 'time', ''],
+             ['label', '作業名稱', 'text', '例：安全早會（危害預知）']],
+  announcements: [['title', '標題', 'text', ''],
+                  ['source', '來源（選填）', 'text', '例：職安週報'],
+                  ['url', '來源網址（選填，https）', 'text', ''],
+                  ['start_date', '開始顯示（選填）', 'date', ''],
+                  ['end_date', '結束顯示（選填）', 'date', ''],
+                  ['body', '內容', 'textarea', '']],
+};
+
+function addRow(key, row) {
+  const i = ++seq;
+  const div = document.createElement('div');
+  div.className = 'editor-row';
+  div.dataset.kind = key;
+  div.innerHTML = ROW_FIELDS[key].map(([f, label, type, ph]) => {
+    const v = esc(row[f] || '');
+    const cls = f === 'body' ? ' class="full"' : '';
+    if (type === 'textarea') {
+      return `<div class="full"><label>${label}</label>
+        <textarea data-f="${f}" placeholder="${esc(ph)}">${v}</textarea></div>`;
+    }
+    return `<div${cls}><label>${label}</label>
+      <input type="${type}" data-f="${f}" value="${v}" placeholder="${esc(ph)}"></div>`;
+  }).join('') + `<button type="button" class="ghost" onclick="this.closest('.editor-row').remove()">移除</button>`;
+  document.getElementById(key).appendChild(div);
+}
+
+function collect(key) {
+  return [...document.querySelectorAll(`.editor-row[data-kind="${key}"]`)].map(div => {
+    const out = {};
+    div.querySelectorAll('[data-f]').forEach(el => { out[el.dataset.f] = el.value.trim(); });
+    return out;
+  }).filter(row => Object.values(row).some(v => v));   // 整列空白視同已刪除
+}
+
+async function save(ev) {
+  ev.preventDefault();
+  const btn = document.getElementById('save');
+  const state = document.getElementById('saveState');
+  btn.disabled = true;
+  state.textContent = '儲存中…';
+  try {
+    const d = await API.post('/api/site-board/' + SITE_ID, {
+      revision: REVISION,
+      config: {
+        contacts: collect('contacts'),
+        schedule: collect('schedule'),
+        announcements: collect('announcements'),
+        safety: {
+          start_date: document.getElementById('safetyStart').value.trim(),
+          base_hours: document.getElementById('safetyBase').value.trim(),
+        },
+      },
+    });
+    REVISION = d.revision;
+    state.textContent = '已儲存，看板一分鐘內更新。';
+    toast('已儲存');
+  } catch (e) {
+    state.textContent = '';
+    toast('儲存失敗：' + e.message, 4200);
+  } finally {
+    btn.disabled = false;
+  }
+}
+</script>
+</body>
+</html>

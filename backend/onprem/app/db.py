@@ -104,6 +104,8 @@ class Site(Base):
     # 下拉是依 department 分組的（frontend/common.js），少了它就分不了組。
     department = Column(Unicode(64))
     sort_order = Column(Integer, nullable=False, default=0)
+    board_config = Column(UnicodeText)
+    board_revision = Column(Integer, default=0)
 
 
 class Vendor(Base):
@@ -372,6 +374,58 @@ class DeviceReading(Base):
     __table_args__ = (
         # 設備資料是高頻寫入、依「工地＋設備類型＋時間」查詢，資料量會遠大於其他表
         Index("ix_device_site_type_time", "site_code", "device_type", "reading_at"),
+    )
+
+
+class WorkLog(Base):
+    """本日出工回報——工地看板「本日出工一覽表」的資料來源。
+
+    來源是工務所 LINE 群組的出工回報訊息（經 webhook 落到 Google 試算表，
+    collectors/worklog.py 定時抓 CSV 解析）。訊息是自由文字、每家廠商
+    寫法不同，解析採啟發式，因此保留 raw 原文供對照與除錯。
+
+    同一天同一棟同一廠商常會重發更正版，以 (report_date, building, vendor)
+    為鍵、取最新一則覆蓋——收集程式據此 upsert，不設資料庫唯一鍵：
+    解析歧義造成的重複寧可看得到，也不要讓整批寫入炸掉。
+    """
+    __tablename__ = "work_logs"
+    id = Column(Integer, primary_key=True)
+    report_date = Column(Date, nullable=False)
+    building = Column(Unicode(32))         # 棟別（與填報的棟別同一詞彙）
+    vendor = Column(Unicode(64), nullable=False)
+    trade = Column(Unicode(128))           # 工種與人數摘要，如「電班9、工務2」
+    headcount = Column(Integer)            # 出工人數（出工數優先，否則加總）
+    supervisor = Column(Unicode(64))       # 作業主管——訊息有寫才有值
+    tasks = Column(UnicodeText)            # 施作項目
+    reporter = Column(Unicode(64))         # LINE 回報人
+    reported_at = Column(DateTime)         # LINE 訊息時間
+    message_id = Column(Unicode(64))       # LINE 訊息 ID，除錯對照用
+    raw = Column(UnicodeText)
+    fetched_at = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        # 看板每分鐘查「今日出工」，月工時統計依日期範圍掃
+        Index("ix_worklog_date", "report_date"),
+    )
+
+
+class NewsItem(Base):
+    """職安新知——看板「安全佈告／宣導」輪播的外部來源。
+
+    collectors/osha_news.py 定時抓職安署網站的新聞稿清單。
+    news_id 是對方網站的文章編號，upsert 的比對鍵。
+    """
+    __tablename__ = "news_items"
+    id = Column(Integer, primary_key=True)
+    source = Column(Unicode(16), nullable=False, default="osha")
+    news_id = Column(Unicode(32), nullable=False)
+    title = Column(Unicode(255), nullable=False)
+    url = Column(Unicode(300))
+    published = Column(Date)
+    fetched_at = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint("source", "news_id", name="uq_news_source_id"),
     )
 
 

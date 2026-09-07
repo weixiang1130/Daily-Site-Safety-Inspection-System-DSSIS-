@@ -13,6 +13,7 @@ import {
   sessionCookieHeader, verifyPassword, type SessionUser,
 } from "../lib/auth.ts";
 import { buildCoordinationPdf, buildInspectionPdf, type SigInput } from "../lib/pdf.ts";
+import { boardPayload, validateBoard } from "../lib/site-board.ts";
 
 const db = getDatabase();
 
@@ -325,7 +326,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       const LIMIT = 2000;
 
       const sites = await db.sql`
-        SELECT code, name, department, sort_order, active FROM sites`;
+        SELECT code, name, department, sort_order, active, board_config, board_revision FROM sites`;
       const vendors = await db.sql`
         SELECT code, name, active FROM vendors`;
       const findings = await db.sql`
@@ -391,6 +392,35 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
 
     // ---- 以下皆需登入 ----
     if (!me) return fail(401, "請先登入");
+
+    if (p === '/api/board-sites' && method === 'GET') {
+      return json(await db.sql`SELECT id, code, name FROM sites WHERE active = true ORDER BY sort_order, id`,
+        {headers: {'cache-control': 'no-store'}});
+    }
+    const boardMatch = /^\/api\/site-board\/(\d+)$/.exec(p);
+    if (boardMatch) {
+      const id = Number(boardMatch[1]);
+      const [site] = await db.sql`SELECT id, code, name, active, board_config, board_revision FROM sites WHERE id = ${id}`;
+      if (!site || !site.active) return fail(404, '工地不存在或已停用');
+      if (method === 'GET') return json(boardPayload(site), {headers: {'cache-control': 'no-store'}});
+      if (method !== 'POST') return fail(405, '不支援此操作');
+      const [user] = await db.sql`SELECT role, site_id, active FROM users WHERE id = ${me.id}`;
+      if (!user?.active || !(user.role === 'admin' || (['safety', 'manager'].includes(user.role) && Number(user.site_id) === id))) {
+        return fail(403, '僅管理員或所屬工地的職安人員、主管可維護');
+      }
+      let b: any, config: any;
+      try {
+        b = await req.json();
+        if (!Number.isSafeInteger(b.revision) || b.revision < 0) throw Error('設定版本格式錯誤');
+        config = validateBoard(b.config);
+      } catch (e: any) { return fail(400, e.message || '設定格式錯誤'); }
+      config.updated_at = new Date().toISOString();
+      const [saved] = await db.sql`UPDATE sites SET board_config = ${JSON.stringify(config)}, board_revision = ${b.revision + 1}
+        WHERE id = ${id} AND COALESCE(board_revision, 0) = ${b.revision}
+        RETURNING id, code, name, board_config, board_revision`;
+      if (!saved) return fail(409, '其他人已更新，請重新載入再編輯');
+      return json(boardPayload(saved), {headers: {'cache-control': 'no-store'}});
+    }
 
     if (p === "/api/sites") {
       // 一律回傳完整清單。「填報只列主場站」是填報頁自己的事

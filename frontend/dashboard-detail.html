@@ -1,0 +1,1152 @@
+<!doctype html>
+<!-- war 同時掛在 html 與 body：字級縮放必須在根元素（rem 相對根解析），
+     版面規則則掛在 body。 -->
+<html lang="zh-Hant" class="war theme-dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>戰情室</title>
+<link rel="stylesheet" href="/static/brand.css">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="war theme-dark">
+
+<div class="topbar">
+  <div class="brand" id="brand"></div>
+  <span class="verdict hidden" id="verdict"></span>
+  <select id="site" aria-label="選擇工地"></select>
+  <select id="days" aria-label="選擇統計區間">
+    <option value="7">近 7 日</option>
+    <option value="30" selected>近 30 日</option>
+    <option value="90">近 90 日</option>
+  </select>
+  <div class="spacer"></div>
+  <span class="stamp" id="stamp"></span>
+  <span class="clock" id="clock"></span>
+  <button class="ghost" id="snap"
+    title="擷取目前畫面存成 PNG（瀏覽器會請你確認分享此分頁）">截圖</button>
+  <a href="/static/home.html" id="homeLink"><button class="ghost">回首頁</button></a>
+</div>
+
+<div class="war-body">
+
+  <!-- 法規警示：達門檻才出現，等級越高越醒目 -->
+  <section class="heat-alert hidden" id="heatAlert"></section>
+  <section class="heat-alert noise-alert hidden" id="noiseAlert"></section>
+
+  <!-- 現場即時：環境、人數、監視畫面 -->
+  <section class="band band-live">
+    <div class="live-main">
+      <div class="band-head">
+        <h2 id="siteName">現場即時</h2>
+        <span class="env-level" id="siteLevel"></span>
+        <span class="spacer"></span>
+        <span class="muted small" id="envTime"></span>
+      </div>
+      <div class="tiles tiles-env" id="envTiles"></div>
+      <p class="env-basis" id="envBasis"></p>
+      <div class="other-sites" id="otherSites"></div>
+      <div class="tiles tiles-people" id="peopleTiles"></div>
+    </div>
+
+    <aside class="cam hidden" id="camPanel">
+      <div class="cam-head"><span id="camTitle">現場監視</span>
+        <span class="muted small" id="camLabel"></span></div>
+      <div class="cam-view">
+        <img id="camImg" alt="現場監視畫面">
+        <p class="cam-error hidden" id="camError"></p>
+      </div>
+    </aside>
+  </section>
+
+  <!-- 今日重點工項 × 工程進度：每棟一張卡。
+       抬頭是進度結論（超前／落後），底下是這棟今天在做的事——
+       長官的「做什麼、注意什麼、進度如何」在同一個視線落點回答完。 -->
+  <section class="band band-focus hidden" id="focusBand">
+    <div class="focus-cards" id="focusCards"></div>
+  </section>
+
+  <!-- 缺失管理指標 -->
+  <section class="band band-kpi">
+    <div class="tiles tiles-kpi" id="kpis"></div>
+  </section>
+
+  <!-- 下半部：清單與排行並排。
+       先前兩者各佔一整條，五層堆疊一起搶固定高度，畫面就被擠扁。 -->
+  <div class="band-main">
+    <section class="band band-rota">
+      <div class="band-head">
+        <h3 id="rotaTitle">最新動態</h3>
+        <span class="rota-count muted small" id="rotaCount"></span>
+        <span class="spacer"></span>
+        <div class="dots" id="rotaDots"></div>
+      </div>
+      <div class="rota-body" id="rota"></div>
+    </section>
+
+    <section class="band band-rank">
+      <div class="rank">
+        <h3>災害類別分布</h3>
+        <div class="barlist" id="hazard"></div>
+      </div>
+      <div class="rank">
+        <h3>廠商缺失排行</h3>
+        <div class="barlist" id="vendor"></div>
+      </div>
+      <div class="rank rank-trend">
+        <h3>近 14 日缺失趨勢</h3>
+        <div class="spark" id="trend"></div>
+        <div class="spark-labels" id="trendLabels"></div>
+      </div>
+    </section>
+  </div>
+
+</div>
+
+<!-- 等級上升時的即時提醒。牆上沒有人會去點，因此會自動關閉。 -->
+<div class="heat-popup hidden" id="heatPopup" role="alert"></div>
+
+<script src="/static/common.js"></script>
+<script>
+// ---------------------------------------------------------------------------
+// 戰情室
+//
+// 兩個和一般頁面不同的原則：
+//   1. 整頁不出現捲軸。牆上的畫面沒有人會去滑，看不到就等於沒有。
+//      清單一律自動換頁（見 Rota）。
+//   2. 以主場站為主體。上方即時區塊只看主場站，下方清單仍涵蓋所有工地，
+//      因為現場只有一個戰情室。
+// ---------------------------------------------------------------------------
+
+// 提示文字用的換行。直接寫成跳脫字元容易在編輯過程被誤寫成真實換行，
+// 那會讓整段 script 因語法錯誤而完全不執行。
+const NEWLINE = String.fromCharCode(10);
+
+// ---------------------------------------------------------------------------
+// 截圖：把目前牆面存成 PNG（會議紀錄、回報群組用）
+//
+// 用瀏覽器原生的畫面擷取而不是 DOM 轉畫布的函式庫：零相依，而且拍到的
+// 就是實際渲染結果——舞台縮放、監視畫面、深色主題都原樣入鏡。
+// 代價是每次會跳一個「分享此分頁」的確認框（瀏覽器的安全要求，繞不掉），
+// preferCurrentTab 讓它預設選中本分頁，按一下確認即可。
+// ---------------------------------------------------------------------------
+function snapName() {
+  const n = new Date(), pad = x => String(x).padStart(2, '0');
+  return `戰情室_${n.getFullYear()}${pad(n.getMonth() + 1)}${pad(n.getDate())}`
+       + `_${pad(n.getHours())}${pad(n.getMinutes())}.png`;
+}
+
+function download(dataUrl) {
+  const a = document.createElement('a');
+  a.download = snapName();
+  a.href = dataUrl;
+  a.click();
+}
+
+// 安全情境（https 或 localhost）用畫面擷取，畫質最好、監視畫面也原樣入鏡。
+async function snapViaCapture() {
+  const stream = await navigator.mediaDevices.getDisplayMedia({
+    video: { displaySurface: 'browser' }, preferCurrentTab: true, audio: false,
+  });
+  const video = document.createElement('video');
+  video.srcObject = stream;
+  await video.play();
+  await new Promise(r => setTimeout(r, 350));   // 等第一幀穩定，太早畫會黑
+  const c = document.createElement('canvas');
+  c.width = video.videoWidth; c.height = video.videoHeight;
+  c.getContext('2d').drawImage(video, 0, 0);
+  stream.getTracks().forEach(t => t.stop());
+  return c.toDataURL('image/png');
+}
+
+// http 的區網牆機不是安全情境，getDisplayMedia 不可用（navigator.mediaDevices
+// 為 undefined）。改用純前端方式：把整個舞台序列化進 SVG 的 foreignObject，
+// 再畫到 canvas。頁面上唯一的圖片是監視畫面，且它是同源 blob，畫進 canvas
+// 不會汙染、匯得出 PNG。外部樣式表要內嵌進 SVG，否則畫出來是無樣式的裸 DOM。
+async function snapViaDom() {
+  // 1. 內嵌樣式表（foreignObject 不會自己去抓 <link>）
+  const css = (await Promise.all(
+    [...document.querySelectorAll('link[rel=stylesheet]')].map(l =>
+      fetch(l.href).then(r => r.text()).catch(() => '')))).join(NEWLINE);
+
+  // 2. 監視畫面 blob → dataURL；blob URL 在序列化後的新文件裡解不開，必須內嵌
+  const cam = document.getElementById('camImg');
+  let camData = '';
+  if (cam && cam.src && cam.naturalWidth) {
+    const cc = document.createElement('canvas');
+    cc.width = cam.naturalWidth; cc.height = cam.naturalHeight;
+    cc.getContext('2d').drawImage(cam, 0, 0);
+    camData = cc.toDataURL('image/png');
+  }
+
+  // 3. 複製 body，去掉舞台縮放（改以自然的 1920x1080 出圖），換上內嵌的監視畫面
+  const clone = document.body.cloneNode(true);
+  clone.style.transform = 'none';
+  clone.style.left = '0'; clone.style.top = '0';
+  clone.style.position = 'static';
+  clone.style.width = DESIGN_W + 'px';
+  clone.style.height = DESIGN_H + 'px';
+  clone.style.background = getComputedStyle(document.body).backgroundColor;
+  const cloneCam = clone.querySelector('#camImg');
+  if (cloneCam && camData) cloneCam.setAttribute('src', camData);
+  clone.querySelector('#snap')?.remove();   // 按鈕本身不必入鏡
+
+  // 4. 組 SVG。用 XMLSerializer 確保是合法 XHTML（未閉合標籤會讓 SVG 解析失敗）
+  const bodyXml = new XMLSerializer().serializeToString(clone);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${DESIGN_W}" `
+    + `height="${DESIGN_H}"><foreignObject width="100%" height="100%">`
+    + `<div xmlns="http://www.w3.org/1999/xhtml"><style>${css}</style>`
+    + `${bodyXml}</div></foreignObject></svg>`;
+
+  const img = new Image();
+  img.width = DESIGN_W; img.height = DESIGN_H;
+  await new Promise((res, rej) => {
+    img.onload = res; img.onerror = rej;
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  });
+  const c = document.createElement('canvas');
+  c.width = DESIGN_W; c.height = DESIGN_H;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+  return c.toDataURL('image/png');
+}
+
+async function snapshot() {
+  const btn = document.getElementById('snap');
+  const secure = window.isSecureContext
+    && navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia;
+  btn.textContent = '擷取中…';
+  try {
+    const dataUrl = secure ? await snapViaCapture() : await snapViaDom();
+    download(dataUrl);
+    btn.textContent = '已下載';
+  } catch (e) {
+    // 安全情境下多半是使用者按了取消——安靜復原。
+    // 非安全情境的 DOM 內繪若失敗，明講原因，不要讓按鈕看起來沒反應。
+    if (secure) { btn.textContent = '截圖'; return; }
+    console.error('[snap] DOM 內繪失敗', e);
+    btn.textContent = '截圖失敗';
+    setTimeout(() => { btn.textContent = '截圖'; }, 2500);
+    return;
+  }
+  setTimeout(() => { btn.textContent = '截圖'; }, 2500);
+}
+document.getElementById('snap').onclick = snapshot;
+
+// ---------------------------------------------------------------------------
+// 舞台縮放：整合在一個視窗、永遠沒有捲軸
+//
+// 版面固定以 1920x1080 設計（所有分頁量測都以此為準），整頁等比縮放貼合
+// 目前視窗——筆電、投影、開了 125% 顯示縮放的螢幕，看到的都是完整的一頁。
+// 資訊過多由輪播與卡內翻頁消化；縮放只負責保證「不用捲」。
+// 長寬比不同時上下或左右留信箱邊，底色與畫布一致。
+// ---------------------------------------------------------------------------
+const DESIGN_W = 1920, DESIGN_H = 1080;
+
+function fitStage() {
+  const s = Math.min(innerWidth / DESIGN_W, innerHeight / DESIGN_H);
+  const b = document.body;
+  document.documentElement.classList.add('staged');
+  b.style.width = DESIGN_W + 'px';
+  b.style.height = DESIGN_H + 'px';
+  b.style.transformOrigin = 'top left';
+  b.style.transform = `scale(${s})`;
+  b.style.position = 'absolute';
+  b.style.left = ((innerWidth - DESIGN_W * s) / 2) + 'px';
+  b.style.top = ((innerHeight - DESIGN_H * s) / 2) + 'px';
+}
+// resize 事件可能在視窗定形前觸發（最大化動畫、面板調整都會），
+// 尾隨再算一次，用的才是最終尺寸
+let fitTimer = null;
+addEventListener('resize', () => {
+  fitStage();
+  clearTimeout(fitTimer);
+  fitTimer = setTimeout(fitStage, 250);
+});
+fitStage();
+
+let PRIMARY_CODE = '';     // 主場站代碼，由 /api/branding 提供
+let SITES = [];
+
+// ---------------------------------------------------------------------------
+// 看板模式
+//
+// 工地辦公室的電腦什麼都不能裝、也連不到公司內網，只有一個瀏覽器。
+// 因此地端主機把整份資料推到雲端存成快照，工地電腦用
+//     https://<站台>/static/dashboard.html?k=<看板權杖>
+// 唯讀顯示。帶了 ?k= 就走這條路：
+//
+//   * 一次讀回 branding + sites + dashboard，不做任何需要登入的呼叫
+//   * 快照是固定視圖（天數與工地在地端產生時就決定了），因此隱藏兩個下拉
+//   * 監視畫面是即時代理到工地攝影機的，雲端碰不到，改顯示說明而非留白
+// ---------------------------------------------------------------------------
+// 看板權杖：牆上大螢幕整天開著、沒有人登入，靠網址帶的權杖取得資料。
+// 從填報站首頁點進來的人已經登入，不必帶——所以這個值可以是空的。
+const WALL_KEY = new URLSearchParams(location.search).get('k') || '';
+// 免登入的大螢幕：藏掉「回首頁」這種沒有帳號就走不通的入口。
+const KIOSK = !!WALL_KEY;
+// 快照模式。雲端沒有即時的 /api/dashboard（監視畫面與每分鐘查詢放雲端
+// 會燒光額度，見 docs/地端戰情室.md），只能讀地端推上來的快照。
+// 由 /api/branding 的 wallboard 旗標決定，在初始化時設定。
+let WALL = false;
+
+// 資料超過幾分鐘沒更新就在版頭示警。地端每 5 分鐘推一次快照，
+// 15 分鐘容得下連續漏推兩次，又不會讓牆上長時間顯示舊資料而沒人察覺。
+const STALE_AFTER_MIN = 15;
+
+async function fetchWall() {
+  const q = WALL_KEY ? '?k=' + encodeURIComponent(WALL_KEY) : '';
+  const r = await fetch('/api/wallboard' + q, { credentials: 'same-origin' });
+  if (r.status === 401) throw new Error(KIOSK
+    ? '看板權杖錯誤，請確認網址是否完整'
+    : '請先登入填報站，再從首頁進入戰情儀表板');
+  if (r.status === 404) throw new Error('尚無資料：地端主機還沒推送過快照');
+  if (!r.ok) throw new Error('讀取看板失敗（HTTP ' + r.status + '）');
+  return await r.json();
+}
+
+function tick() {
+  document.getElementById('clock').textContent =
+    new Date().toLocaleTimeString('zh-TW', { hour12: false });
+}
+setInterval(tick, 1000); tick();
+
+// 環境大磚的顯示順序，比照現場既有的看板，讓工地人員不必重新學習
+const ENV_ORDER = ['pm25', 'pm10', 'noise', 'temperature', 'humidity', 'heat_index'];
+const LEVEL_CLASS = ['ok', 'notice', 'warn', 'critical', 'critical'];
+
+function tile(label, value, unit, cls, tip) {
+  return `<div class="tile ${cls || ''}"${tip ? ` title="${esc(tip)}"` : ''}>
+    <div class="t-label">${esc(label)}</div>
+    <div class="t-value">${esc(String(value))}<u>${esc(unit || '')}</u></div>
+  </div>`;
+}
+
+function renderEnvironment(list, spec) {
+  const primary = list.find(s => s.site_code === PRIMARY_CODE) || list[0] || null;
+  const others = list.filter(s => s !== primary);
+
+  const nameEl = document.getElementById('siteName');
+  const lvlEl = document.getElementById('siteLevel');
+  const tilesEl = document.getElementById('envTiles');
+
+  if (!primary) {
+    nameEl.textContent = '現場即時';
+    lvlEl.className = 'env-level hidden';
+    tilesEl.innerHTML = '<p class="empty-state">尚無環境監測資料</p>';
+    document.getElementById('envBasis').textContent = '';
+    document.getElementById('otherSites').innerHTML = '';
+    document.getElementById('envTime').textContent = '';
+    // 沒有資料就不能留著舊的熱危害警示——牆上會變成一則沒有依據、
+    // 也永遠不會消失的法規指示。
+    renderHeatAlert(null);
+    renderNoiseAlert(null);
+    return;
+  }
+
+  nameEl.textContent = primary.site || primary.station;
+  lvlEl.className = 'env-level l' + primary.level;
+  lvlEl.textContent = primary.level_label;
+  // 原本最後一格還有一顆「危害等級」結論磚，和這個徽章顯示同一個值，
+  // 相距數公分——重複顯示，移除磚、說明掛在徽章上
+  lvlEl.title = '取各項指標中最高者。任何一項達到危險都必須反映出來，'
+              + '不能被其他正常的指標稀釋掉。';
+  document.getElementById('envTime').textContent =
+    primary.reading_at ? '量測於 ' + primary.reading_at.replace('T', ' ') : '';
+
+  // 主場站顯示全部數值，不做篩選——這是現場最關心的一塊
+  const cells = ENV_ORDER
+    .filter(k => primary.metrics[k] != null)
+    .map(k => {
+      const s = spec[k] || {};
+      // 判定依據與注意事項隨 API 一起送來，掛成 title 讓人查得到，
+      // 不必為了看一句說明去翻文件
+      const tip = [s.caveat, s.basis].filter(Boolean).join('　｜　');
+      return tile(s.label || k, primary.metrics[k], s.unit,
+                  LEVEL_CLASS[(primary.levels || {})[k] || 0], tip);
+    });
+
+  // 警示帶掃「全部」測站取最嚴重者，而不是只看主場站——結論膠囊掃的是
+  // 全部測站，兩者判定範圍不同時，非主場站達危險等級只會有一顆紅膠囊，
+  // 法定應辦措施完全不會出現在牆上。帶內會標明是哪個工地的警示。
+  const heatWorst = list.reduce((a, st) =>
+    (st.heat && (!a || st.heat.level > a.heat.level)) ? st : a, null);
+  const noiseWorst = list.reduce((a, st) => {
+    const lv = st.noise ? st.noise.level : 0;
+    const has = st.noise || (st.noise_alarm || []).length;
+    return (has && (!a || lv > (a.noise ? a.noise.level : 0))) ? st : a;
+  }, null);
+  renderHeatAlert(heatWorst);
+  renderNoiseAlert(noiseWorst);
+
+  tilesEl.innerHTML = cells.join('');
+
+  // 判定依據寫在牆上而不是只掛 title：大螢幕沒有人會把滑鼠移上去。
+  // 粉塵這兩項尤其要講清楚是環保 AQI——職安的粉塵容許濃度以 mg/m³ 計，
+  // 比這裡的數值高三個數量級，不標明會被誤讀成「PM 破表＝違反職安法」。
+  document.getElementById('envBasis').textContent =
+    '噪音／熱指數：職安法規門檻　｜　PM2.5、PM10：環境部空氣品質指標（環保），'
+    + '非職安法定暴露值';
+
+  document.getElementById('otherSites').innerHTML = others.length
+    ? '<span class="muted small">其他工地</span>' + others.map(s => `
+        <span class="other-item">
+          <b>${esc(s.site || s.station)}</b>
+          <span class="env-level l${s.level}">${esc(s.level_label)}</span>
+        </span>`).join('')
+    : '';
+}
+
+// 級距刻度。
+//
+// 牆上只寫「第二級」，不知情的人無從判斷那是輕是重、總共又有幾級，
+// 也不知道我們憑什麼這樣判。把整個級距、目前落在哪一段、以及法規依據
+// 一起攤在牆上，看板的人自己就能核對，不必來問。
+//
+// 級距與名稱都由 API 送來（源頭是法規門檻表），前端不自己寫一份。
+function levelScale(g) {
+  const rows = g.scale || [];
+  if (!rows.length) return '';
+  const segs = rows.map(r => {
+    // 只標下界：牆上要一眼掃過，每段都寫完整區間會變成一串數字牆
+    const edge = r.from == null ? '' : r.from;
+    const on = r.level === g.level ? ' on' : '';
+    return `<span class="sc-seg l${r.level}${on}">
+      <b>${esc(r.name)}</b><i>${edge === '' ? '' : esc(String(edge))}</i></span>`;
+  }).join('');
+  return `<div class="ha-scale">
+    <span class="sc-cur">第 ${g.level} 級 / 共 ${rows.length - 1} 級</span>
+    <span class="sc-bar">${segs}</span>
+    <span class="sc-basis">依據：${esc(g.basis || '')}</span>
+  </div>`;
+}
+
+// ---------------------------------------------------------------------------
+// 熱危害警示
+//
+// 只顯示「第三級」對現場沒有用——值班人員未必記得第三級要做什麼。
+// 因此把指引附表三的應辦措施直接寫在牆上，並在等級上升時主動彈出提醒。
+// ---------------------------------------------------------------------------
+let lastHeatLevel = null;      // null 代表尚無基準（首次載入不彈出）
+let lastHeatStation = null;    // 基準是哪一個測站的，換測站不算升級
+
+function renderHeatAlert(primary) {
+  const box = document.getElementById('heatAlert');
+  const heat = primary && primary.heat;
+
+  // 未達第一級就不佔版面。常態顯示的警示很快就會被當成背景而失去作用。
+  if (!heat || heat.level < 1) {
+    box.classList.add('hidden');
+    // 只有真的收到資料才更新基準。資料中斷時把基準歸零／清空的話，
+    // 下一次真正升到第三級就不會彈出提醒——偏偏那正是最需要提醒的時候。
+    if (heat) { lastHeatLevel = heat.level; lastHeatStation = primary.device_id; }
+    return;
+  }
+
+  box.className = `heat-alert l${heat.level}`;
+  // 操作要點是固定不變的數字（補水頻率、休息時間），佔一整行不划算，
+  // 改掛成提示；等級上升時的彈出提醒裡也會完整列出。
+  box.title = (heat.reminders || []).join(NEWLINE);
+  const sun = heat.if_direct_sun;
+  box.innerHTML = `
+    <div class="ha-head">
+      <span class="ha-level">熱危害 ${esc(heat.name)}</span>
+      <span class="ha-site">${esc(primary.site || primary.station)}</span>
+      <span class="ha-value">熱指數 ${esc(String(heat.value))}</span>
+      <span class="ha-principle">${esc(heat.principle)}</span>
+    </div>
+    <div class="ha-row"><b>本級重點</b>
+      <span>${(heat.focus || []).map(esc).join('　·　')}</span></div>
+    ${levelScale(heat)}
+    ${sun ? `<div class="ha-row ha-sun"><b>注意</b>
+      <span>陽光直接照射下作業或穿著不透氣防護衣物時，
+      依指引附表二備註三應提升為 ${esc(sun.name)}，並依該級採取措施</span></div>` : ''}`;
+
+  // 等級上升才彈出，且必須是「同一個測站」升級。
+  // 只比等級的話，切換工地或主場站未設定而改挑到更熱的測站時，
+  // 畫面只是換了對象卻會被判成升級，跳出一則不存在的警報。
+  const sameStation = lastHeatStation === primary.device_id;
+  if (sameStation && lastHeatLevel !== null && heat.level > lastHeatLevel) {
+    showHeatPopup(heat);
+  }
+  lastHeatLevel = heat.level;
+  lastHeatStation = primary.device_id;
+}
+
+function showHeatPopup(heat) {
+  const p = document.getElementById('heatPopup');
+  p.className = `heat-popup l${heat.level}`;
+  p.innerHTML = `
+    <div class="hp-title">熱危害風險等級提升至 ${esc(heat.name)}</div>
+    <div class="hp-value">熱指數 ${esc(String(heat.value))}</div>
+    <div class="hp-principle">${esc(heat.principle)}</div>
+    ${(heat.reminders || []).length ? `<div class="hp-reminders">${
+      heat.reminders.map(esc).join('　·　')}</div>` : ''}
+    <ul>${heat.measures.map(m => `<li>${esc(m)}</li>`).join('')}</ul>
+    <div class="hp-foot">依《高氣溫作業熱危害預防指引》附表二、附表三</div>`;
+
+  clearTimeout(showHeatPopup.timer);
+  // 牆上沒有人會去關掉它，因此一定要自動收起，否則會永遠蓋住儀表板
+  showHeatPopup.timer = setTimeout(() => p.classList.add('hidden'), 40000);
+  p.onclick = () => p.classList.add('hidden');
+}
+
+function renderPeople(hc) {
+  // 在場人數是緊急應變的第一個問題，因此獨立放大
+  document.getElementById('peopleTiles').innerHTML = (hc ? [
+    tile('現場在場人數', hc.headcount_present ?? '—', '人', 'tile-hero'),
+    tile('今日進場', hc.headcount_in ?? '—', '人次', ''),
+    tile('今日出場', hc.headcount_out ?? '—', '人次', ''),
+  ] : [tile('現場在場人數', '—', '', 'tile-hero'),
+       tile('今日進場', '—', '', ''),
+       tile('今日出場', '—', '', '')]).join('');
+}
+
+// 落後達此百分點才以紅色警示（低於此為琥珀）。月結資料有約一個月時滯，
+// 小幅落後屬正常波動；門檻是管理判斷，不是法規值。
+const PROG_BEHIND_RED = 3;
+
+// 今日重點工項 × 工程進度：每棟一張卡。
+// 原本工項在下方輪播裡，輪走了就看不到；進度磚又在另一區。
+// 併成同一張卡之後，「這棟做什麼、進度如何」是同一個視線落點。
+//
+// 工項超過單頁上限時「卡內自動翻頁」而不是收成 +N——收起來的工項與其
+// 危害提示會在整面牆上永久不可見，裝修高峰十項並行時等於只管前四項。
+let focusPage = 0;
+let focusData = null;
+let focusTimer = null;
+
+function renderFocus(d) {
+  focusData = d;
+  const band = document.getElementById('focusBand');
+  const tasks = d.today_tasks || [];
+  const prog = d.progress || [];
+  const codes = [...new Set([...tasks.map(t => t.site_code),
+                             ...prog.map(g => g.site_code)])].sort();
+  if (!codes.length) {
+    band.classList.add('hidden');
+    if (focusTimer) { clearInterval(focusTimer); focusTimer = null; }
+    return;
+  }
+  band.classList.remove('hidden');
+
+  const progBy = Object.fromEntries(prog.map(g => [g.site_code, g]));
+  const PER_PAGE = 4;   // 卡片高度固定，超過就翻頁
+  let needsPaging = false;
+
+  document.getElementById('focusCards').innerHTML = codes.map(code => {
+    const g = progBy[code];
+    const rows = tasks.filter(t => t.site_code === code);
+    const siteName = (g && g.site) || (rows[0] && rows[0].site) || code;
+    // 棟別標籤：優先用地端 BUILDING_LABELS 的對應（工地主檔改成單一工地
+    // 之後，名稱不再帶「-棟別」後綴）；沒有對應時退回原本的後綴切法
+    const bld = (g && g.building) || (rows[0] && rows[0].building)
+                || siteName.split('-').pop();
+
+    let chip = '<span class="prog-chip dim">進度 —</span>', sub = '';
+    if (g && g.source === 'schedule') {
+      // 列控表工期推算的「預定進度」：沒有實際值可對照，看不出超前落後，
+      // 用中性樣式且寫明推算依據——絕不能長得像左邊那種可下判斷的數字
+      chip = `<span class="prog-chip dim">預定 ${g.plan}%</span>`;
+      sub = `<span class="fcard-sub">預定進度 ${g.plan}％（依列控表工期推算，無實際值可對照）</span>`;
+    } else if (g && g.gap != null) {
+      // gap 有值才進「超前/落後」判讀。用欄位存在與否而不是排除法判斷：
+      // 後端將來加第三種 source（例如 daily_report）時，排除法會讓它
+      // 掉進這個分支，在牆上印出「落後 NaN%」
+      const ahead = g.gap >= 0;
+      const cls = ahead ? 'ok' : (g.gap <= -PROG_BEHIND_RED ? 'critical' : 'warn');
+      chip = `<span class="prog-chip ${cls}">${ahead ? '超前' : '落後'} ${Math.abs(g.gap)}%</span>`;
+      // 「金額」不可省：財務進度不是施工進度，混講會誤導現場
+      sub = `<span class="fcard-sub">金額進度 實際 ${g.actual}％／預估 ${g.est}％`
+          + `　截至 ${g.month} 月結</span>`;
+    }
+
+    const pages = Math.max(1, Math.ceil(rows.length / PER_PAGE));
+    if (pages > 1) needsPaging = true;
+    const pg = focusPage % pages;
+    const slice = rows.slice(pg * PER_PAGE, pg * PER_PAGE + PER_PAGE);
+
+    const body = rows.length ? slice.map(t => {
+      // 首日與末日特別標示（事故高發時點）。同日起訖的單日作業兩者皆真，
+      // 要講成「今日單日」——只標「今日開始」會讓人漏掉它今天就得收尾。
+      const phase = (t.first_day && t.last_day)
+                    ? '<span class="chip-start">今日單日</span>'
+                  : t.first_day ? '<span class="chip-start">今日開始</span>'
+                  : t.last_day  ? '<span class="chip-end">今日收尾</span>'
+                  : `<span class="ft-day">第 ${t.day_no}／${t.total_days} 天</span>`;
+      // 危害提示用中性外框，不再挪用缺失狀態的紅——牆上的紅只留給
+      // 「待改善／逾期」這類真的出事的東西，紅到處都是就沒有紅了
+      const chips = (t.hazards || [])
+        .map(h => `<span class="chip-hz">${esc(h)}</span>`).join('');
+      // 起訖日期直接上牆：大螢幕沒有人會滑鼠懸停，
+      // 「第 37 天」算得出剩幾天、算不出哪一天結束
+      return `<div class="fcard-task">
+        <span class="ft-name" title="${esc(t.name)}">${esc(t.name)}</span>
+        <span class="ft-range">${esc(t.start.slice(5))}~${esc(t.end.slice(5))}</span>
+        ${phase}<span class="ft-chips">${chips}</span></div>`;
+    }).join('') + (pages > 1
+      ? `<div class="fcard-more">共 ${rows.length} 項進行中・第 ${pg + 1}／${pages} 頁</div>` : '')
+      : '<div class="fcard-more">今日無列管工項</div>';
+
+    return `<div class="fcard">
+      <div class="fcard-head"><b>${esc(bld)}</b>${chip}${sub}</div>
+      ${body}</div>`;
+  }).join('');
+
+  // 只有真的需要翻頁才開計時器；資料變少時關掉，不留幽靈計時器
+  if (needsPaging && !focusTimer) {
+    focusTimer = setInterval(() => {
+      focusPage++;
+      if (focusData) renderFocus(focusData);
+    }, 10000);
+  } else if (!needsPaging && focusTimer) {
+    clearInterval(focusTimer); focusTimer = null;
+  }
+}
+
+// 七秒原則：畫面要在七秒內讓觀者吸收到關鍵資訊。
+// 做法是拉開視覺層級——異常的用顏色跳出來，沒事的（零值）降暗退到背景。
+// 八個磚全部等重的話，觀者得逐一讀完數字才知道哪裡有問題。
+function renderKpis(k) {
+  const dim = v => v ? '' : 'dim';
+  // 結案率依值上色。原本寫死綠色，31% 也顯示成一切正常——比不上色更糟。
+  // 門檻是管理上的內部基準，不是法規值，因此可以取整數。
+  const rateCls = k.closed_rate >= 90 ? 'ok'
+                : k.closed_rate >= 70 ? 'warn' : 'critical';
+  document.getElementById('kpis').innerHTML = [
+    tile('逾期未改善', k.overdue, '件', k.overdue ? 'critical' : 'dim'),
+    tile('今日新增缺失', k.findings_today, '件', k.findings_today ? 'warn' : 'dim'),
+    tile('未結案', k.open, '件', k.open ? 'warn' : 'dim'),
+    tile('結案率', k.closed_rate, '%', rateCls),
+    tile('當場改善', k.onsite_fixed, '件', dim(k.onsite_fixed)),
+    tile('限期改善', k.scheduled, '件', dim(k.scheduled)),
+    tile('改善時效中位數', k.median_fix_hours == null ? '—' : k.median_fix_hours,
+         '小時', k.median_fix_hours == null ? 'dim' : ''),
+    tile('今日已交巡檢單', k.inspections_today, '張', dim(k.inspections_today)),
+  ].join('');
+}
+
+// 整體結論。只放兩類真正需要行動的事：環境達警戒以上、缺失逾期未改善。
+// 「今日新增缺失」刻意不列入——工地每天本來就會有缺失，列進去會天天紅，
+// 警示疲乏之後，真正該紅的那天就沒有人抬頭了。
+function renderVerdict(d) {
+  const el = document.getElementById('verdict');
+  const items = [];
+
+  const env = d.environment || [];
+  if (!env.length) {
+    // 收不到環境數據時不可顯示「整體正常」——牆上此刻對環境是全盲的，
+    // 說正常是虛假的安心。資料中斷本身就是值班人員該處理的異常。
+    items.push('環境資料中斷');
+  } else {
+    const worst = env.reduce((a, s) => (s.level > a.level ? s : a), { level: 0 });
+    if (worst.level >= 2) {
+      items.push(`環境${worst.level_label}（${worst.site || worst.station}）`);
+    }
+  }
+  if (d.kpi && d.kpi.overdue > 0) items.push(`逾期未改善 ${d.kpi.overdue} 件`);
+
+  // 財務進度明顯落後也值得抬頭——但門檻要高（紅色門檻），
+  // 小幅落後天天掛在膠囊上會稀釋真正的警示
+  for (const g of d.progress || []) {
+    // 列控表推算的預定進度沒有實際值，判斷不了落後，不進警示
+    if (g.source === 'schedule') continue;
+    if (g.gap <= -PROG_BEHIND_RED) {
+      const bld = g.building || (g.site || '').split('-').pop();
+      items.push(`${bld}進度落後 ${Math.abs(g.gap)}%`);
+    }
+  }
+
+  el.classList.remove('hidden');
+  if (items.length) {
+    el.className = 'verdict bad';
+    el.textContent = '需注意：' + items.join('　·　');
+  } else {
+    el.className = 'verdict ok';
+    el.textContent = '整體正常';
+  }
+}
+
+function barlist(el, rows) {
+  const box = document.getElementById(el);
+  const max = Math.max(1, ...rows.map(r => r.count));
+  box.innerHTML = rows.length
+    ? rows.slice(0, 6).map(r => `
+      <div class="r"><div class="lbl">${esc(r.label)}</div>
+      <div class="track"><i style="width:${r.count / max * 100}%"></i></div>
+      <div class="v">${r.count}</div></div>`).join('')
+    : '<p class="empty-state">尚無資料</p>';
+
+  // 先畫再修：塞不下的直接移掉。
+  // 事前用列高估算不可靠——第一次渲染時還沒有列可以量，換一台螢幕就會
+  // 算錯而多出半列被裁掉。量實際結果最準，也不必為每種螢幕調參數。
+  while (box.scrollHeight > box.clientHeight + 1 && box.children.length > 1) {
+    box.removeChild(box.lastElementChild);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 噪音警示
+//
+// 和熱危害同一個道理：顯示「噪音 87 dB」對現場沒有用，值班人員未必知道
+// 85 分貝就已經觸發聽力保護計畫的法定義務。因此直接寫出該做哪幾件事。
+//
+// 措辭一律是「應評估、應確認」，不寫「違反規定」——我們量到的是即時音壓級，
+// 法規講的是 8 小時日時量平均，兩者不能畫等號。牆上出現法規判定現場會當真，
+// 判錯的代價是有人據此認為不必戴防護具。
+//
+// 版面比熱危害更精簡（只有一列），避免兩則警示同時出現時把下半部擠掉。
+// ---------------------------------------------------------------------------
+function renderNoiseAlert(primary) {
+  const box = document.getElementById('noiseAlert');
+  const n = primary && primary.noise;
+  const alarms = (primary && primary.noise_alarm) || [];
+
+  // 職安未達門檻、環保也沒有時段警報，就不佔版面
+  if (!n && !alarms.length) { box.classList.add('hidden'); return; }
+
+  box.className = `heat-alert noise-alert l${n ? n.level : 1}`;
+  box.title = n ? [n.caveat].concat(n.measures || []).join(NEWLINE) : '';
+
+  // 這個音量下每日還能待多久——比單純說「超標」對現場有用得多
+  const hours = n && n.allowed_hours != null
+    ? `<span class="ha-value">每日暴露上限 ${esc(String(n.allowed_hours))} 小時</span>`
+    : '';
+
+  // 時段警報是環保的營建工程周界噪音管制，與職安的聽力保護不同法源，
+  // 因此獨立標示而不併入等級，免得兩者被當成同一件事
+  const env = alarms.length
+    ? `<span class="na-period">環保時段管制：${esc(alarms.join('、'))}超標</span>`
+    : '';
+
+  box.innerHTML = n ? `
+    <div class="ha-head">
+      <span class="ha-level">噪音 ${esc(n.name)}</span>
+      <span class="ha-site">${esc(primary.site || primary.station)}</span>
+      <span class="ha-value">${esc(String(n.value))} dB</span>
+      ${hours}
+      <span class="ha-principle">${esc(n.principle)}</span>
+      ${env}
+    </div>
+    ${document.getElementById('heatAlert').classList.contains('hidden')
+        ? levelScale(n) : ''}
+    <div class="ha-row"><b>本級重點</b>
+      <span>${(n.focus || []).map(esc).join('　·　')}</span></div>` : `
+    <div class="ha-head">
+      <span class="ha-level">營建噪音時段管制</span>
+      ${env}
+      <span class="ha-principle">勞工聽力保護部分未達門檻；本項屬環保周界噪音管制</span>
+    </div>`;
+}
+
+// ---------------------------------------------------------------------------
+// 清單輪播
+//
+// 牆上不放捲軸，改為自動換頁：先把同一份清單分頁看完，再換下一份清單。
+// 每頁幾列由容器實際高度決定，換螢幕、換解析度都不必調參數。
+// ---------------------------------------------------------------------------
+const Rota = {
+  views: [], view: 0, page: 0, rowH: 0, headH: 0, timer: null,
+
+  set(views) {
+    this.views = views.filter(v => v.rows.length);
+    if (this.view >= this.views.length) { this.view = 0; this.page = 0; }
+    this.render();
+    if (!this.timer) this.timer = setInterval(() => this.next(), 10000);
+  },
+
+  /** 這個容器最多塞得下幾列。 */
+  capacity() {
+    const box = document.getElementById('rota');
+    if (!this.rowH) return 6;                       // 首次渲染前的暫用值
+    // 表頭高度和資料列不同，要各別量，否則在矮視窗會少算好幾列
+    return Math.max(1, Math.floor((box.clientHeight - this.headH) / this.rowH));
+  },
+
+  /**
+   * 每頁實際放幾列。
+   *
+   * 不是直接用容量填滿——22 筆、容量 21 會變成第一頁 21 列、第二頁 1 列，
+   * 牆上輪到那一頁就只剩孤零零一行。改為算出頁數後平均分配。
+   */
+  perPage(total) {
+    const cap = this.capacity();
+    if (!total || total <= cap) return cap;
+    return Math.ceil(total / Math.ceil(total / cap));
+  },
+
+  next() {
+    const v = this.views[this.view];
+    if (!v) return;
+    const pages = Math.max(1, Math.ceil(v.rows.length / this.perPage(v.rows.length)));
+    this.page += 1;
+    if (this.page >= pages) {
+      this.page = 0;
+      this.view = (this.view + 1) % this.views.length;
+    }
+    this.render();
+  },
+
+  render() {
+    const box = document.getElementById('rota');
+    const v = this.views[this.view];
+    if (!v) {
+      document.getElementById('rotaTitle').textContent = '最新動態';
+      document.getElementById('rotaCount').textContent = '';
+      document.getElementById('rotaDots').innerHTML = '';
+      box.innerHTML = '<p class="empty-state">尚無資料</p>';
+      return;
+    }
+
+    const per = this.perPage(v.rows.length);
+    const pages = Math.max(1, Math.ceil(v.rows.length / per));
+    if (this.page >= pages) this.page = 0;
+    const slice = v.rows.slice(this.page * per, this.page * per + per);
+
+    document.getElementById('rotaTitle').textContent = v.title;
+    document.getElementById('rotaCount').textContent =
+      `${v.rows.length} 筆　第 ${this.page + 1}／${pages} 頁`;
+    document.getElementById('rotaDots').innerHTML = this.views.map((_, i) =>
+      `<i class="${i === this.view ? 'on' : ''}"></i>`).join('');
+
+    box.innerHTML = `<table class="fixed ${v.cls}">
+      <thead><tr>${v.head.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead>
+      <tbody>${slice.map(v.row).join('')}</tbody></table>`;
+
+    // 量一次實際列高與表頭高，之後的分頁都以此為準
+    if (!this.rowH) {
+      const tr = box.querySelector('tbody tr');
+      const th = box.querySelector('thead');
+      // 必須確認量到的高度大於 0 才寫回：容器若當下沒有版面（被隱藏、
+      // 或尚未配置），量到 0 會讓 !this.rowH 永遠成立而無限遞迴，
+      // 整個儀表板會被 RangeError 換成「載入失敗」。
+      const h = tr ? tr.getBoundingClientRect().height : 0;
+      if (h > 0) {
+        this.rowH = h;
+        this.headH = th ? th.getBoundingClientRect().height : 0;
+        this.render();
+      }
+    }
+  },
+};
+
+function buildRota(d) {
+  const views = [];
+
+  // 單一工地之後，每列都印同一個工地名沒有資訊量，改顯示填報時選的
+  // 棟別（辦公棟／住宅棟）。舊資料沒有棟別，退回工地名；
+  // 完整工地名一律放進 title 供懸停查看。
+  const bldOf = x => x.building || x.site;
+
+  // 逾期排第一輪：這是清單裡唯一「需要立即行動」的內容。
+  // 排在最後的話，只看七秒的人看到的是最新動態，而不是最該處理的事。
+  // 沒有逾期時不佔一輪（Rota.set 會濾掉空清單）。
+  views.push({
+    title: '逾期未改善　需立即處理', cls: 'cols-overdue',
+    head: ['單號', '棟別', '缺失內容', '責任廠商／人', '期限', '逾期'],
+    rows: d.overdue_list,
+    row: o => `<tr>
+      <td class="num">${esc(o.no)}</td>
+      <td title="${esc(o.site)}">${esc(bldOf(o))}</td>
+      <td title="${esc(o.description)}">${esc(o.description)}</td>
+      <td>${esc(o.vendor)}${o.person ? '／' + esc(o.person) : ''}</td>
+      <td class="num">${esc(o.due_date || '')}</td>
+      <td><span class="tag overdue">${o.days_over} 天</span></td></tr>`,
+  });
+
+  views.push({
+    title: '最新缺失動態', cls: 'cols-recent',
+    head: ['時間', '棟別', '缺失內容', '責任廠商', '狀態'],
+    rows: d.recent,
+    row: r => `<tr>
+      <td class="num">${esc(r.found_at.replace('T', ' ').slice(5))}</td>
+      <td title="${esc(r.site)}">${esc(bldOf(r))}</td>
+      <td title="${esc(r.hazard_label)}：${esc(r.description)}">${esc(r.description)}</td>
+      <td>${esc(r.vendor)}</td>
+      <td>${statusTag(r.status)}</td></tr>`,
+  });
+
+  views.push({
+    title: '最新填報表單', cls: 'cols-forms',
+    head: ['日期', '棟別', '表單', '填報人', '結果'],
+    rows: d.recent_forms || [],
+    row: f => {
+      // 看板模式不掛 PDF 連結：pdf_url 是地端的相對路徑與地端流水號，
+      // 在雲端網域上會解析成雲端資料庫「同號」的另一張表單——點下去
+      // 開到別人的 PDF 比 404 更糟
+      const name = (f.pdf_url && !WALL)
+        ? `<a href="${esc(f.pdf_url)}" target="_blank">${esc(f.title)}</a>`
+        : esc(f.title);
+      return `<tr>
+        <td class="num">${esc(String(f.on_date).slice(5))}</td>
+        <td title="${esc(f.site)}">${esc(bldOf(f))}</td>
+        <td title="${esc(f.title)}">${name}</td>
+        <td>${esc(f.person || '—')}</td>
+        <td><span class="tag ${f.ok ? 'closed' : 'open'}">${esc(f.result)}</span></td>
+      </tr>`;
+    },
+  });
+
+  Rota.set(views);
+}
+
+// ---------------------------------------------------------------------------
+// 監視畫面
+//
+// 主機禁止被 iframe、又只有 http，因此由後端代理快照（見 lib/cctv.ts）。
+// 定時換圖即可，串流不在這一版範圍。
+// ---------------------------------------------------------------------------
+const Cam = {
+  channels: [], idx: 0, timer: null,
+
+  /** 監視器只接主場站，標題寫清楚，免得以為它會跟著工地選單切換。 */
+  setTitle(env) {
+    const primary = env.find(s => s.site_code === PRIMARY_CODE);
+    document.getElementById('camTitle').textContent =
+      primary ? `現場監視　${primary.site || primary.station}` : '現場監視';
+  },
+
+  async init() {
+    let info = null;
+    try {
+      info = await (await fetch('/api/cctv/channels',
+        { credentials: 'same-origin' })).json();
+    } catch (e) { return; }
+    if (!info || !info.enabled || !info.channels.length) return;
+
+    this.channels = info.channels;
+    document.getElementById('camPanel').classList.remove('hidden');
+    // 有畫面了才把「現場即時」切成兩欄，替監視格讓出右側欄位
+    document.querySelector('.band-live').classList.add('has-cam');
+    this.show();
+    // 一張快照約 385 KB，全部經由後端代理。牆上的畫面整天開著，
+    // 換得太勤會吃掉可觀的流量與函式呼叫次數，15 秒已足夠讓畫面「活著」。
+    this.timer = setInterval(() => this.show(), 15000);
+  },
+
+  fail(msg) {
+    // 清掉畫面前先釋放目前這張，否則每次失敗都會遺留一個 blob
+    const img0 = document.getElementById('camImg');
+    if (img0.dataset.objectUrl) {
+      URL.revokeObjectURL(img0.dataset.objectUrl);
+      delete img0.dataset.objectUrl;
+    }
+    // 用 <img src> 載入時，失敗只會留下一片黑而看不出原因。
+    // 改成自己取回內容，取不到就把理由寫在畫面上，現場才知道要找誰處理。
+    const err = document.getElementById('camError');
+    document.getElementById('camImg').removeAttribute('src');
+    err.textContent = msg;
+    err.classList.remove('hidden');
+  },
+
+  async show() {
+    const ch = this.channels[this.idx % this.channels.length];
+    if (this.channels.length > 1) this.idx += 1;
+    document.getElementById('camLabel').textContent = `鏡頭 ${ch}`;
+
+    let r;
+    try {
+      r = await fetch(`/api/cctv/snapshot?channel=${ch}&t=${Date.now()}`,
+        { credentials: 'same-origin' });
+    } catch (e) {
+      this.fail('無法連線至系統：' + (e && e.message || e));
+      return;
+    }
+
+    if (!r.ok) {
+      let msg = `畫面取得失敗（HTTP ${r.status}）`;
+      try { const j = await r.json(); if (j.detail) msg = j.detail; } catch (e) {}
+      this.fail(msg);
+      return;
+    }
+
+    const blob = await r.blob();
+    if (!blob.type.startsWith('image/')) {
+      this.fail('回傳的不是影像內容');
+      return;
+    }
+
+    // 畫面是由內網代理推上來的，可能比現在舊。牆上必須看得出來它多舊，
+    // 否則停止推送後會一直顯示同一張而沒人察覺。
+    const raw = r.headers.get('X-Snapshot-Age') || '';
+    const age = parseInt(raw, 10);
+    // 時間不明要明講。留白會讓一張不知道多舊的畫面看起來像剛拍的，
+    // 那比沒有畫面更容易誤導現場。
+    const when = Number.isFinite(age)
+      ? (age < 60 ? age + ' 秒前' : Math.round(age / 60) + ' 分鐘前')
+      : (raw === 'unknown' ? '時間不明' : '');
+    document.getElementById('camLabel').textContent =
+      `鏡頭 ${ch}${when ? '　' + when : ''}`;
+
+    const url = URL.createObjectURL(blob);
+    const img = document.getElementById('camImg');
+    // 舊的 object URL 要釋放，否則長時間輪播會一路累積佔用記憶體
+    const old = img.dataset.objectUrl;
+    // onload 與 onerror 都要釋放：只掛在 onload 的話，任何一張解不開的畫面
+    // 都會讓前一個 URL 永遠留著。牆上的分頁幾週不重整，會一路累積下去。
+    const release = () => { if (old) URL.revokeObjectURL(old); };
+    img.onload = release;
+    img.onerror = release;
+    img.dataset.objectUrl = url;
+    img.src = url;
+    document.getElementById('camError').classList.add('hidden');
+  },
+};
+
+async function load(preloaded) {
+  const site = document.getElementById('site').value;
+  const days = document.getElementById('days').value;
+
+  // 預設不指定工地：缺失統計、排行與趨勢都看全公司，
+  // 而環境與人數仍以主場站為主（由 renderEnvironment 依工地代碼挑出）。
+  //
+  // 看板模式讀的是地端推上來的快照，範圍在地端就決定了，忽略這裡的兩個選單
+  // （它們在看板模式已隱藏）。preloaded 是初始化流程已抓到的那份快照，
+  // 明確用參數傳進來，不透過共享變數猜「現在是不是第一次」。
+  let d;
+  if (WALL) {
+    const snap = preloaded || await fetchWall();
+    d = snap.dashboard;
+  } else {
+    d = await API.get(`/api/dashboard?days=${days}`
+      + (site ? '&site_id=' + site : ''));
+  }
+  // 這輪成功了，收掉上一輪失敗時掛出的警示
+  const stamp = document.getElementById('stamp');
+  stamp.classList.remove('stale');
+
+  // generated_at 是 UTC。直接印出來會和旁邊的時鐘差八小時，
+  // 值班人員只會覺得資料是八小時前的。
+  const genAt = new Date(d.generated_at);
+  stamp.textContent = '更新於 ' + genAt.toLocaleString('zh-TW',
+    { timeZone: 'Asia/Taipei', hour12: false,
+      month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+  // 資料過期要看得出來。看板模式下「讀取成功」不等於「資料是新的」：
+  // 地端主機關機或推送排程停掉時，雲端會繼續回傳最後那份快照並回 200，
+  // 牆上只會顯示一個舊時間戳、樣式完全正常——長官照著三天前的在場人數
+  // 做判斷，比畫面直接壞掉更危險。超過門檻就把時間戳標紅講明白。
+  const ageMin = (Date.now() - genAt.getTime()) / 60000;
+  if (ageMin > STALE_AFTER_MIN) {
+    stamp.classList.add('stale');
+    stamp.textContent = `⚠ 資料已停止更新 ${Math.floor(ageMin)} 分鐘`
+      + (WALL ? '（地端主機或推送排程可能已停止）' : '');
+  }
+
+  renderEnvironment(d.environment || [], d.environment_spec || {});
+  Cam.setTitle(d.environment || []);
+  renderPeople(d.headcount);
+  renderKpis(d.kpi);
+  renderFocus(d);
+  renderVerdict(d);
+  barlist('hazard', d.by_hazard);
+  barlist('vendor', d.by_vendor);
+
+  const maxT = Math.max(1, ...d.trend.map(t => t.count));
+  document.getElementById('trend').innerHTML = d.trend.map(t =>
+    `<div style="height:${t.count / maxT * 100}%" title="${t.date}：${t.count} 件"></div>`).join('');
+  document.getElementById('trendLabels').innerHTML =
+    `<span>${d.trend[0].date.slice(5)}</span>` +
+    `<span>${d.trend[d.trend.length - 1].date.slice(5)}</span>`;
+  buildRota(d);
+}
+
+(async () => {
+  // 先問這一側是哪種戰情室：地端有即時資料庫，雲端只有快照。
+  // 這一步要在任何取資料之前完成，後面的流程都看它分岔。
+  //
+  // 取不到就明確失敗，不要猜。猜錯的代價是：雲端被當成地端，
+  // 於是去打根本不存在的 /api/dashboard，使用者看到的是莫名其妙的
+  // 錯誤而不是「暫時讀不到」。丟出去由外層的重試接手。
+  const brand0 = await loadBranding();
+  if (!brand0) throw new Error('讀不到站台設定');
+  WALL = brand0.wallboard === true;
+
+  let firstSnap = null;   // 快照模式初始化抓的第一份，交給第一次 load() 沿用
+  if (WALL) {
+    // 先隱藏，再取資料——選單在快照模式一律無效，不該等抓取成功才藏，
+    // 否則連線失敗時畫面會是一則錯誤訊息配上兩個按了沒反應的選單。
+    // 快照是固定視圖（範圍在地端產生時就決定了），選單按了也不會變。
+    for (const id of ['site', 'days']) {
+      document.getElementById(id).classList.add('hidden');
+    }
+    // 「回首頁」只在免登入的大螢幕上藏起來——那裡沒有帳號，點了是死路。
+    // 從填報站登入進來的人反而需要它回去填表。
+    if (KIOSK) document.getElementById('homeLink').classList.add('hidden');
+
+    // 用快照裡的品牌設定覆蓋雲端的——快照來自地端，主場站代碼與公司名
+    // 才是對的；雲端的環境變數不一定同步。
+    firstSnap = await fetchWall();
+    // 只讓地端的品牌與主場站代碼覆蓋過來，但 wallboard 這個「我是哪一側」
+    // 的旗標必須留雲端的——快照來自地端，它帶的是 false，整份覆蓋會把
+    // 雲端標成地端（WALL 已先取好所以目前不會立即出錯，但那是巧合）。
+    if (firstSnap.branding) {
+      BRANDING = { ...BRANDING, ...firstSnap.branding, wallboard: true };
+    }
+    SITES = firstSnap.sites || [];
+  }
+
+  const brand = await renderBrand('war_room_name');
+  PRIMARY_CODE = (brand && brand.primary_site_code) || '';
+
+  if (!WALL) {
+    // 戰情室大螢幕可不登入直接開啟，因此這裡不使用會導向登入頁的 API.get
+    const r = await fetch('/api/sites', { credentials: 'same-origin' });
+    if (r.ok) SITES = await r.json();
+  }
+
+  // 預設「全部工地」：統計面看全公司，即時面（環境、人數、監視）仍以主場站為主
+  document.getElementById('site').innerHTML =
+    siteOptions(SITES, null, '全部工地');
+
+  document.getElementById('site').onchange = load;
+  document.getElementById('days').onchange = load;
+
+  await load(firstSnap);
+  // 監視畫面是即時代理到工地攝影機的，雲端連不到，看板模式連試都不用試。
+  // 這裡讓監視格整個不出現，而不是擺一個永遠寫著「看不到」的方框——
+  // 牆上這塊位置很貴，放一句永遠不會改變的話等於浪費掉它。
+  if (!WALL) Cam.init();
+  window.addEventListener('resize', () => { Rota.rowH = 0; Rota.headH = 0; Rota.render(); });
+})().catch(showLoadError)
+  // 不論初始化成功或失敗，都要把定時更新掛上。
+  // 這一行以前在 IIFE 裡面，於是初次載入一失敗（開機時網路慢一拍、
+  // 地端還沒推第一份快照）就連重試都不會註冊，整面牆整天停在錯誤畫面，
+  // 沒有人按 F5 它永遠不會自己好——對無人看管的大螢幕這是致命的。
+  .finally(startAutoRefresh);
+
+/** 把錯誤顯示在畫面上（初次載入用整頁，之後只標時間戳，見 tick）。 */
+function showLoadError(err) {
+  // 未登入的情況 API.get 已自行導向登入頁；其他錯誤要顯示出來，
+  // 不能一律跳轉，否則畫面只會莫名其妙彈回登入頁而查不出原因。
+  if (String(err && err.message) === '未登入') return;
+  document.querySelector('.war-body').innerHTML =
+    `<div class="band"><h3>載入失敗</h3>
+     <p class="muted">${esc(err && err.message || '未知錯誤')}</p>
+     <p class="muted">畫面會自動重試；若持續發生，請聯絡系統管理員。</p></div>`;
+}
+
+/** 掛上定時更新。整面牆沒有人在旁邊按 F5，所以：
+     1. 每一輪的失敗都要接住，否則一次 unhandled rejection 就再也不更新；
+     2. 初始化失敗時也要掛，讓暫時性的問題能自己恢復（恢復時整頁重畫）。 */
+function startAutoRefresh() {
+  let broken = document.querySelector('.war-body .band h3') !== null;
+  const tick = () => load().then(() => {
+    // 上一輪是錯誤畫面，這輪成功了——整頁已被錯誤訊息取代，重新載入
+    // 才能把版面找回來（DOM 元素都被 innerHTML 洗掉了）。
+    if (broken) location.reload();
+  }).catch(err => {
+    const el = document.getElementById('stamp');
+    if (!el) { broken = true; return; }   // 錯誤畫面時時間戳不存在
+    el.classList.add('stale');
+    el.textContent = '⚠ 更新失敗（' + (err && err.message || '連線問題')
+      + '），顯示的是最後一次成功的畫面';
+  });
+  // 看板讀的是地端推上來的快照，輪詢間隔與推送節奏（15 分）對齊：
+  // 讀得比資料更新還勤，只是對同一份內容重複付費。地端直連沒有這個
+  // 顧慮（不經雲端），維持每分鐘。
+  setInterval(tick, WALL ? 900000 : 60000);
+}
+</script>
+</body>
+</html>

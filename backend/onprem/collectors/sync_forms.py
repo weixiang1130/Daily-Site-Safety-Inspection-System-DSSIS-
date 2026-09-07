@@ -194,6 +194,10 @@ def sync_once(full: bool = False) -> tuple:
             site.department = row.get("department")
             site.sort_order = row.get("sort_order") or 0
             site.active = bool(row.get("active", True))
+            # 舊雲端尚未部署此欄位時保留本機值；空設定也須同步以傳遞刪除。
+            if "board_config" in row:
+                site.board_config = row["board_config"]
+                site.board_revision = row.get("board_revision") or 0
 
         for row in data.get("vendors", []):
             v = db.query(Vendor).filter(Vendor.code == row["code"]).first()

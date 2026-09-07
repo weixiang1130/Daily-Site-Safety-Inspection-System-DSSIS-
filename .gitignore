@@ -44,6 +44,8 @@ dist/
 # 編輯器 / 作業系統
 .vscode/
 .idea/
+# Claude Code 的本機啟動設定（含各機器自己的暫存路徑）
+.claude/
 .DS_Store
 Thumbs.db
 desktop.ini

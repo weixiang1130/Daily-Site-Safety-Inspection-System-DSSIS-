@@ -5,6 +5,7 @@
     uvicorn app.main:app --host 0.0.0.0 --port 8000
 """
 import base64
+import json
 import os
 import re
 import uuid
@@ -32,11 +33,12 @@ from .work_hazards import hazards_of
 from . import cctv
 from .db import (
     BASE_DIR, Coordination, CoordinationAttendee, DeviceReading, Finding, FormItem,
-    FormTemplate, Inspection, InspectionResult, PlannedTask, SessionLocal,
+    FormTemplate, Inspection, InspectionResult, NewsItem, PlannedTask, SessionLocal,
     Signature, Site, User,
-    Vendor, db_info, init_db,
+    Vendor, WorkLog, db_info, init_db,
 )
 from .pdf import build_coordination_pdf, build_inspection_pdf
+from .site_board import board_payload, validate_config
 
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 PHOTO_DIR = os.path.join(UPLOAD_DIR, "photos")
@@ -124,6 +126,137 @@ def need_login(request: Request):
     if not user:
         raise HTTPException(status_code=401, detail="請先登入")
     return user
+
+
+@app.get("/api/board-sites")
+def board_sites(request: Request, db: Session = Depends(get_db)):
+    if not PUBLIC_DASHBOARD:
+        need_login(request)
+    return [{"id": s.id, "code": s.code, "name": s.name}
+            for s in db.query(Site).filter(Site.active == True).order_by(Site.sort_order, Site.id)]
+
+
+@app.get("/api/site-board/{site_id}")
+def read_site_board(site_id: int, request: Request, db: Session = Depends(get_db)):
+    if not PUBLIC_DASHBOARD:
+        need_login(request)
+    site = db.get(Site, site_id)
+    if not site or not site.active:
+        raise HTTPException(404, "工地不存在或已停用")
+    result = board_payload(site)
+    result["management_url"] = os.environ.get("CLOUD_API_URL", "").rstrip("/")
+    return result
+
+
+@app.post("/api/site-board/{site_id}")
+def save_site_board(site_id: int, request: Request, payload: dict = Body(...),
+                    db: Session = Depends(get_db)):
+    session = need_login(request)
+    user = db.get(User, session["id"])
+    if not user or not user.active or not (user.role == "admin" or
+            (user.role in ("safety", "manager") and user.site_id == site_id)):
+        raise HTTPException(403, "僅管理員或所屬工地的職安人員、主管可維護")
+    if os.environ.get("CLOUD_API_URL", "").strip():
+        raise HTTPException(409, "請至雲端填報站維護，設定將隨表單同步帶回")
+    site = db.get(Site, site_id)
+    if not site or not site.active:
+        raise HTTPException(404, "工地不存在或已停用")
+    revision = payload.get("revision")
+    if type(revision) is not int or revision < 0:
+        raise HTTPException(400, "設定版本格式錯誤")
+    try:
+        config = validate_config(payload.get("config"))
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    config["updated_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
+    changed = db.query(Site).filter(Site.id == site_id,
+        func.coalesce(Site.board_revision, 0) == revision).update({
+        Site.board_config: json.dumps(config, ensure_ascii=False),
+        Site.board_revision: revision + 1}, synchronize_session=False)
+    if not changed:
+        db.rollback()
+        raise HTTPException(409, "其他人已更新，請重新載入再編輯")
+    db.commit()
+    db.refresh(site)
+    return board_payload(site)
+
+
+@app.get("/api/board-data/{site_id}")
+def board_data(site_id: int, request: Request, db: Session = Depends(get_db)):
+    """工地看板的整頁資料。
+
+    看板每分鐘輪詢一次，一次呼叫拿齊五個區塊（環境、缺失統計、出工、
+    無災害工時、職安新知），不讓牆面打五支 API。
+    """
+    if not PUBLIC_DASHBOARD:
+        need_login(request)
+    site = db.get(Site, site_id)
+    if not site or not site.active:
+        raise HTTPException(404, "工地不存在或已停用")
+    today = date.today()
+
+    # 環境：看板固定顯示主場站的測站；主場站對不到就退而取危害最高的一站
+    env_all = environment_snapshot(db)
+    primary_code = BRANDING["primary_site_code"]
+    station = next((s for s in env_all if s["site_code"] == primary_code),
+                   env_all[0] if env_all else None)
+
+    # 缺失統計：與儀表板同一口徑（近 30 日、不分工地）
+    rows = db.query(Finding).filter(
+        Finding.found_at >= datetime.now() - timedelta(days=30)).all()
+    stats = {
+        "findings_today": len([f for f in rows
+                               if f.found_at and f.found_at.date() == today]),
+        "open": len([f for f in rows if f.status in ("open", "fixed")]),
+        "overdue": len([f for f in rows if f.is_overdue]),
+        "onsite_fixed": len([f for f in rows if f.action_type == "onsite"]),
+    }
+
+    # 本日出工（工務所 LINE 出工回報，collectors/worklog.py 解析落地）
+    wl = (db.query(WorkLog).filter(WorkLog.report_date == today)
+          .order_by(WorkLog.building, WorkLog.vendor).all())
+    worklog = {
+        "date": today.isoformat(),
+        "total": sum(w.headcount or 0 for w in wl),
+        "rows": [{
+            "building": w.building, "vendor": w.vendor, "trade": w.trade,
+            "headcount": w.headcount, "supervisor": w.supervisor,
+            "tasks": w.tasks,
+            "reported_at": (w.reported_at.isoformat(timespec="minutes")
+                            if w.reported_at else None),
+        } for w in wl],
+    }
+
+    # 無災害工時：出工人數 × 8 小時累計。起算日（出過事就重算）與
+    # 起算前已累計的工時，由看板維護頁的無災害設定提供。
+    board = board_payload(site)
+    safety = board["config"].get("safety") or {}
+    base_hours = int(safety.get("base_hours") or 0)
+    start_raw = safety.get("start_date") or ""
+    q = (db.query(func.coalesce(func.sum(WorkLog.headcount), 0))
+         .filter(WorkLog.report_date <= today))
+    if start_raw:
+        q = q.filter(WorkLog.report_date >= date.fromisoformat(start_raw))
+    first_this = today.replace(day=1)
+    lm_end = first_this - timedelta(days=1)
+    lm = (db.query(func.coalesce(func.sum(WorkLog.headcount), 0))
+          .filter(WorkLog.report_date >= lm_end.replace(day=1),
+                  WorkLog.report_date <= lm_end).scalar())
+    hours = {
+        "total": base_hours + int(q.scalar() or 0) * 8,
+        "last_month": int(lm or 0) * 8,
+        "since": start_raw or None,
+    }
+
+    news = [{"title": n.title, "url": n.url,
+             "published": n.published.isoformat() if n.published else None}
+            for n in db.query(NewsItem)
+            .order_by(NewsItem.published.desc(), NewsItem.id.desc())
+            .limit(8).all()]
+
+    return {"generated_at": datetime.now().isoformat(timespec="seconds"),
+            "station": station, "stats": stats, "worklog": worklog,
+            "hours": hours, "news": news, "board": board}
 
 
 def clean_building(payload: dict):
@@ -677,6 +810,76 @@ def findings_summary(db: Session = Depends(get_db), user=Depends(need_login)):
     }
 
 
+def environment_snapshot(db: Session, site_by_id: dict = None,
+                         site_by_code: dict = None) -> list:
+    """各測站的環境即時值與危害判定。儀表板與工地看板共用。
+
+    每個測站每個指標取三小時內最新的一筆，危害等級高的排前面。
+    """
+    if site_by_id is None or site_by_code is None:
+        _all_sites = db.query(Site).all()
+        site_by_id = {s.id: s for s in _all_sites}
+        site_by_code = {s.code: s for s in _all_sites if s.code}
+
+    env_since = datetime.now() - timedelta(hours=3)
+    env_rows = (db.query(DeviceReading)
+                .filter(DeviceReading.device_type == "env",
+                        DeviceReading.reading_at >= env_since)
+                .order_by(DeviceReading.reading_at.desc()).all())
+
+    stations = {}
+    for r in env_rows:
+        st = stations.setdefault(r.device_id, {
+            "device_id": r.device_id, "site": None, "site_code": r.site_code,
+            "station": r.device_id, "reading_at": None, "metrics": {},
+        })
+        if r.metric in st["metrics"]:
+            continue                      # 已取到更新的一筆
+        st["metrics"][r.metric] = float(r.value_num) if r.value_num is not None else None
+        stamp = r.reading_at.isoformat(timespec="minutes")
+        if st["reading_at"] is None or stamp > st["reading_at"]:
+            st["reading_at"] = stamp
+        if st["site"] is None:
+            # 先用 site_id，沒有就退而用 site_code 對。收集程式若在工地資料
+            # 同步進來之前就跑過，那批讀值的 site_id 會是空的，只認 site_id
+            # 會讓牆上顯示一串 MAC 位址而不是工地名稱。
+            site_obj = site_by_id.get(r.site_id) if r.site_id else None
+            if site_obj is None and r.site_code:
+                site_obj = site_by_code.get(r.site_code)
+            if site_obj:
+                st["site"] = site_obj.name
+                st["site_code"] = site_obj.code
+
+    environment = []
+    for st in stations.values():
+        # 廠商的危害等級不可信（實測熱指數 49.4 仍回報 0），排除在判定之外。
+        # 噪音時段警報也排除：那是環保的營建工程周界噪音管制，與勞工聽力
+        # 保護是兩回事，併進危害等級會讓現場以為「環保沒超標＝聽力沒問題」。
+        judged = {k: v for k, v in st["metrics"].items()
+                  if k not in ("hazard_level", "vendor_hazard_level")
+                  and not k.startswith("noise_alarm")}
+        st["levels"] = {k: level_of(k, v) for k, v in judged.items()}
+        st["level"] = station_level(judged)
+        st["level_label"] = LEVEL_LABEL[st["level"]]
+
+        hi = judged.get("heat_index")
+        if hi is None and judged.get("temperature") is not None \
+                and judged.get("humidity") is not None:
+            hi = heat_index_c(judged["temperature"], judged["humidity"])
+        st["heat"] = heat_guidance(hi)
+
+        # 噪音：職安的聽力保護（依即時音壓級）與環保的時段管制（廠商旗標）
+        # 分開呈現，兩者法源與主管機關都不同
+        st["noise"] = noise_guidance(judged.get("noise"))
+        st["noise_alarm"] = period_alarms(st["metrics"])
+
+        environment.append(st)
+
+    # 危害等級高的排前面，值班人員第一眼就看到最需要處理的工地
+    environment.sort(key=lambda x: -x["level"])
+    return environment
+
+
 @app.get("/api/dashboard")
 def dashboard(request: Request, site_id: int = None, days: int = 30,
               db: Session = Depends(get_db)):
@@ -756,66 +959,11 @@ def dashboard(request: Request, site_id: int = None, days: int = 30,
     # 牆上重點工項與進度卡片的棟別標籤，模組層解析一次（見 BUILDING_LABELS）
     bld_labels = BUILDING_LABELS
 
-    # 環境：每個測站每個指標取三小時內最新的一筆
-    env_since = datetime.now() - timedelta(hours=3)
-    env_rows = (db.query(DeviceReading)
-                .filter(DeviceReading.device_type == "env",
-                        DeviceReading.reading_at >= env_since)
-                .order_by(DeviceReading.reading_at.desc()).all())
-
     _all_sites = db.query(Site).all()
     site_by_id = {s.id: s for s in _all_sites}
     site_by_code = {s.code: s for s in _all_sites if s.code}
 
-    stations = {}
-    for r in env_rows:
-        st = stations.setdefault(r.device_id, {
-            "device_id": r.device_id, "site": None, "site_code": r.site_code,
-            "station": r.device_id, "reading_at": None, "metrics": {},
-        })
-        if r.metric in st["metrics"]:
-            continue                      # 已取到更新的一筆
-        st["metrics"][r.metric] = float(r.value_num) if r.value_num is not None else None
-        stamp = r.reading_at.isoformat(timespec="minutes")
-        if st["reading_at"] is None or stamp > st["reading_at"]:
-            st["reading_at"] = stamp
-        if st["site"] is None:
-            # 先用 site_id，沒有就退而用 site_code 對。收集程式若在工地資料
-            # 同步進來之前就跑過，那批讀值的 site_id 會是空的，只認 site_id
-            # 會讓牆上顯示一串 MAC 位址而不是工地名稱。
-            site_obj = site_by_id.get(r.site_id) if r.site_id else None
-            if site_obj is None and r.site_code:
-                site_obj = site_by_code.get(r.site_code)
-            if site_obj:
-                st["site"] = site_obj.name
-                st["site_code"] = site_obj.code
-
-    environment = []
-    for st in stations.values():
-        # 廠商的危害等級不可信（實測熱指數 49.4 仍回報 0），排除在判定之外。
-        # 噪音時段警報也排除：那是環保的營建工程周界噪音管制，與勞工聽力
-        # 保護是兩回事，併進危害等級會讓現場以為「環保沒超標＝聽力沒問題」。
-        judged = {k: v for k, v in st["metrics"].items()
-                  if k not in ("hazard_level", "vendor_hazard_level")
-                  and not k.startswith("noise_alarm")}
-        st["levels"] = {k: level_of(k, v) for k, v in judged.items()}
-        st["level"] = station_level(judged)
-        st["level_label"] = LEVEL_LABEL[st["level"]]
-
-        hi = judged.get("heat_index")
-        if hi is None and judged.get("temperature") is not None                 and judged.get("humidity") is not None:
-            hi = heat_index_c(judged["temperature"], judged["humidity"])
-        st["heat"] = heat_guidance(hi)
-
-        # 噪音：職安的聽力保護（依即時音壓級）與環保的時段管制（廠商旗標）
-        # 分開呈現，兩者法源與主管機關都不同
-        st["noise"] = noise_guidance(judged.get("noise"))
-        st["noise_alarm"] = period_alarms(st["metrics"])
-
-        environment.append(st)
-
-    # 危害等級高的排前面，值班人員第一眼就看到最需要處理的工地
-    environment.sort(key=lambda x: -x["level"])
+    environment = environment_snapshot(db, site_by_id, site_by_code)
 
     # 人數：一小時內最新一筆。固定以主場站為準，解析不到就不顯示——
     # 退回全公司加總會把總和放在單一工地名稱底下，疏散時會照著錯的數字點名。

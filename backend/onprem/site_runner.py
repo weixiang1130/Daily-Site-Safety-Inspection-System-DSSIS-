@@ -33,7 +33,7 @@ from app.envfile import load_env
 load_env()          # 必須在 import app.main 之前——它在模組層讀環境變數
 
 from app.db import init_db          # noqa: E402
-from collectors import face, sync_forms, weather  # noqa: E402
+from collectors import face, osha_news, sync_forms, weather, worklog  # noqa: E402
 from collectors.config import env, log  # noqa: E402
 
 
@@ -127,7 +127,20 @@ def main() -> None:
         threading.Thread(target=loop_simple, name="face",
                          args=("face", face.poll_once,
                                "FACE_INTERVAL", 300), daemon=True),
+        # 職安署新知：無需設定，一律啟動（來源是公開網站）
+        threading.Thread(target=loop_simple, name="osha_news",
+                         args=("osha_news", osha_news.poll_once,
+                               "OSHA_NEWS_INTERVAL", osha_news.DEFAULT_INTERVAL),
+                         daemon=True),
     ]
+    # 出工回報：沿用「沒填設定就安靜跳過」的慣例
+    if (env("WORKLOG_SHEET_URL") or "").strip():
+        jobs.append(threading.Thread(
+            target=loop_simple, name="worklog",
+            args=("worklog", worklog.poll_once,
+                  "WORKLOG_INTERVAL", worklog.DEFAULT_INTERVAL), daemon=True))
+    else:
+        log("[worklog] 未設定 WORKLOG_SHEET_URL，本日出工一覽表不會有資料")
     for j in jobs:
         j.start()
 
