@@ -241,9 +241,11 @@ $ip = (Get-NetIPAddress -AddressFamily IPv4 |
        Select-Object -First 1).IPAddress
 Write-Host @"
 
-內網大螢幕的網址：
-    http://$env:COMPUTERNAME`:$Port/static/dashboard-detail.html
-    http://$ip`:$Port/static/dashboard-detail.html
+內網大螢幕——工地看板（五區塊）：
+    http://$env:COMPUTERNAME`:$Port/static/dashboard.html
+    http://$ip`:$Port/static/dashboard.html
+  戰情室彙總（KPI、缺失輪播、監視器）在同頁的「詳細戰情」連結，
+  或直接開 /static/dashboard-detail.html
 
 工地電腦看的是雲端看板，網址不同（見 docs/地端戰情室.md）：
     https://<你的站台>/static/dashboard-detail.html?k=<WALL_TOKEN>
