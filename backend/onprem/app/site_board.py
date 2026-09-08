@@ -65,23 +65,23 @@ def validate_config(value):
             out[key].append(cleaned)
     out["schedule"].sort(key=lambda x: x["start"])
 
-    # 無災害紀錄的起算設定。工時由出工回報自動累計（人數×8），但
-    # 「從哪一天起算」與「起算前已累計的工時」系統無從得知，由工地填。
+    # 無災害紀錄的起算設定。天數自起算日逐日累計，但「從哪一天起算」
+    # 與「起算前已累計的天數」系統無從得知，由工地填。
     safety = value.get("safety") or {}
     if not isinstance(safety, dict):
         raise ValueError("無災害設定格式錯誤")
     start = safety.get("start_date", "")
-    hours = safety.get("base_hours", "")
-    if not isinstance(start, str) or not isinstance(hours, str):
+    days = safety.get("base_days", "")
+    if not isinstance(start, str) or not isinstance(days, str):
         raise ValueError("無災害設定格式錯誤")
-    start, hours = start.strip(), hours.strip()
+    start, days = start.strip(), days.strip()
     if start:
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", start):
             raise ValueError("無災害起算日格式錯誤")
         date.fromisoformat(start)
-    if hours and not re.fullmatch(r"\d{1,9}", hours):
-        raise ValueError("起算前累計工時請填整數")
-    out["safety"] = {"start_date": start, "base_hours": hours}
+    if days and not re.fullmatch(r"\d{1,7}", days):
+        raise ValueError("起算前累計天數請填整數")
+    out["safety"] = {"start_date": start, "base_days": days}
     return out
 
 
@@ -90,6 +90,6 @@ def board_payload(site):
     config.setdefault("contacts", [])
     config.setdefault("schedule", [])
     config.setdefault("announcements", [])
-    config.setdefault("safety", {"start_date": "", "base_hours": ""})
+    config.setdefault("safety", {"start_date": "", "base_days": ""})
     return {"site_id": site.id, "site_code": site.code, "site_name": site.name,
             "revision": site.board_revision or 0, "config": config}

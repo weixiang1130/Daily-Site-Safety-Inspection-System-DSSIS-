@@ -57,12 +57,12 @@
 
   <div class="card editor-card">
     <h2>無災害紀錄起算</h2>
-    <p class="muted">累計工時＝起算前累計＋起算日之後的出工人數×8 小時
-      （出工人數取自工務所群組的出工回報）。發生災害後請把起算日改為復工日、
+    <p class="muted">累計天數＝起算前已累計天數＋自起算日起逐日累計
+      （起算日當天算第 1 天）。發生災害後請把起算日改為復工日、
       起算前累計歸零。</p>
     <div class="row">
       <div><label>起算日</label><input type="date" id="safetyStart"></div>
-      <div><label>起算前已累計工時（沒有就填 0）</label>
+      <div><label>起算前已累計天數（沒有就填 0）</label>
         <input type="number" id="safetyBase" min="0" step="1" placeholder="0"></div>
     </div>
   </div>
@@ -124,7 +124,7 @@ async function load() {
   }
   const s = d.config.safety || {};
   document.getElementById('safetyStart').value = s.start_date || '';
-  document.getElementById('safetyBase').value = s.base_hours || '';
+  document.getElementById('safetyBase').value = s.base_days || '';
 }
 
 const ROW_FIELDS = {
@@ -183,7 +183,7 @@ async function save(ev) {
         announcements: collect('announcements'),
         safety: {
           start_date: document.getElementById('safetyStart').value.trim(),
-          base_hours: document.getElementById('safetyBase').value.trim(),
+          base_days: document.getElementById('safetyBase').value.trim(),
         },
       },
     });

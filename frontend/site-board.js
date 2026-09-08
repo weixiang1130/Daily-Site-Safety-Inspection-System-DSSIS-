@@ -160,6 +160,7 @@ function buildNotices() {
       title: hz.slice(0, 4).map(h => h.label).join('、') + '——今日作業請注意',
       body: hz.slice(0, 5).map(h =>
         `・${h.label}：${h.sources.slice(0, 4).join('、')}`).join('\n'),
+      cls: 'hazard',   // 專屬放大樣式：這張是要現場抬頭看完的
       source: '依本日出工回報與列控表工項自動對應（提示用，管制依各作業自主檢查表）',
     });
   }
@@ -199,14 +200,14 @@ function showNotice(idx) {
 // 02 無災害紀錄
 // ---------------------------------------------------------------------------
 function renderRecords() {
-  const h = DATA.hours;
-  document.getElementById('hoursTotal').innerHTML =
-    `${h.total.toLocaleString()} <small>工時</small>`;
-  document.getElementById('hoursNote').textContent = h.since
-    ? `自 ${h.since} 起算，依出工回報累計（人數×8 小時）`
-    : '依出工回報累計（人數×8 小時）；起算日請至看板管理設定';
+  const r = DATA.record;
+  document.getElementById('recordDays').innerHTML =
+    `${r.days.toLocaleString()} <small>天</small>`;
+  document.getElementById('recordNote').textContent = r.since
+    ? `自 ${r.since} 起算`
+    : '未設定起算日（暫以最早出工回報日起算）；請至看板管理設定';
   document.getElementById('lastMonth').textContent =
-    h.last_month ? `${h.last_month.toLocaleString()} 工時` : '—';
+    r.last_month_mandays ? `${r.last_month_mandays.toLocaleString()} 人日` : '—';
 
   const s = DATA.stats;
   document.getElementById('stats').innerHTML = [

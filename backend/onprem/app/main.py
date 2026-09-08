@@ -254,24 +254,27 @@ def board_data(site_id: int, request: Request, db: Session = Depends(get_db)):
         [{"label": k, "sources": v} for k, v in hazard_map.items()],
         key=lambda x: -len(x["sources"]))
 
-    # 無災害工時：出工人數 × 8 小時累計。起算日（出過事就重算）與
-    # 起算前已累計的工時，由看板維護頁的無災害設定提供。
+    # 無災害紀錄以「天」計：起算日當天算第 1 天，逐日累計；起算日
+    # （出過事就改成復工日重算）與起算前已累計天數由看板維護頁提供。
+    # 未設定起算日時暫以最早一筆出工回報的日期起算，牆上會註明。
     board = board_payload(site)
     safety = board["config"].get("safety") or {}
-    base_hours = int(safety.get("base_hours") or 0)
+    base_days = int(safety.get("base_days") or 0)
     start_raw = safety.get("start_date") or ""
-    q = (db.query(func.coalesce(func.sum(WorkLog.headcount), 0))
-         .filter(WorkLog.report_date <= today))
     if start_raw:
-        q = q.filter(WorkLog.report_date >= date.fromisoformat(start_raw))
+        start_d = date.fromisoformat(start_raw)
+    else:
+        start_d = db.query(func.min(WorkLog.report_date)).scalar()
+    days = base_days + (max((today - start_d).days, 0) + 1 if start_d else 0)
+    # 上月總出工（人日）：出工回報人數逐日加總
     first_this = today.replace(day=1)
     lm_end = first_this - timedelta(days=1)
     lm = (db.query(func.coalesce(func.sum(WorkLog.headcount), 0))
           .filter(WorkLog.report_date >= lm_end.replace(day=1),
                   WorkLog.report_date <= lm_end).scalar())
-    hours = {
-        "total": base_hours + int(q.scalar() or 0) * 8,
-        "last_month": int(lm or 0) * 8,
+    record = {
+        "days": days,
+        "last_month_mandays": int(lm or 0),
         "since": start_raw or None,
     }
 
@@ -283,7 +286,7 @@ def board_data(site_id: int, request: Request, db: Session = Depends(get_db)):
 
     return {"generated_at": datetime.now().isoformat(timespec="seconds"),
             "station": station, "stats": stats, "worklog": worklog,
-            "hours": hours, "hazards": hazards, "news": news, "board": board}
+            "record": record, "hazards": hazards, "news": news, "board": board}
 
 
 def clean_building(payload: dict):

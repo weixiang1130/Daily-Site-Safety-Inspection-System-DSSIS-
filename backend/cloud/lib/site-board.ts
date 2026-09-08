@@ -48,24 +48,24 @@ export function validateBoard(value: any) {
   }
   out.schedule.sort((a: any, b: any) => a.start.localeCompare(b.start));
 
-  // 無災害紀錄的起算設定：起算日與起算前已累計的工時由工地填，
-  // 之後的工時由出工回報自動累計（人數×8）
+  // 無災害紀錄的起算設定：天數自起算日逐日累計，起算日與起算前
+  // 已累計的天數由工地填
   const safety = value.safety ?? {};
   if (!safety || typeof safety !== 'object' || Array.isArray(safety)) throw Error('無災害設定格式錯誤');
-  const start = safety.start_date ?? '', hours = safety.base_hours ?? '';
-  if (typeof start !== 'string' || typeof hours !== 'string') throw Error('無災害設定格式錯誤');
-  const s = start.trim(), h = hours.trim();
+  const start = safety.start_date ?? '', days = safety.base_days ?? '';
+  if (typeof start !== 'string' || typeof days !== 'string') throw Error('無災害設定格式錯誤');
+  const s = start.trim(), d = days.trim();
   if (s && (!/^\d{4}-\d{2}-\d{2}$/.test(s) || !Number.isFinite(Date.parse(s))
       || new Date(s).toISOString().slice(0, 10) !== s)) throw Error('無災害起算日格式錯誤');
-  if (h && !/^\d{1,9}$/.test(h)) throw Error('起算前累計工時請填整數');
-  out.safety = {start_date: s, base_hours: h};
+  if (d && !/^\d{1,7}$/.test(d)) throw Error('起算前累計天數請填整數');
+  out.safety = {start_date: s, base_days: d};
   return out;
 }
 
 export function boardPayload(site: any) {
   const config = site.board_config ? JSON.parse(site.board_config) : {};
   config.contacts ??= []; config.schedule ??= []; config.announcements ??= [];
-  config.safety ??= {start_date: '', base_hours: ''};
+  config.safety ??= {start_date: '', base_days: ''};
   return {site_id: site.id, site_code: site.code, site_name: site.name,
     revision: site.board_revision || 0, management_url: '', config};
 }
