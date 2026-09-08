@@ -56,8 +56,11 @@ LAUNCH_CMD = "啟動儀表板.cmd"
 # 檢視器會用到的收集程式。刻意不整包複製 collectors/：finops.py 與
 # access.py 需要公司內網與 pyodbc（包內沒裝驅動），放進去只會讓人
 # 誤跑然後對著 ModuleNotFoundError 檢討半天。
+# site_runner 模組層 import 的每一支都要在這裡：漏一支，包出去的檢視器
+# 會在啟動時 ImportError、連網頁伺服器都起不來（啟動 cmd 還會每 10 秒
+# 重啟進入無聲的崩潰迴圈）
 VIEWER_COLLECTORS = ("__init__.py", "config.py", "weather.py", "face.py",
-                     "sync_forms.py")
+                     "sync_forms.py", "worklog.py", "osha_news.py")
 
 # 打包用的 Python 版本。embeddable zip 與 pip 下載的 wheel 必須同一版，
 # 改版號時兩處會一起變。3.12 是目前 wheel 生態最齊的穩定版。

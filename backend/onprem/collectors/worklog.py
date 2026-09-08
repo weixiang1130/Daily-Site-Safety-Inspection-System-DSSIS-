@@ -4,8 +4,8 @@
 --------
 各協力商每天早上在工務所 LINE 群組發「出工回報」訊息 → 群組 webhook 把
 訊息落到 Google 試算表 → 這支程式定時抓試算表的 CSV 匯出、解析訊息、
-寫進本機資料庫（work_logs 表）。看板依當日日期彙整顯示，無災害工時
-也由出工人數累計（人數 × 8 小時）。
+寫進本機資料庫（work_logs 表）。看板依當日日期彙整顯示，
+上月總出工（人日）也由此加總。
 
 為什麼用啟發式解析
 ------------------
@@ -57,7 +57,7 @@ WORK_WORDS = ("綁紮", "模板", "水電", "帷幕", "鋼筋", "鋼構", "放�
               "封模", "組立", "吊裝", "泥作", "油漆", "防水", "機電", "地改",
               "假設工程")
 
-# 這些是施工機具不是工種——長榮鋼構這類廠商會把「760塔吊*1」列在人數
+# 這些是施工機具不是工種——鋼構類廠商常把「760塔吊*1」列在人數
 # 清單旁邊，不濾掉的話工種欄會混進機具、加總人數也會多算
 MACHINE_WORDS = ("堆高機", "塔吊", "作業車", "挖掘機", "吊車", "吊卡")
 
@@ -65,8 +65,12 @@ ROC_DATE = re.compile(r"(1[0-9]{2})[/.．](\d{1,2})[/.．](\d{1,2})")
 AD_DATE = re.compile(r"(20\d{2})[/.．-](\d{1,2})[/.．-](\d{1,2})")
 STAR_COUNT = re.compile(r"([一-鿿\w]{1,8})\s*[*×xX＊]\s*(\d+)")
 COLON_COUNT = re.compile(r"^([^\s：:]{1,8})\s*[：:]\s*(\d+)\s*[人名]?\s*$")
-# 出工數：15人／本籍出工數：3人＋外籍出工數：11人（加總）／總人數：16人
-TOTAL_COUNT = re.compile(r"(?:出工數|總人數)[^0-9]{0,6}(\d+)")
+# 人數的兩層總計。[^0-9\n] 不可跨行：跨行的話「出工數：」空欄接下一行的
+# 「1.鋼筋綁紮」會把編號 1 當成總人數。
+# GRAND（總人數／合計）獨佔：訊息同時列「本籍出工數3＋外籍出工數11」
+# 與「總人數14」時，只能取 14，全部加總會變 28。
+GRAND_COUNT = re.compile(r"(?:總人數|合計)[^0-9\n]{0,6}(\d+)")
+TOTAL_COUNT = re.compile(r"出工數[^0-9\n]{0,6}(\d+)")
 SUPERVISOR = re.compile(r"作業主管(?:姓名)?[：:\s]\s*([^\s，,、：:]{2,10})")
 TASK_LINE = re.compile(r"^\d+[.、)]\s*(.+)$")
 # 「本公司移工 13人」——廠商行自帶人數的寫法
@@ -131,9 +135,11 @@ def _strip_meta(line: str, labels: list) -> str:
     s = s.replace("出工回報", "")
     for lb in labels:
         s = s.replace(lb, "")
-    # 「A棟」「B251 住宅棟」這類分區代號不是廠商
+    # 「A棟」「B251 住宅棟」這類分區代號不是廠商。字母後面必須跟著
+    # 數字或「棟」——兩者都寫成 optional 的話，規則會退化成「刪掉任何
+    # 1~2 個英文字母」，英文開頭的廠商名（如 ABC營造）就被切爛了
     s = re.sub(r"[一-鿿]{1,4}棟", "", s)
-    s = re.sub(r"[A-Za-z]{1,2}\d{0,4}棟?", "", s)
+    s = re.sub(r"[A-Za-z]{1,2}(?:\d{1,4}棟?|棟)", "", s)
     return s.strip(" -－：:／/，,、。　")
 
 
@@ -151,10 +157,13 @@ def parse_message(content: str, labels: list, fallback_date: Optional[date]) -> 
     def is_machine(name: str) -> bool:
         return any(w in name for w in MACHINE_WORDS)
 
-    # 人數：明寫的「出工數／總人數」優先（本籍＋外籍分列時加總）；
-    # 否則加總「工種*人數」；再否則加總「工種：N人」行（此時工程師、
-    # 製圖員等也會計入——訊息沒給總數，只能全列都算）。機具不算人。
-    totals = [int(n) for n in TOTAL_COUNT.findall(content)]
+    # 人數優先序：總人數／合計（取最後一個，且不再加總其他項）→
+    # 「出工數」們加總（本籍＋外籍分列）→「工種*人數」加總 →
+    # 「工種：N人」行加總（此時工程師、製圖員等也會計入——訊息沒給
+    # 總數，只能全列都算）。機具不算人。
+    grands = [int(n) for n in GRAND_COUNT.findall(content)]
+    totals = [grands[-1]] if grands else \
+        [int(n) for n in TOTAL_COUNT.findall(content)]
     star_pairs = [(name, int(n)) for name, n in STAR_COUNT.findall(content)
                   if not is_machine(name)]
     colon_pairs = []
@@ -175,7 +184,7 @@ def parse_message(content: str, labels: list, fallback_date: Optional[date]) -> 
     else:
         headcount = None
 
-    # 工種摘要：0 人的班別不上牆（長榮的回報把沒出工的班別也列出來）
+    # 工種摘要：0 人的班別不上牆（鋼構廠商的回報把沒出工的班別也列出來）
     trade_parts = [f"{name}{n}" for name, n in star_pairs + colon_pairs if n]
     trade = "、".join(trade_parts)[:128] or None
 
@@ -183,7 +192,7 @@ def parse_message(content: str, labels: list, fallback_date: Optional[date]) -> 
     vendor = None
     vendor_line_idx = None
     for i, ln in enumerate(lines):
-        if TOTAL_COUNT.search(ln) or SUPERVISOR.search(ln):
+        if TOTAL_COUNT.search(ln) or GRAND_COUNT.search(ln) or SUPERVISOR.search(ln):
             continue
         if STAR_COUNT.search(ln) or COLON_COUNT.match(ln):
             continue
@@ -235,7 +244,8 @@ def parse_message(content: str, labels: list, fallback_date: Optional[date]) -> 
             if rest.strip():
                 tasks.append(rest.strip())
             continue
-        if ("出工回報" in ln or TOTAL_COUNT.search(ln) or SUPERVISOR.search(ln)
+        if ("出工回報" in ln or TOTAL_COUNT.search(ln) or GRAND_COUNT.search(ln)
+                or SUPERVISOR.search(ln)
                 or STAR_COUNT.search(ln) or COLON_COUNT.match(ln)):
             continue
         if not _strip_meta(ln, labels):

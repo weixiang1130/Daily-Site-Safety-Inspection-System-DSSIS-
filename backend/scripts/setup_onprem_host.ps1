@@ -193,6 +193,9 @@ if ($CheckOnly) {
         }
     }
     Register-SafetyOpsTask 'SafetyOps-Access'    'run_access.cmd'         (& $every 30)
+    # 工地看板的資料來源：出工回報（LINE 群組經試算表）與職安署新知
+    Register-SafetyOpsTask 'SafetyOps-Worklog'   'run_worklog.cmd'        (& $every 15)
+    Register-SafetyOpsTask 'SafetyOps-OshaNews'  'run_osha_news.cmd'      (& $every 360)
     Register-SafetyOpsTask 'SafetyOps-Sync-AM'   'run_sync_forms.cmd' `
         (New-ScheduledTaskTrigger -Daily -At '07:00')
     Register-SafetyOpsTask 'SafetyOps-Sync-PM'   'run_sync_forms.cmd' `
@@ -239,11 +242,11 @@ $ip = (Get-NetIPAddress -AddressFamily IPv4 |
 Write-Host @"
 
 內網大螢幕的網址：
-    http://$env:COMPUTERNAME`:$Port/static/dashboard.html
-    http://$ip`:$Port/static/dashboard.html
+    http://$env:COMPUTERNAME`:$Port/static/dashboard-detail.html
+    http://$ip`:$Port/static/dashboard-detail.html
 
 工地電腦看的是雲端看板，網址不同（見 docs/地端戰情室.md）：
-    https://<你的站台>/static/dashboard.html?k=<WALL_TOKEN>
+    https://<你的站台>/static/dashboard-detail.html?k=<WALL_TOKEN>
 
 還要做的事：
  1. 登出再登入一次，SafetyOps-Server 才會啟動（它掛在登入觸發）

@@ -54,7 +54,7 @@ Netlify Functions 只支援 Node.js / TypeScript，因此後端以 TypeScript �
 | `SECRET_KEY` | **必填**。session cookie 簽章金鑰，請自行產生長隨機字串。未設定會使用程式碼中的開發預設值，等於任何人都能偽造登入 cookie |
 | `INGEST_TOKENS` | **必填**。設備廠商推送權杖，格式 `vendor-a:xxx,vendor-b:yyy`。未設定會使用 repo 中公開的示範權杖 |
 | `PUBLIC_DASHBOARD` | 預設 `false`（需登入）。設為 `true` 時任何拿到網址的人都能看到全公司缺失、廠商與工地資料，**僅限公司內網的戰情室大螢幕**。雲端站台請勿設為 `true` |
-| `WALL_TOKEN` | 工地看板權杖。工地電腦以 `dashboard.html?k=<權杖>` 唯讀顯示地端推上來的快照。**未設定時 `/api/wallboard` 一律回 503**，看板不啟用。內容含缺失描述與廠商名稱且位在公開網際網路上，請用長隨機字串；外流時改這個變數即可撤換。見 `docs/地端戰情室.md` |
+| `WALL_TOKEN` | 工地看板權杖。工地電腦以 `dashboard-detail.html?k=<權杖>` 唯讀顯示地端推上來的快照。**未設定時 `/api/wallboard` 一律回 503**，看板不啟用。內容含缺失描述與廠商名稱且位在公開網際網路上，請用長隨機字串；外流時改這個變數即可撤換。見 `docs/地端戰情室.md` |
 | `HTTPS_ONLY` | 設 `true`，讓 session cookie 只走加密連線 |
 | `BRAND_NAME` | 公司全名。不設定則顯示中性的預設名稱 |
 | `BRAND_SHORT_NAME` | 公司簡稱 |

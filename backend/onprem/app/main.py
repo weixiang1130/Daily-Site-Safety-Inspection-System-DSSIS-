@@ -201,16 +201,9 @@ def board_data(site_id: int, request: Request, db: Session = Depends(get_db)):
     station = next((s for s in env_all if s["site_code"] == primary_code),
                    env_all[0] if env_all else None)
 
-    # 缺失統計：與儀表板同一口徑（近 30 日、不分工地）
-    rows = db.query(Finding).filter(
-        Finding.found_at >= datetime.now() - timedelta(days=30)).all()
-    stats = {
-        "findings_today": len([f for f in rows
-                               if f.found_at and f.found_at.date() == today]),
-        "open": len([f for f in rows if f.status in ("open", "fixed")]),
-        "overdue": len([f for f in rows if f.is_overdue]),
-        "onsite_fixed": len([f for f in rows if f.action_type == "onsite"]),
-    }
+    # 缺失統計：與首頁 /api/findings/summary 同一份、同一口徑（不分工地、
+    # 不設時間窗）——同一間工務所兩個螢幕不能對同一個標籤給兩種數字
+    stats = finding_stats(db)
 
     # 本日出工（工務所 LINE 出工回報，collectors/worklog.py 解析落地）
     wl = (db.query(WorkLog).filter(WorkLog.report_date == today)
@@ -256,16 +249,18 @@ def board_data(site_id: int, request: Request, db: Session = Depends(get_db)):
 
     # 無災害紀錄以「天」計：起算日當天算第 1 天，逐日累計；起算日
     # （出過事就改成復工日重算）與起算前已累計天數由看板維護頁提供。
-    # 未設定起算日時暫以最早一筆出工回報的日期起算，牆上會註明。
+    # 未設定（或還沒到）起算日就回 None、牆上顯示「—」並提示設定——
+    # 這是訪客與稽核會當真的數字，用別的日期湊出來的值比空白更糟，
+    # 而且會跨過沒登錄的事故繼續累加。
     board = board_payload(site)
     safety = board["config"].get("safety") or {}
     base_days = int(safety.get("base_days") or 0)
     start_raw = safety.get("start_date") or ""
+    days = None
     if start_raw:
         start_d = date.fromisoformat(start_raw)
-    else:
-        start_d = db.query(func.min(WorkLog.report_date)).scalar()
-    days = base_days + (max((today - start_d).days, 0) + 1 if start_d else 0)
+        if start_d <= today:
+            days = base_days + (today - start_d).days + 1
     # 上月總出工（人日）：出工回報人數逐日加總
     first_this = today.replace(day=1)
     lm_end = first_this - timedelta(days=1)
@@ -823,6 +818,31 @@ def _person_of(inspection) -> str:
     return ""
 
 
+def finding_stats(db: Session) -> dict:
+    """今日新增／未結案／逾期三個彙總數字，COUNT 聚合、不撈整表。
+
+    首頁與工地看板共用同一份，同一個標籤在兩個螢幕上才不會是兩種數字。
+    刻意不設時間窗：「逾期未改善」放越久越該被看到，設了 30 天窗
+    反而讓拖最久的那筆先從牆上消失。
+    逾期條件須與 Finding.is_overdue 一致（限期改善、有期限、未複驗
+    結案、期限已過）——改其中一邊時另一邊要跟上。
+    """
+    today = date.today()
+    day_start = datetime(today.year, today.month, today.day)
+    count = func.count(Finding.id)
+    return {
+        "findings_today": db.query(count)
+            .filter(Finding.found_at >= day_start).scalar() or 0,
+        "open": db.query(count)
+            .filter(Finding.status.in_(("open", "fixed"))).scalar() or 0,
+        "overdue": db.query(count)
+            .filter(Finding.action_type == "scheduled",
+                    Finding.due_date.isnot(None),
+                    ~Finding.status.in_(("verified", "closed")),
+                    Finding.due_date < today).scalar() or 0,
+    }
+
+
 @app.get("/api/findings/summary")
 def findings_summary(db: Session = Depends(get_db), user=Depends(need_login)):
     """首頁「缺失概況」的三個數字。
@@ -830,14 +850,7 @@ def findings_summary(db: Session = Depends(get_db), user=Depends(need_login)):
     與雲端同名同結構：首頁兩邊共用同一份程式碼，端點不一致就得在前端分岔。
     刻意不重用 /api/dashboard——那份彙總很重，首頁只要三個數字。
     """
-    today = date.today()
-    rows = db.query(Finding).all()
-    return {
-        "findings_today": len([f for f in rows if f.found_at
-                               and f.found_at.date() == today]),
-        "open": len([f for f in rows if f.status in ("open", "fixed")]),
-        "overdue": len([f for f in rows if f.is_overdue]),
-    }
+    return finding_stats(db)
 
 
 def environment_snapshot(db: Session, site_by_id: dict = None,
@@ -888,14 +901,21 @@ def environment_snapshot(db: Session, site_by_id: dict = None,
         judged = {k: v for k, v in st["metrics"].items()
                   if k not in ("hazard_level", "vendor_hazard_level")
                   and not k.startswith("noise_alarm")}
-        st["levels"] = {k: level_of(k, v) for k, v in judged.items()}
-        st["level"] = station_level(judged)
-        st["level_label"] = LEVEL_LABEL[st["level"]]
-
         hi = judged.get("heat_index")
         if hi is None and judged.get("temperature") is not None \
                 and judged.get("humidity") is not None:
-            hi = heat_index_c(judged["temperature"], judged["humidity"])
+            derived = heat_index_c(judged["temperature"], judged["humidity"])
+            if derived is not None:
+                # 推導值要寫回 metrics 再做分級：牆上的警示卡與數值表都讀
+                # metrics，只留在 guidance 裡會出現「第三級卻顯示 — °C」，
+                # 而且測站級的危害判定也會漏掉這個推導出來的熱指數
+                hi = round(float(derived), 1)
+                judged["heat_index"] = hi
+                st["metrics"]["heat_index"] = hi
+
+        st["levels"] = {k: level_of(k, v) for k, v in judged.items()}
+        st["level"] = station_level(judged)
+        st["level_label"] = LEVEL_LABEL[st["level"]]
         st["heat"] = heat_guidance(hi)
 
         # 噪音：職安的聽力保護（依即時音壓級）與環保的時段管制（廠商旗標）

@@ -61,7 +61,7 @@ const BRANDING = {
   wallboard: true,
 };
 
-// 過期判定改在前端做（frontend/dashboard.html 的 STALE_AFTER_MIN）：
+// 過期判定改在前端做（frontend/dashboard-detail.html 的 STALE_AFTER_MIN）：
 // 它手上有快照的 generated_at，也是唯一能把警示顯示給人看的地方。
 // 這裡原本留了一個 SNAPSHOT_MAX_AGE_SEC 常數但從來沒有被引用過——
 // 有常數卻沒人用，比沒有更危險：審查時會誤以為這塊已經防守過了。
@@ -394,8 +394,10 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
     if (!me) return fail(401, "請先登入");
 
     if (p === '/api/board-sites' && method === 'GET') {
+      // 工地清單一個月改不了幾次，短快取就能讓重複開頁不喚醒資料庫
+      // （DB compute 按醒著的時數計費）
       return json(await db.sql`SELECT id, code, name FROM sites WHERE active = true ORDER BY sort_order, id`,
-        {headers: {'cache-control': 'no-store'}});
+        {headers: {'cache-control': 'private, max-age=300'}});
     }
     const boardMatch = /^\/api\/site-board\/(\d+)$/.exec(p);
     if (boardMatch) {
@@ -414,7 +416,9 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
         if (!Number.isSafeInteger(b.revision) || b.revision < 0) throw Error('設定版本格式錯誤');
         config = validateBoard(b.config);
       } catch (e: any) { return fail(400, e.message || '設定格式錯誤'); }
-      config.updated_at = new Date().toISOString();
+      // 台北時間、無時區註記——與地端寫入的格式一致。前端直接截前 16 字
+      // 顯示，寫 UTC 的話牆上的「更新於」會永遠慢 8 小時
+      config.updated_at = minuteISO(new Date().toISOString());
       const [saved] = await db.sql`UPDATE sites SET board_config = ${JSON.stringify(config)}, board_revision = ${b.revision + 1}
         WHERE id = ${id} AND COALESCE(board_revision, 0) = ${b.revision}
         RETURNING id, code, name, board_config, board_revision`;

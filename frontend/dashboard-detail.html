@@ -273,8 +273,8 @@ let SITES = [];
 //
 // 工地辦公室的電腦什麼都不能裝、也連不到公司內網，只有一個瀏覽器。
 // 因此地端主機把整份資料推到雲端存成快照，工地電腦用
-//     https://<站台>/static/dashboard.html?k=<看板權杖>
-// 唯讀顯示。帶了 ?k= 就走這條路：
+//     https://<站台>/static/dashboard-detail.html?k=<看板權杖>
+// 唯讀顯示（舊網址 dashboard.html?k= 會自動轉過來）。帶了 ?k= 就走這條路：
 //
 //   * 一次讀回 branding + sites + dashboard，不做任何需要登入的呼叫
 //   * 快照是固定視圖（天數與工地在地端產生時就決定了），因此隱藏兩個下拉

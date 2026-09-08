@@ -7,6 +7,8 @@
 const POLL_MS = 60000;        // 資料輪詢
 const NOTICE_MS = 12000;      // 公告輪播
 const PAGE_MS = 10000;        // 聯絡人分頁輪播
+const STALE_AFTER_MIN = 15;   // 資料多久沒更新要在牆上大聲說（沿用舊戰情室）
+const RETRY_MS = 30000;       // 初始化失敗的重試間隔（冷開機防毒掃描要等）
 const LEVEL_LABELS = ['正常', '注意', '警戒', '危險', '極度危險'];
 const ENV_ROWS = [
   ['pm25', 'PM 2.5', 'μg/m³'], ['pm10', 'PM 10', 'μg/m³'],
@@ -19,22 +21,71 @@ let DATA = null;              // 最近一次 /api/board-data 的回應
 let SITE_ID = null;
 let notices = [], noticeIdx = 0, noticePaused = false;
 let contactPage = 0, wfPage = 0;
+let pollTimer = null;
 
 // ---------------------------------------------------------------------------
 // 初始化
 // ---------------------------------------------------------------------------
 (async () => {
+  // 這個網址改版前是戰情室大螢幕：現場書籤、文件與雲端首頁按鈕都還
+  // 指著它。帶 ?k=（kiosk 權杖）或站台是雲端快照模式（wallboard）時，
+  // 一律轉去搬過去的 dashboard-detail——雲端沒有 board-data，留在這裡
+  // 只會每分鐘空打一次 404 白花額度、無人看管的牆還會被彈去登入頁。
+  if (new URLSearchParams(location.search).has('k')) {
+    location.replace('/static/dashboard-detail.html' + location.search);
+    return;
+  }
   const brand = (await renderBrandLite()) || {};
+  if (brand.wallboard) {
+    location.replace('/static/dashboard-detail.html' + location.search);
+    return;
+  }
   document.getElementById('org').textContent =
     (brand.org_short ? brand.org_short + '　' : '') + (brand.war_room_name || '工地安全戰情室');
 
+  // 計時器先開再抓資料：整面牆整天停在錯誤畫面，沒有人按 F5 它永遠
+  // 不會自己好——時鐘、輪播與重試都不能被一次失敗擋掉（舊戰情室的教訓）
+  tick();
+  setInterval(tick, 1000);
+  setInterval(() => { if (!noticePaused) showNotice(noticeIdx + 1); }, NOTICE_MS);
+  setInterval(() => {
+    contactPage++; wfPage++;
+    if (DATA) { renderContacts(); renderWorkforce(); }
+  }, PAGE_MS);
+
+  document.getElementById('fullscreen').onclick = () => {
+    // 電視棒／老 WebKit 只有帶前綴的 API；失敗就安靜作罷，牆上沒人看錯誤
+    try {
+      const el = document.documentElement;
+      const enter = el.requestFullscreen || el.webkitRequestFullscreen;
+      const exit = document.exitFullscreen || document.webkitExitFullscreen;
+      const p = document.fullscreenElement ? exit.call(document) : enter.call(el);
+      if (p && p.catch) p.catch(() => {});
+    } catch (e) { /* 不支援全螢幕 */ }
+  };
+  document.getElementById('prevNotice').onclick = () => showNotice(noticeIdx - 1);
+  document.getElementById('nextNotice').onclick = () => showNotice(noticeIdx + 1);
+  document.getElementById('pauseNotice').onclick = e => {
+    noticePaused = !noticePaused;
+    e.target.textContent = noticePaused ? '恢復輪播' : '暫停輪播';
+  };
+
+  initSites(brand);
+})();
+
+/** 抓工地清單並開始輪詢；失敗自動重試（冷開機時伺服器要 20~60 秒才起來） */
+async function initSites(brand) {
   let sites = [];
   try {
     sites = await API.get('/api/board-sites');
   } catch (e) {
-    setStatus('讀不到工地清單：' + e.message, true);
+    setStatus(`讀不到工地清單：${e.message}（${RETRY_MS / 1000} 秒後重試）`, true);
+    setTimeout(() => initSites(brand), RETRY_MS);
     return;
   }
+  // 單一主場站模式下只列主場站——board-data 的環境與出工本來就以主場站
+  // 為準，列出全公司 40+ 個工地只會讓人切到「掛著別站名字的同一份資料」
+  sites = fillableSites(sites, brand);
   const sel = document.getElementById('site');
   sel.innerHTML = sites.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
 
@@ -47,30 +98,16 @@ let contactPage = 0, wfPage = 0;
   if (SITE_ID) sel.value = SITE_ID;
   sel.onchange = () => { SITE_ID = parseInt(sel.value, 10); rememberPref('boardSite', sel.value); load(); };
 
-  document.getElementById('fullscreen').onclick = () =>
-    document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
-  document.getElementById('prevNotice').onclick = () => showNotice(noticeIdx - 1);
-  document.getElementById('nextNotice').onclick = () => showNotice(noticeIdx + 1);
-  document.getElementById('pauseNotice').onclick = e => {
-    noticePaused = !noticePaused;
-    e.target.textContent = noticePaused ? '恢復輪播' : '暫停輪播';
-  };
-
-  tick();
-  setInterval(tick, 1000);
   load();
-  setInterval(load, POLL_MS);
-  setInterval(() => { if (!noticePaused) showNotice(noticeIdx + 1); }, NOTICE_MS);
-  setInterval(() => {
-    contactPage++; wfPage++;
-    renderContacts(); if (DATA) renderWorkforce();
-  }, PAGE_MS);
-})();
+  pollTimer = setInterval(load, POLL_MS);
+}
 
-/** 品牌設定；失敗回 null（看板照常，只是表頭少字） */
+/** 品牌設定；失敗或非 2xx 一律回 null（看板照常，只是表頭少字） */
 async function renderBrandLite() {
-  try { return await (await fetch('/api/branding', { credentials: 'same-origin' })).json(); }
-  catch (e) { return null; }
+  try {
+    const r = await fetch('/api/branding', { credentials: 'same-origin' });
+    return r.ok ? await r.json() : null;
+  } catch (e) { return null; }
 }
 
 function recallPref(k) { try { return localStorage.getItem('pref:' + k) || ''; } catch (e) { return ''; } }
@@ -91,6 +128,18 @@ function tick() {
   document.getElementById('clockText').textContent =
     now.toLocaleTimeString('zh-TW', { hour12: false });
 
+  // 失更警示：牆上的時鐘照走、面板卻是舊資料時，看起來完全健康——
+  // 必須大聲說。沿用舊戰情室的 15 分鐘門檻。
+  const banner = document.getElementById('staleBanner');
+  if (banner) {
+    const age = DATA ? now - new Date(DATA.generated_at) : 0;
+    banner.hidden = !(DATA && age > STALE_AFTER_MIN * 60000);
+    if (!banner.hidden) {
+      banner.textContent = `資料已停止更新（最後更新 ${DATA.generated_at.replace('T', ' ')}）`
+        + '——地端主機或收集程式可能已停止，畫面上的數字不是現況';
+    }
+  }
+
   const schedule = DATA ? DATA.board.config.schedule : [];
   renderDial(document.getElementById('dial'), schedule, now);
   const { current, next } = scheduleAt(schedule, now);
@@ -110,8 +159,14 @@ async function load() {
   try {
     d = await API.get('/api/board-data/' + SITE_ID);
   } catch (e) {
-    // 雲端填報站沒有 board-data（環境與出工資料只在地端）；其他就是斷線
-    setStatus('資料讀取失敗：' + e.message + '（看板資料由工地檢視器／地端提供）', true);
+    // 路由不存在＝開在沒有 board-data 的站台（例如雲端）——這是永久
+    // 狀態，停止輪詢，不要每分鐘白打一次函式呼叫燒額度
+    if (String(e.message).includes('找不到路由')) {
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      setStatus('此站台不提供看板資料——看板由工地檢視器／地端主機顯示', true);
+      return;
+    }
+    setStatus('資料讀取失敗：' + e.message + '（每分鐘自動重試）', true);
     return;
   }
   DATA = d;
@@ -132,10 +187,13 @@ function buildNotices() {
 
   // 環境自動警示排最前面：這是「現在就要做」的事
   const st = DATA.station;
+  // 這裡一律給「原始字串」：轉義只在 showNotice 一個地方做。兩邊都轉
+  // 或都不轉遲早會弄反——kicker 沒轉就是牆面的注入點、title 轉兩次
+  // 法規文字的 & 會顯示成 &amp;。
   if (st && st.heat && st.heat.level >= 2) {
     list.push({
-      kicker: `環境自動警示 · 熱危害${esc(st.heat.name || '')}`,
-      title: `熱指數 ${st.metrics.heat_index != null ? st.metrics.heat_index.toFixed(1) : '—'} °C，${esc(st.heat.principle || '請加強防護')}`,
+      kicker: `環境自動警示 · 熱危害${st.heat.name || ''}`,
+      title: `熱指數 ${st.metrics.heat_index != null ? st.metrics.heat_index.toFixed(1) : '—'} °C，${st.heat.principle || '請加強防護'}`,
       body: (st.heat.measures || []).slice(0, 4).map(m => '・' + m).join('\n'),
       cls: st.heat.level >= 3 ? 'critical' : 'warning',
       source: '依《高氣溫作業熱危害預防指引》自動判定',
@@ -143,8 +201,8 @@ function buildNotices() {
   }
   if (st && st.noise && st.noise.level >= 2) {
     list.push({
-      kicker: `環境自動警示 · ${esc(st.noise.name || '噪音')}`,
-      title: `噪音 ${st.metrics.noise != null ? st.metrics.noise.toFixed(0) : '—'} dB，${esc(st.noise.principle || '請採取聽力保護')}`,
+      kicker: `環境自動警示 · ${st.noise.name || '噪音'}`,
+      title: `噪音 ${st.metrics.noise != null ? st.metrics.noise.toFixed(0) : '—'} dB，${st.noise.principle || '請採取聽力保護'}`,
       body: (st.noise.measures || []).slice(0, 4).map(m => '・' + m).join('\n'),
       cls: st.noise.level >= 3 ? 'critical' : 'warning',
       source: '依職業安全衛生設施規則第 300 條自動判定',
@@ -190,7 +248,8 @@ function showNotice(idx) {
   const n = notices[noticeIdx];
   const stage = document.getElementById('notice');
   stage.className = 'notice-stage ' + (n.cls || '');
-  stage.innerHTML = `${n.kicker ? `<div class="notice-kicker">${n.kicker}</div>` : ''}
+  // 唯一的轉義點：kicker/title/body 進來時都是原始字串
+  stage.innerHTML = `${n.kicker ? `<div class="notice-kicker">${esc(n.kicker)}</div>` : ''}
     <h3>${esc(n.title)}</h3>${n.body ? `<p>${esc(n.body)}</p>` : ''}`;
   document.getElementById('noticeSource').textContent = n.source || '';
   document.getElementById('noticePage').textContent = `第 ${noticeIdx + 1}／${notices.length} 則`;
@@ -201,13 +260,16 @@ function showNotice(idx) {
 // ---------------------------------------------------------------------------
 function renderRecords() {
   const r = DATA.record;
-  document.getElementById('recordDays').innerHTML =
-    `${r.days.toLocaleString()} <small>天</small>`;
-  document.getElementById('recordNote').textContent = r.since
-    ? `自 ${r.since} 起算`
-    : '未設定起算日（暫以最早出工回報日起算）；請至看板管理設定';
+  // days 為 null＝尚未設定起算日：顯示「—」提示設定，不用湊出來的數字
+  document.getElementById('recordDays').innerHTML = r.days == null
+    ? '— <small>天</small>' : `${r.days.toLocaleString()} <small>天</small>`;
+  document.getElementById('recordNote').textContent = r.days == null
+    ? '尚未設定無災害起算日，請至「看板管理」設定'
+    : `自 ${r.since} 起算`;
+  // 0 也是真實數字（上月整月無回報），不能顯示成「—」——那在這面牆上
+  // 到處都代表「沒資料／斷線」
   document.getElementById('lastMonth').textContent =
-    r.last_month_mandays ? `${r.last_month_mandays.toLocaleString()} 人日` : '—';
+    `${r.last_month_mandays.toLocaleString()} 人日`;
 
   const s = DATA.stats;
   document.getElementById('stats').innerHTML = [

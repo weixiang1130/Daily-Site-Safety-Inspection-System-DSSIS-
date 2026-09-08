@@ -57,7 +57,8 @@ uvicorn app.main:app --host 0.0.0.0 --port 8010
 | `/static/fill.html` | 自主檢查表填報（28 種） | 現場 |
 | `/static/coord.html` | 每日協議、巡視及處理紀錄表 | 現場 |
 | `/static/findings.html` | 缺失清單／複驗結案 | 職安、主管 |
-| `/static/dashboard.html` | **戰情室大螢幕**（免登入、每分鐘自動刷新） | 戰情室 |
+| `/static/dashboard.html` | **工地看板**（佈告輪播、無災害紀錄、緊急連絡人、作業循環與環境、本日出工） | 工地辦公室 |
+| `/static/dashboard-detail.html` | **戰情室大螢幕**（免登入、每分鐘自動刷新；原 dashboard.html） | 戰情室 |
 
 ### 填報設計重點
 
@@ -305,7 +306,7 @@ Digest 規定用 MD5，而 Web Crypto 只有 SHA 系列，因此該檔內含一�
 
 - **流體字級必須掛在 `html`，不能掛在 `body`。** rem 一律相對根元素解析，
   掛在 body 上的話 `--fs-*` 與所有 rem 尺寸都會停在 16px，只有 em 跟著變，
-  版面會出現「欄寬放大、欄裡的字沒放大」的錯位。因此 `dashboard.html` 的
+  版面會出現「欄寬放大、欄裡的字沒放大」的錯位。因此 `dashboard-detail.html` 的
   `war` class 同時掛在 `html` 與 `body`。
 - **`.grid` / `.kpis` / `.panel` / `.kpi` 是共用元件**，`home.html` 也在用，
   不屬於戰情室。改戰情室版面時不要連它們一起換掉。

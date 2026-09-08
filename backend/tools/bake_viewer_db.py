@@ -52,8 +52,12 @@ def main() -> None:
     with Session(dest_engine) as dest:
         # id 原樣照搬：planned_tasks.site_id 指向 sites.id，兩表一起搬才對得上
         for s in sites:
+            # 看板設定也要烤進去：檢視器解壓即用，第一輪雲端同步完成前
+            # 緊急連絡人與作業循環不能是空白
             dest.add(Site(id=s.id, code=s.code, name=s.name, active=s.active,
-                          department=s.department, sort_order=s.sort_order))
+                          department=s.department, sort_order=s.sort_order,
+                          board_config=s.board_config,
+                          board_revision=s.board_revision))
         for t in tasks:
             dest.add(PlannedTask(
                 site_id=t.site_id, site_code=t.site_code, source=t.source,

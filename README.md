@@ -17,7 +17,8 @@ safety-ops/
 │  ├─ fill.html       自主檢查表填報（28 種）
 │  ├─ coord.html      每日協議、巡視及處理紀錄表
 │  ├─ findings.html   缺失清單／複驗
-│  ├─ dashboard.html  戰情室大螢幕
+│  ├─ dashboard.html  工地看板（五區塊）
+│  ├─ dashboard-detail.html  戰情室大螢幕
 │  ├─ admin.html      系統管理（工地／廠商／密碼）
 │  ├─ brand.css       設計權杖（色階、字級、間距、陰影、動態）
 │  ├─ style.css       元件樣式，只消費權杖
