@@ -5,7 +5,29 @@
 </head><body class="site-board">
 <header class="board-header">
   <div class="identity"><span class="eyebrow">SITE SAFETY / DAILY OPERATIONS</span><strong id="org">職安戰情室</strong></div>
-  <div class="safety-motto">安全<span class="safety-cross" aria-hidden="true">＋</span>第一</div>
+  <div class="safety-motto">安全<span class="safety-cross" aria-hidden="true"><!--
+    工安標誌（齒輪綠十字＋桂冠）。手繪 SVG 而非圖檔：任何螢幕縮放都乾淨，
+    也不用多一個資產檔。顏色是標誌本身的固定用色，不隨主題變。
+    --><svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="60" cy="50" r="25" fill="none" stroke="#2B62B4" stroke-width="7" stroke-dasharray="4.4 4.33" transform="rotate(-4 60 50)"/>
+    <circle cx="60" cy="50" r="20" fill="none" stroke="#2B62B4" stroke-width="4.6"/>
+    <path fill="#3B8C3F" d="M56 34h8v12h12v8H64v12h-8V54H44v-8h12z"/>
+    <g fill="#3B8C3F">
+      <g id="wreathR">
+        <g transform="translate(65.1 88.6) rotate(82) scale(1.06)"><path transform="rotate(-30)" d="M0 0 C4.2 -6.7 3.8 -14.2 0 -19.0 C-2.3 -13.7 -2.9 -5.7 0 0 Z"/><path transform="rotate(14) scale(.8)" d="M0 0 C4.2 -6.7 3.8 -14.2 0 -19.0 C-2.3 -13.7 -2.9 -5.7 0 0 Z"/></g>
+        <g transform="translate(80.7 82.7) rotate(56) scale(1.00)"><path transform="rotate(-30)" d="M0 0 C4.2 -6.7 3.8 -14.2 0 -19.0 C-2.3 -13.7 -2.9 -5.7 0 0 Z"/><path transform="rotate(14) scale(.8)" d="M0 0 C4.2 -6.7 3.8 -14.2 0 -19.0 C-2.3 -13.7 -2.9 -5.7 0 0 Z"/></g>
+        <g transform="translate(92.0 70.5) rotate(30) scale(0.94)"><path transform="rotate(-30)" d="M0 0 C4.2 -6.7 3.8 -14.2 0 -19.0 C-2.3 -13.7 -2.9 -5.7 0 0 Z"/><path transform="rotate(14) scale(.8)" d="M0 0 C4.2 -6.7 3.8 -14.2 0 -19.0 C-2.3 -13.7 -2.9 -5.7 0 0 Z"/></g>
+        <g transform="translate(96.9 54.6) rotate(4) scale(0.88)"><path transform="rotate(-30)" d="M0 0 C4.2 -6.7 3.8 -14.2 0 -19.0 C-2.3 -13.7 -2.9 -5.7 0 0 Z"/><path transform="rotate(14) scale(.8)" d="M0 0 C4.2 -6.7 3.8 -14.2 0 -19.0 C-2.3 -13.7 -2.9 -5.7 0 0 Z"/></g>
+        <g transform="translate(94.3 38.1) rotate(-22) scale(0.82)"><path transform="rotate(-30)" d="M0 0 C4.2 -6.7 3.8 -14.2 0 -19.0 C-2.3 -13.7 -2.9 -5.7 0 0 Z"/><path transform="rotate(14) scale(.8)" d="M0 0 C4.2 -6.7 3.8 -14.2 0 -19.0 C-2.3 -13.7 -2.9 -5.7 0 0 Z"/></g>
+        <g transform="translate(84.8 24.5) rotate(-48) scale(0.76)"><path transform="rotate(-30)" d="M0 0 C4.2 -6.7 3.8 -14.2 0 -19.0 C-2.3 -13.7 -2.9 -5.7 0 0 Z"/><path transform="rotate(14) scale(.8)" d="M0 0 C4.2 -6.7 3.8 -14.2 0 -19.0 C-2.3 -13.7 -2.9 -5.7 0 0 Z"/></g>
+      </g>
+      <use href="#wreathR" transform="translate(120 0) scale(-1 1)"/>
+      <g transform="translate(60 97)">
+        <path transform="rotate(66)" d="M0 0 C4.4 -6.3 4.0 -13.5 0 -18.0 C-2.4 -13.0 -3.1 -5.4 0 0 Z"/>
+        <path transform="rotate(-66)" d="M0 0 C4.4 -6.3 4.0 -13.5 0 -18.0 C-2.4 -13.0 -3.1 -5.4 0 0 Z"/>
+      </g>
+    </g>
+  </svg></span>第一</div>
   <div class="site-heading"><label for="site">工地</label><select id="site"><option>載入中…</option></select><div id="dateLine">—</div></div>
 </header>
 <div class="board-status"><span id="connection" role="status">正在讀取工地資料…</span><nav><a id="settingsLink" href="/static/board-settings.html">看板管理</a><a id="detailLink" href="/static/dashboard-detail.html">詳細戰情</a><a id="homeLink" href="/static/home.html">首頁</a><button id="fullscreen" type="button">全螢幕</button></nav></div>

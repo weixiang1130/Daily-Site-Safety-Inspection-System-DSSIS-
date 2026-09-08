@@ -18,7 +18,7 @@ const ENV_ROWS = [
 let DATA = null;              // 最近一次 /api/board-data 的回應
 let SITE_ID = null;
 let notices = [], noticeIdx = 0, noticePaused = false;
-let contactPage = 0;
+let contactPage = 0, wfPage = 0;
 
 // ---------------------------------------------------------------------------
 // 初始化
@@ -61,7 +61,10 @@ let contactPage = 0;
   load();
   setInterval(load, POLL_MS);
   setInterval(() => { if (!noticePaused) showNotice(noticeIdx + 1); }, NOTICE_MS);
-  setInterval(() => { contactPage++; renderContacts(); }, PAGE_MS);
+  setInterval(() => {
+    contactPage++; wfPage++;
+    renderContacts(); if (DATA) renderWorkforce();
+  }, PAGE_MS);
 })();
 
 /** 品牌設定；失敗回 null（看板照常，只是表頭少字） */
@@ -145,6 +148,19 @@ function buildNotices() {
       body: (st.noise.measures || []).slice(0, 4).map(m => '・' + m).join('\n'),
       cls: st.noise.level >= 3 ? 'critical' : 'warning',
       source: '依職業安全衛生設施規則第 300 條自動判定',
+    });
+  }
+
+  // 今日作業危害告知：出工回報的作業＋列控表今日工項，對應應注意危害。
+  // 排在環境警示之後、一般公告之前——這是「今天特別要盯」的事。
+  const hz = DATA.hazards || [];
+  if (hz.length) {
+    list.push({
+      kicker: '今日作業危害告知',
+      title: hz.slice(0, 4).map(h => h.label).join('、') + '——今日作業請注意',
+      body: hz.slice(0, 5).map(h =>
+        `・${h.label}：${h.sources.slice(0, 4).join('、')}`).join('\n'),
+      source: '依本日出工回報與列控表工項自動對應（提示用，管制依各作業自主檢查表）',
     });
   }
 
@@ -268,13 +284,20 @@ function renderWorkforce() {
       <span class="empty-mark">／</span><h3>等待今日出工回報</h3>
       <p>各廠商於工務所群組回報後，依當日日期彙整顯示。</p>
       <p>門禁人數不代替出工回報。</p></div></td></tr>`;
+    document.getElementById('wfMeta').textContent = '工種 / 人數 / 施作項目';
     return;
   }
-  body.innerHTML = w.rows.map(r => `<tr>
+  // 廠商多的時候整版塞不下（牆上也沒有人會捲動），分頁自動輪播
+  const PER = 6;
+  const pages = Math.max(1, Math.ceil(w.rows.length / PER));
+  const pg = wfPage % pages;
+  body.innerHTML = w.rows.slice(pg * PER, pg * PER + PER).map(r => `<tr>
     <td>${esc(r.building || '—')}</td>
     <td>${esc(r.vendor)}</td>
     <td title="${esc(r.trade || '')}">${esc(r.trade || '—')}</td>
     <td>${r.headcount == null ? '—' : r.headcount}</td>
     <td>${esc(r.supervisor || '—')}</td>
     <td title="${esc(r.tasks || '')}">${esc(r.tasks || '—')}</td></tr>`).join('');
+  document.getElementById('wfMeta').textContent =
+    pages > 1 ? `第 ${pg + 1}／${pages} 頁・共 ${w.rows.length} 家` : '工種 / 人數 / 施作項目';
 }
