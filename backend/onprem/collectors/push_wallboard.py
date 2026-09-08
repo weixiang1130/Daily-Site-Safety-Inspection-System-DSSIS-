@@ -18,7 +18,8 @@
 
     branding   版頭名稱與主場站
     sites      工地清單（下拉選單用）
-    dashboard  儀表板主體（缺失、環境、人數、熱危害、重點工項、進度）
+    dashboard  戰情室彙總（缺失、環境、人數、熱危害、重點工項、進度）
+    board      工地看板五區塊（主場站；供雲端唯讀顯示新版看板）
 
 快照是**一份固定的視圖**：天數與工地範圍在這裡就決定了，工地電腦上的
 下拉選單不會作用（前端在看板模式會隱藏它們）。牆上看板不需要互動。
@@ -85,12 +86,16 @@ def _digest(snap: dict) -> str:
     """算內容指紋，排除每次必變的時間戳。
 
     generated_at 每一輪都不同，不排除的話「內容有沒有變」永遠是有變，
-    這個最佳化就完全失效了。
+    這個最佳化就完全失效了。dashboard 與 board 各自帶一個，都要排除。
     """
-    d = dict(snap.get("dashboard") or {})
-    d.pop("generated_at", None)
+    def _strip(v):
+        if isinstance(v, dict):
+            v = dict(v)
+            v.pop("generated_at", None)
+        return v
     payload = {"branding": snap.get("branding"), "sites": snap.get("sites"),
-               "dashboard": d}
+               "dashboard": _strip(snap.get("dashboard")),
+               "board": _strip(snap.get("board"))}
     raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
@@ -135,11 +140,27 @@ def build_snapshot() -> dict:
     finally:
         db.close()
 
+    branding = local("/api/branding")
+
+    # 工地看板（五區塊）的整份資料，供雲端唯讀顯示新版看板。取主場站
+    # 一份——環境與出工本來就以主場站為準。抓不到就不放，快照照樣有
+    # 戰情室那份 dashboard。
+    primary_code = (branding.get("primary_site_code") or "").strip()
+    primary = next((s for s in sites if s["code"] == primary_code),
+                   sites[0] if sites else None)
+    board = None
+    if primary:
+        try:
+            board = local(f"/api/board-data/{primary['id']}")
+        except Exception as e:                          # noqa: BLE001
+            log(f"（提醒）取工地看板資料失敗，快照這次不含 board：{e}")
+
     return {
         "schema": SCHEMA,
-        "branding": local("/api/branding"),
+        "branding": branding,
         "sites": sites,
         "dashboard": local(q),
+        "board": board,
     }
 
 

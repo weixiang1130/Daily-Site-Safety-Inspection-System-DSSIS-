@@ -22,26 +22,28 @@ let SITE_ID = null;
 let notices = [], noticeIdx = 0, noticePaused = false;
 let contactPage = 0, wfPage = 0;
 let pollTimer = null;
+// 雲端快照模式：站台是唯讀看板（branding.wallboard=true）時，board-data
+// 讀地端每 15 分鐘推上來的快照，而非即時查詢。此時是「固定視圖」——
+// 主場站、隱藏工地下拉、輪詢對齊推送間隔，比照舊戰情室的看板模式。
+let WALL = false, WALL_KEY = '', POLL = POLL_MS;
 
 // ---------------------------------------------------------------------------
 // 初始化
 // ---------------------------------------------------------------------------
 (async () => {
-  // 這個網址改版前是戰情室大螢幕：現場書籤、文件與雲端首頁按鈕都還
-  // 指著它。帶 ?k=（kiosk 權杖）或站台是雲端快照模式（wallboard）時，
-  // 一律轉去搬過去的 dashboard-detail——雲端沒有 board-data，留在這裡
-  // 只會每分鐘空打一次 404 白花額度、無人看管的牆還會被彈去登入頁。
-  if (new URLSearchParams(location.search).has('k')) {
-    location.replace('/static/dashboard-detail.html' + location.search);
-    return;
-  }
+  WALL_KEY = new URLSearchParams(location.search).get('k') || '';
   const brand = (await renderBrandLite()) || {};
-  if (brand.wallboard) {
-    location.replace('/static/dashboard-detail.html' + location.search);
-    return;
-  }
+  WALL = !!brand.wallboard;
+  POLL = WALL ? 900000 : POLL_MS;   // 雲端 15 分鐘（對齊快照）、地端 1 分鐘
   document.getElementById('org').textContent =
     (brand.org_short ? brand.org_short + '　' : '') + (brand.war_room_name || '工地安全戰情室');
+  // 雲端固定視圖：工地下拉不作用（快照只含主場站，工地名由快照帶出、
+  // 於 load() 後填入），看板管理只在地端可用
+  if (WALL) {
+    document.getElementById('site').disabled = true;
+    const sl = document.getElementById('settingsLink');
+    if (sl) sl.classList.add('hidden');
+  }
 
   // 計時器先開再抓資料：整面牆整天停在錯誤畫面，沒有人按 F5 它永遠
   // 不會自己好——時鐘、輪播與重試都不能被一次失敗擋掉（舊戰情室的教訓）
@@ -75,6 +77,15 @@ let pollTimer = null;
 
 /** 抓工地清單並開始輪詢；失敗自動重試（冷開機時伺服器要 20~60 秒才起來） */
 async function initSites(brand) {
+  // 雲端固定視圖不需要工地清單：快照只含主場站一份，SITE_ID 只是路由
+  // 佔位（雲端 board-data 忽略它、一律回快照），board-sites 也就不必打
+  // ——省一次雲端資料庫喚醒，kiosk 免登入也不會卡在需登入的清單端點。
+  if (WALL) {
+    SITE_ID = parseInt(new URLSearchParams(location.search).get('site_id'), 10) || 0;
+    load();
+    pollTimer = setInterval(load, POLL);
+    return;
+  }
   let sites = [];
   try {
     sites = await API.get('/api/board-sites');
@@ -154,23 +165,36 @@ function tick() {
 // 每分鐘：抓整頁資料並渲染
 // ---------------------------------------------------------------------------
 async function load() {
-  if (!SITE_ID) return;
+  if (SITE_ID == null) return;
+  // 雲端看板讀快照，內容含缺失／廠商／聯絡電話，比照 wallboard 以 ?k=
+  // 權杖驗證（大螢幕無登入）；已登入者不必帶，用 session 即可
+  const q = WALL && WALL_KEY ? '?k=' + encodeURIComponent(WALL_KEY) : '';
   let d;
   try {
-    d = await API.get('/api/board-data/' + SITE_ID);
+    d = await API.get('/api/board-data/' + SITE_ID + q);
   } catch (e) {
-    // 路由不存在＝開在沒有 board-data 的站台（例如雲端）——這是永久
-    // 狀態，停止輪詢，不要每分鐘白打一次函式呼叫燒額度
+    // 路由不存在＝開在沒有 board-data 的站台——這是永久狀態，停止輪詢，
+    // 不要每分鐘白打一次函式呼叫燒額度
     if (String(e.message).includes('找不到路由')) {
       if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
       setStatus('此站台不提供看板資料——看板由工地檢視器／地端主機顯示', true);
       return;
     }
-    setStatus('資料讀取失敗：' + e.message + '（每分鐘自動重試）', true);
+    if (String(e.message).includes('尚無快照')) {
+      setStatus('雲端尚未收到地端推送的看板快照——請確認中央主機已開啟並在看板時段內', true);
+      return;
+    }
+    setStatus('資料讀取失敗：' + e.message + '（自動重試）', true);
     return;
   }
   DATA = d;
-  setStatus(`資料更新於 ${d.generated_at.replace('T', ' ')}`);
+  // 雲端固定視圖：工地名由快照帶出，填進（已停用的）下拉當標題
+  if (WALL && d.board && d.board.site_name) {
+    document.getElementById('site').innerHTML =
+      `<option>${esc(d.board.site_name)}</option>`;
+  }
+  setStatus(`資料更新於 ${d.generated_at.replace('T', ' ')}`
+    + (WALL ? '（雲端快照，最長 15 分鐘更新一次）' : ''));
   buildNotices();
   renderContacts();
   renderRecords();

@@ -285,6 +285,36 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       });
     }
 
+    // 工地看板（五區塊）的雲端唯讀來源：讀地端推上來的快照裡的 board 段。
+    // 環境與出工資料源都在公司內網，雲端無法即時查——因此與 wallboard 同樣
+    // 走「地端推、雲端讀快照」，不碰資料庫。驗證同上（WALL_TOKEN 或登入）。
+    // site_id 只是路由佔位：快照只含主場站一份，一律回傳它。
+    const boardData = /^\/api\/board-data\/\d+$/.exec(p);
+    if (boardData && method === "GET") {
+      const expected = Netlify.env.get("WALL_TOKEN") || "";
+      const key = url.searchParams.get("k") || "";
+      const tokenOk = expected !== "" && key === expected;
+      if (!tokenOk && !me) {
+        return fail(401, key
+          ? "看板權杖錯誤"
+          : "請先登入，或使用看板權杖網址（未設定 WALL_TOKEN 時大螢幕無法免登入）");
+      }
+      const body = await files().get(WALL_KEY, { type: "text" });
+      if (!body) return fail(404, "尚無快照，地端還沒推送過");
+      let snap: any;
+      try { snap = JSON.parse(body); } catch { return fail(502, "快照格式錯誤"); }
+      if (!snap.board) {
+        return fail(404, "尚無快照的工地看板資料（地端推送程式待更新，或主場站未設定）");
+      }
+      const cache = tokenOk ? "public, max-age=900" : "private, max-age=900";
+      return new Response(JSON.stringify(snap.board), {
+        headers: {
+          "content-type": "application/json; charset=utf-8",
+          "cache-control": cache,
+        },
+      });
+    }
+
     if (p === "/api/v1/device/latest") {
       const siteCode = url.searchParams.get("site_code");
       const deviceType = url.searchParams.get("device_type");
