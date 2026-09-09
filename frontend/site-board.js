@@ -237,12 +237,17 @@ function buildNotices() {
   // 排在環境警示之後、一般公告之前——這是「今天特別要盯」的事。
   const hz = DATA.hazards || [];
   if (hz.length) {
+    // 來源可能很多（一種危害牽涉多家廠商多棟），全列會爆卡；只列前幾個
+    // 加「等 N 處」，字級也維持看得完的大小
     list.push({
       kicker: '今日作業危害告知',
-      title: hz.slice(0, 4).map(h => h.label).join('、') + '——今日作業請注意',
-      body: hz.slice(0, 5).map(h =>
-        `・${h.label}：${h.sources.slice(0, 4).join('、')}`).join('\n'),
-      cls: 'hazard',   // 專屬放大樣式：這張是要現場抬頭看完的
+      title: '今日作業危害提醒',
+      body: hz.slice(0, 6).map(h => {
+        const src = h.sources.slice(0, 3).join('、');
+        const more = h.sources.length > 3 ? `　等 ${h.sources.length} 處` : '';
+        return `・${h.label}：${src}${more}`;
+      }).join('\n'),
+      cls: 'hazard',   // 專屬樣式：這張是要現場抬頭看完的
       source: '依本日出工回報與列控表工項自動對應（提示用，管制依各作業自主檢查表）',
     });
   }
