@@ -31,7 +31,7 @@
   </svg></span>第一</div>
   <div class="site-heading"><label for="site">工地</label><select id="site"><option>載入中…</option></select><div id="dateLine">—</div></div>
 </header>
-<div class="board-status"><span id="connection" role="status">正在讀取工地資料…</span><nav><a id="settingsLink" href="/static/board-settings.html">看板管理</a><a id="detailLink" href="/static/dashboard-detail.html">詳細戰情</a><a id="homeLink" href="/static/home.html">首頁</a><button id="fullscreen" type="button">全螢幕</button></nav></div>
+<div class="board-status"><span id="connection" role="status">正在讀取工地資料…</span><nav><a id="settingsLink" href="/static/board-settings.html">看板管理</a><!-- 詳細戰情（舊戰情室 dashboard-detail）入口暫時隱藏：頁面與路由都保留，未來要回歸只需拿掉 class="hidden" --><a id="detailLink" href="/static/dashboard-detail.html" class="hidden">詳細戰情</a><a id="homeLink" href="/static/home.html">首頁</a><button id="fullscreen" type="button">全螢幕</button></nav></div>
 <!-- 失更警示：時鐘照走、面板卻是舊資料時牆面看起來完全健康，必須大聲說 -->
 <div id="staleBanner" class="stale-banner" hidden></div>
 <main class="board-grid">
