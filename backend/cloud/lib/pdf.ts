@@ -279,14 +279,13 @@ class Doc {
             width: png.width * scale, height: png.height * scale,
           });
         } catch {
-          // 簽名圖毀損時略過，仍保留姓名與時間
+          // 簽名圖毀損時略過，仍保留角色與時間
         }
       }
-      this.page.drawText(printable(s.signer_name), {
-        x: x + 6, y: top - boxH + 18, size: 8.5, font: this.font, color: INK,
-      });
+      // 現場共用同一組帳號，signer_name 只是帳號名、代表不了實際簽名的人，
+      // 手寫簽名圖才是。印帳號名反而誤導（看似某人親簽），故留白只保簽署時間。
       this.page.drawText(printable(s.signed_at), {
-        x: x + 6, y: top - boxH + 7, size: 7, font: this.font, color: MUTED,
+        x: x + 6, y: top - boxH + 8, size: 7, font: this.font, color: MUTED,
       });
     }
     this.y = top - boxH - 8;

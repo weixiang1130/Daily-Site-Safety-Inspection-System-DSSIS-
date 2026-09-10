@@ -62,9 +62,10 @@ def _sig_table(signatures):
         if os.path.exists(path):
             imgs.append(Image(path, width=32 * mm, height=14 * mm, kind="proportional"))
         else:
-            imgs.append(Paragraph(s.signer_name, cell_c))
-        times.append(Paragraph(
-            f"{s.signer_name}<br/>{s.signed_at:%Y-%m-%d %H:%M}", cell_c))
+            imgs.append(Paragraph("", cell_c))
+        # 現場共用同一組帳號，signer_name 只是帳號名、代表不了實際簽名的人，
+        # 手寫簽名圖才是。印帳號名反而誤導（看似某人親簽），故留白只保簽署時間。
+        times.append(Paragraph(f"{s.signed_at:%Y-%m-%d %H:%M}", cell_c))
     t = Table([roles, imgs, times], colWidths=[180 / max(len(roles), 1) * mm] * len(roles))
     t.setStyle(TableStyle([
         ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#999999")),
