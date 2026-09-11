@@ -21,6 +21,7 @@ let DATA = null;              // 最近一次 /api/board-data 的回應
 let SITE_ID = null;
 let notices = [], noticeIdx = 0, noticePaused = false;
 let contactPage = 0, wfPage = 0;
+let BUILDING_ORDER = [];      // 出工一覽表分棟顯示的棟別順序（依 branding）
 let pollTimer = null;
 // 雲端快照模式：站台是唯讀看板（branding.wallboard=true）時，board-data
 // 讀地端每 15 分鐘推上來的快照，而非即時查詢。此時是「固定視圖」——
@@ -33,6 +34,7 @@ let WALL = false, WALL_KEY = '', POLL = POLL_MS;
 (async () => {
   WALL_KEY = new URLSearchParams(location.search).get('k') || '';
   const brand = (await renderBrandLite()) || {};
+  BUILDING_ORDER = buildingList(brand);
   WALL = !!brand.wallboard;
   POLL = WALL ? 900000 : POLL_MS;   // 雲端 15 分鐘（對齊快照）、地端 1 分鐘
   document.getElementById('org').textContent =
@@ -366,12 +368,12 @@ function renderEnvironment() {
 // ---------------------------------------------------------------------------
 function renderWorkforce() {
   const w = DATA.worklog;
-  document.getElementById('wfTotal').innerHTML =
-    `${w.total.toLocaleString()} <small>人</small>`;
-  document.getElementById('wfNote').textContent =
-    w.rows.length ? `${w.rows.length} 家廠商回報（${w.date}）` : '來源：工務所群組出工回報';
   const body = document.getElementById('wfRows');
+  const scope = document.getElementById('wfScope');
   if (!w.rows.length) {
+    if (scope) scope.textContent = '本日回報出工';
+    document.getElementById('wfTotal').innerHTML = `— <small>人</small>`;
+    document.getElementById('wfNote').textContent = '來源：工務所群組出工回報';
     body.innerHTML = `<tr><td colspan="6"><div class="workforce-empty">
       <span class="empty-mark">／</span><h3>等待今日出工回報</h3>
       <p>各廠商於工務所群組回報後，依當日日期彙整顯示。</p>
@@ -379,11 +381,39 @@ function renderWorkforce() {
     document.getElementById('wfMeta').textContent = '工種 / 人數 / 施作項目';
     return;
   }
-  // 廠商多的時候整版塞不下（牆上也沒有人會捲動），分頁自動輪播
+  // 辦公棟／住宅棟分開顯示：先依棟別分組（順序照 branding，沒對到的棟別
+  // 排後面、未填棟別歸「未分棟」），每一頁只放同一棟。同棟廠商多到整版
+  // 塞不下就分頁（牆上沒有人會捲動），所有分頁依序自動輪播跳轉。
   const PER = 6;
-  const pages = Math.max(1, Math.ceil(w.rows.length / PER));
-  const pg = wfPage % pages;
-  body.innerHTML = w.rows.slice(pg * PER, pg * PER + PER).map(r => `<tr>
+  const groups = new Map();                         // 棟別 → rows[]
+  for (const r of w.rows) {
+    const b = r.building || '未分棟';
+    if (!groups.has(b)) groups.set(b, []);
+    groups.get(b).push(r);
+  }
+  const order = [...BUILDING_ORDER,
+    ...[...groups.keys()].filter(b => !BUILDING_ORDER.includes(b))];
+  const pages = [];                                 // 每頁只含單一棟別
+  for (const b of order) {
+    const rows = groups.get(b);
+    if (!rows || !rows.length) continue;
+    const headcount = rows.reduce((s, r) => s + (r.headcount || 0), 0);
+    const total = Math.ceil(rows.length / PER);
+    for (let i = 0; i < total; i++) {
+      pages.push({ building: b, rows: rows.slice(i * PER, i * PER + PER),
+        headcount, vendors: rows.length, pg: i + 1, total });
+    }
+  }
+  const page = pages[wfPage % pages.length];
+
+  // 摘要以「本頁棟別」為主，人數與家數各棟分開計；全案總計併陳於下方一行，
+  // 分棟後仍看得到整塊工地的總出工。
+  if (scope) scope.textContent = `${page.building} 出工`;
+  document.getElementById('wfTotal').innerHTML =
+    `${page.headcount.toLocaleString()} <small>人</small>`;
+  document.getElementById('wfNote').textContent =
+    `${page.vendors} 家廠商回報 · 全案 ${w.total.toLocaleString()} 人／${w.rows.length} 家（${w.date}）`;
+  body.innerHTML = page.rows.map(r => `<tr>
     <td>${esc(r.building || '—')}</td>
     <td>${esc(r.vendor)}</td>
     <td title="${esc(r.trade || '')}">${esc(r.trade || '—')}</td>
@@ -391,5 +421,7 @@ function renderWorkforce() {
     <td>${esc(r.supervisor || '—')}</td>
     <td title="${esc(r.tasks || '')}">${esc(r.tasks || '—')}</td></tr>`).join('');
   document.getElementById('wfMeta').textContent =
-    pages > 1 ? `第 ${pg + 1}／${pages} 頁・共 ${w.rows.length} 家` : '工種 / 人數 / 施作項目';
+    page.total > 1
+      ? `${page.building}・第 ${page.pg}／${page.total} 頁・共 ${page.vendors} 家`
+      : `${page.building}・共 ${page.vendors} 家`;
 }
