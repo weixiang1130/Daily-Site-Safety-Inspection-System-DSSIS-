@@ -21,6 +21,7 @@ let DATA = null;              // 最近一次 /api/board-data 的回應
 let SITE_ID = null;
 let notices = [], noticeIdx = 0, noticePaused = false;
 let contactPage = 0, wfPage = 0;
+let wfPer = 6;                // 出工每頁列數；畫完被裁切會自動縮（renderWorkforce）
 let BUILDING_ORDER = [];      // 出工一覽表分棟顯示的棟別順序（依 branding）
 let pollTimer = null;
 // 雲端快照模式：站台是唯讀看板（branding.wallboard=true）時，board-data
@@ -56,6 +57,12 @@ let WALL = false, WALL_KEY = '', POLL = POLL_MS;
     contactPage++; wfPage++;
     if (DATA) { renderContacts(); renderWorkforce(); }
   }, PAGE_MS);
+  // 視窗尺寸變了（含進出全螢幕）就把每頁列數放回上限重估，
+  // 螢幕變大時列數才長得回來，變小時 renderWorkforce 會自己縮
+  window.addEventListener('resize', () => {
+    wfPer = 6;
+    if (DATA) renderWorkforce();
+  });
 
   document.getElementById('fullscreen').onclick = () => {
     // 電視棒／老 WebKit 只有帶前綴的 API；失敗就安靜作罷，牆上沒人看錯誤
@@ -384,7 +391,7 @@ function renderWorkforce() {
   // 辦公棟／住宅棟分開顯示：先依棟別分組（順序照 branding，沒對到的棟別
   // 排後面、未填棟別歸「未分棟」），每一頁只放同一棟。同棟廠商多到整版
   // 塞不下就分頁（牆上沒有人會捲動），所有分頁依序自動輪播跳轉。
-  const PER = 6;
+  const PER = wfPer;
   const groups = new Map();                         // 棟別 → rows[]
   for (const r of w.rows) {
     const b = r.building || '未分棟';
@@ -413,15 +420,30 @@ function renderWorkforce() {
     `${page.headcount.toLocaleString()} <small>人</small>`;
   document.getElementById('wfNote').textContent =
     `${page.vendors} 家廠商回報 · 全案 ${w.total.toLocaleString()} 人／${w.rows.length} 家（${w.date}）`;
+  // 工種與施作項目截為兩行（滑鼠停留看全文）：長文字撐高列高，是牆面
+  // 裁切半列的主因；截行讓每列高度有上限，下面的自適應列數才會收斂。
   body.innerHTML = page.rows.map(r => `<tr>
     <td>${esc(r.building || '—')}</td>
     <td>${esc(r.vendor)}</td>
-    <td title="${esc(r.trade || '')}">${esc(r.trade || '—')}</td>
+    <td title="${esc(r.trade || '')}"><div class="clamp2">${esc(r.trade || '—')}</div></td>
     <td>${r.headcount == null ? '—' : r.headcount}</td>
     <td>${esc(r.supervisor || '—')}</td>
-    <td title="${esc(r.tasks || '')}">${esc(r.tasks || '—')}</td></tr>`).join('');
+    <td title="${esc(r.tasks || '')}"><div class="clamp2">${esc(r.tasks || '—')}</div></td></tr>`).join('');
   document.getElementById('wfMeta').textContent =
     page.total > 1
       ? `${page.building}・第 ${page.pg}／${page.total} 頁・共 ${page.vendors} 家`
       : `${page.building}・共 ${page.vendors} 家`;
+
+  // 畫完發現最後一列仍超出表格區（牆面 overflow:hidden 會直接裁掉半列）
+  // 就少放一列重畫，縮到塞得下為止；手機版 table-area 可捲動，不縮。
+  // 視窗尺寸變動（含進出全螢幕）時 wfPer 會重設回 6 再重估。
+  const area = body.closest('.table-area');
+  if (area && wfPer > 2 && getComputedStyle(area).overflowY !== 'auto') {
+    const last = body.lastElementChild;
+    if (last && last.getBoundingClientRect().bottom >
+        area.getBoundingClientRect().bottom + 1) {
+      wfPer--;
+      renderWorkforce();
+    }
+  }
 }
