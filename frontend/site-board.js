@@ -41,9 +41,14 @@ let WALL = false, WALL_KEY = '', POLL = POLL_MS;
   document.getElementById('org').textContent =
     (brand.org_short ? brand.org_short + '　' : '') + (brand.war_room_name || '工地安全戰情室');
   // 雲端固定視圖：工地下拉不作用（快照只含主場站，工地名由快照帶出、
-  // 於 load() 後填入），看板管理只在地端可用
+  // 於 load() 後填入）。
   if (WALL) {
     document.getElementById('site').disabled = true;
+  }
+  // 看板管理入口只在「免登入大螢幕」（帶 ?k= 權杖的 kiosk）隱藏；一般雲端
+  // 訪客仍要進得去登入維護——看板設定（聯絡人、無災害起算日…）在雲端才是
+  // 權威來源，之前對整個雲端一律隱藏會讓雲端根本沒有入口可維護。
+  if (WALL_KEY) {
     const sl = document.getElementById('settingsLink');
     if (sl) sl.classList.add('hidden');
   }
