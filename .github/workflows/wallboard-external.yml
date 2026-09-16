@@ -1,0 +1,64 @@
+# 工地看板外部區塊：雲端排程（每 30 分鐘）
+#
+# 取代「地端主機推快照」——把不需要公司內網、也不碰雲端資料庫的三塊
+# （微型氣象站、本日出工、職安新知）改由 GitHub Actions 定時抓、推上
+# 雲端 Blob。看板從此不依賴任何一台特定電腦，你的電腦關著也不會過期。
+#
+# 缺失統計、無災害、看板設定等「要資料庫」的區塊不在這裡——由雲端自己
+# 以事件驅動維護，看板讀取時再合併。因此本工作流程完全不吵醒雲端資料庫。
+#
+# 需要在 repo 設定的值（Settings → Secrets and variables → Actions）：
+#   Secrets（機密）
+#     WEATHER_API_PASS      氣象站密碼
+#     WORKLOG_SHEET_URL     出工試算表網址（含人名/LINE ID）
+#     CLOUD_INGEST_TOKEN    對應雲端環境變數 WALL_INGEST_TOKEN
+#   Variables（非機密設定）
+#     WEATHER_API_URL       氣象站平台網址
+#     WEATHER_API_USER      氣象站帳號
+#     WEATHER_SITE_MAP      測站 MAC 對工地代碼的 JSON
+#     BUILDING_LABELS       例：BD04:辦公棟,BD05:住宅棟
+#     PRIMARY_SITE_CODE     主場站代碼，例：BD04
+#     CLOUD_INGEST_URL      例：https://safety-ops-dssis.netlify.app/api/v1/ingest/external
+#
+# 專案值放 Secrets/Variables、不寫進這支 YAML——公開 repo 不留任何工地資訊。
+
+name: 工地看板外部區塊
+
+on:
+  schedule:
+    # 每 30 分鐘。GitHub cron 是 UTC；排程本身不分時段，看板端會標示過期。
+    - cron: "*/30 * * * *"
+  workflow_dispatch: {}   # 允許手動觸發，驗證用
+
+concurrency:
+  group: wallboard-external
+  cancel-in-progress: true
+
+jobs:
+  push-external:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: 安裝相依套件（SQLite 後端，免資料庫驅動）
+        run: pip install -r backend/onprem/requirements.txt
+
+      - name: 抓取外部區塊並推上雲端
+        env:
+          WEATHER_API_URL: ${{ vars.WEATHER_API_URL }}
+          WEATHER_API_USER: ${{ vars.WEATHER_API_USER }}
+          WEATHER_API_PASS: ${{ secrets.WEATHER_API_PASS }}
+          WEATHER_SITE_MAP: ${{ vars.WEATHER_SITE_MAP }}
+          WORKLOG_SHEET_URL: ${{ secrets.WORKLOG_SHEET_URL }}
+          BUILDING_LABELS: ${{ vars.BUILDING_LABELS }}
+          PRIMARY_SITE_CODE: ${{ vars.PRIMARY_SITE_CODE }}
+          CLOUD_INGEST_URL: ${{ vars.CLOUD_INGEST_URL }}
+          CLOUD_INGEST_TOKEN: ${{ secrets.CLOUD_INGEST_TOKEN }}
+          PYTHONUTF8: "1"
+        run: python backend/cloud-runner/run_external.py --push
