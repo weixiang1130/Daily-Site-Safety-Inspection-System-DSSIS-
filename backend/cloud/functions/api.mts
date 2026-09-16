@@ -147,6 +147,107 @@ async function readFileBytes(pathOrKey: string | null): Promise<Uint8Array | nul
 }
 
 // ---------------------------------------------------------------------------
+// 工地看板（雲端自主版）
+//
+// 外部三塊（氣象/出工/新知/危害/上月人日）由 GitHub 排程每 30 分鐘抓取、推到
+// EXTERNAL_KEY；要資料庫的兩塊（缺失統計、看板設定）以事件驅動快取到
+// DBSECTIONS_KEY（只在填報／看板設定變動時重算）。board-data 讀這兩份 Blob
+// 合併，正常情況完全不碰資料庫——不增加 Netlify DB compute。
+// ---------------------------------------------------------------------------
+const EXTERNAL_KEY = "wallboard/external.json";
+const DBSECTIONS_KEY = "wallboard/dbsections.json";
+
+/** 缺失三數＋主場站看板設定；供事件驅動快取與首次即時計算共用。 */
+async function computeDbSections() {
+  const today = todayISO();
+  const rows = await db.sql`
+    SELECT
+      COUNT(*) FILTER (WHERE found_at::date = ${today}::date) AS findings_today,
+      COUNT(*) FILTER (WHERE status IN ('open', 'fixed'))     AS open,
+      COUNT(*) FILTER (
+        WHERE action_type = 'scheduled' AND due_date IS NOT NULL
+          AND status NOT IN ('verified', 'closed')
+          AND due_date < ${today}::date)                       AS overdue
+    FROM findings`;
+  const r: any = rows[0] || {};
+  const stats = {
+    findings_today: Number(r.findings_today || 0),
+    open: Number(r.open || 0),
+    overdue: Number(r.overdue || 0),
+  };
+  const code = (Netlify.env.get("PRIMARY_SITE_CODE") || "").trim();
+  const sites = await db.sql`
+    SELECT id, code, name, active, board_config, board_revision
+    FROM sites WHERE active = TRUE ORDER BY sort_order, id`;
+  const site = sites.find((s: any) => s.code === code) || sites[0];
+  return {
+    stats,
+    board: site ? boardPayload(site) : null,
+    generated_at: minuteISO(new Date().toISOString()),
+  };
+}
+
+/** 更新 DB 區塊的 Blob 快取。盡力而為——寫失敗不能拖累觸發它的填報動作。 */
+async function refreshBoardCache() {
+  try {
+    await files().set(DBSECTIONS_KEY, JSON.stringify(await computeDbSections()),
+      { metadata: { pushed_at: new Date().toISOString() } });
+  } catch (e) {
+    console.error("[board-cache] 更新失敗（下次填報會再試）", e);
+  }
+}
+
+/** 無災害天數：起算日當天算第 1 天。起算日不變、天數每天自然增加，因此在
+ *  讀取時算（純日期運算、不碰資料庫），不會有「快取停在昨天」的問題。 */
+function computeRecord(safety: any, lastMonthMandays: number) {
+  const base = parseInt(safety?.base_days || "0", 10) || 0;
+  const startRaw = String(safety?.start_date || "").trim();
+  let days: number | null = null;
+  if (startRaw) {
+    const start = new Date(startRaw + "T00:00:00Z");
+    const today = new Date(todayISO() + "T00:00:00Z");
+    if (!isNaN(start.getTime()) && start <= today) {
+      days = base + Math.round((today.getTime() - start.getTime()) / 86400000) + 1;
+    }
+  }
+  return { days, last_month_mandays: lastMonthMandays, since: startRaw || null };
+}
+
+/** 合併外部 Blob（氣象/出工/新知/危害）與 DB 快取（缺失/設定）成看板整頁。 */
+async function buildBoardData() {
+  let ext: any = {};
+  try {
+    const raw = await files().get(EXTERNAL_KEY, { type: "text" });
+    if (raw) ext = JSON.parse(raw);
+  } catch { /* 沒有外部快照就當空的，看板各區塊自有等待狀態 */ }
+
+  let sec: any = null;
+  try {
+    const raw = await files().get(DBSECTIONS_KEY, { type: "text" });
+    if (raw) sec = JSON.parse(raw);
+  } catch { /* ignore */ }
+  if (!sec) {                       // 首次、或快取被清掉：即時算一次並寫回
+    sec = await computeDbSections();
+    try { await files().set(DBSECTIONS_KEY, JSON.stringify(sec)); } catch { /* 盡力 */ }
+  }
+
+  const board = sec.board;
+  const record = computeRecord(board?.config?.safety || {},
+    Number(ext.last_month_mandays || 0));
+  return {
+    generated_at: ext.generated_at || sec.generated_at
+      || minuteISO(new Date().toISOString()),
+    station: ext.station ?? null,
+    stats: sec.stats,
+    worklog: ext.worklog ?? { date: todayISO(), total: 0, rows: [] },
+    record,
+    hazards: ext.hazards ?? [],
+    news: ext.news ?? [],
+    board,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // 主處理
 // ---------------------------------------------------------------------------
 export default async (req: Request, _ctx: Context): Promise<Response> => {
@@ -250,6 +351,24 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       return json({ ok: true, bytes: Buffer.byteLength(body, "utf8") });
     }
 
+    // 工地看板的「外部三塊」（氣象/出工/新知/危害/上月人日）——由 GitHub
+    // 排程每 30 分鐘抓取後推上來。只寫 Blob、不碰資料庫、不觸發部署。
+    // 權杖 WALL_INGEST_TOKEN，與 GitHub 端 CLOUD_INGEST_TOKEN 同一組。
+    if (p === "/api/v1/ingest/external" && method === "POST") {
+      const expected = Netlify.env.get("WALL_INGEST_TOKEN") || "";
+      const token = (req.headers.get("authorization") || "")
+        .replace(/^Bearer\s+/i, "");
+      if (!expected || token !== expected) return fail(401, "外部快照權杖驗證失敗");
+      const body = await req.text();
+      try {                          // 擋壞資料蓋掉好資料：至少要是含 worklog 的物件
+        const j = JSON.parse(body);
+        if (!j || typeof j !== "object" || !j.worklog) throw 0;
+      } catch { return fail(400, "外部快照格式錯誤"); }
+      await files().set(EXTERNAL_KEY, body,
+        { metadata: { pushed_at: new Date().toISOString() } });
+      return json({ ok: true, bytes: Buffer.byteLength(body, "utf8") });
+    }
+
     // 這個看板會在公開網際網路上，內容含缺失描述與廠商名稱，
     // 因此以 WALL_TOKEN 驗證。權杖外流時改一次環境變數即可撤換。
     // 兩種身分都可以看板：
@@ -285,10 +404,10 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       });
     }
 
-    // 工地看板（五區塊）的雲端唯讀來源：讀地端推上來的快照裡的 board 段。
-    // 環境與出工資料源都在公司內網，雲端無法即時查——因此與 wallboard 同樣
-    // 走「地端推、雲端讀快照」，不碰資料庫。驗證同上（WALL_TOKEN 或登入）。
-    // site_id 只是路由佔位：快照只含主場站一份，一律回傳它。
+    // 工地看板（五區塊）的雲端自主來源：合併「外部 Blob」（GitHub 排程推的
+    // 氣象/出工/新知/危害）與「DB 快取 Blob」（填報時事件驅動更新的缺失/設定）。
+    // 正常情況只讀兩份 Blob、不碰資料庫。驗證同上（WALL_TOKEN 或登入）。
+    // site_id 只是路由佔位：看板固定顯示主場站。
     const boardData = /^\/api\/board-data\/\d+$/.exec(p);
     if (boardData && method === "GET") {
       const expected = Netlify.env.get("WALL_TOKEN") || "";
@@ -299,15 +418,8 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
           ? "看板權杖錯誤"
           : "請先登入，或使用看板權杖網址（未設定 WALL_TOKEN 時大螢幕無法免登入）");
       }
-      const body = await files().get(WALL_KEY, { type: "text" });
-      if (!body) return fail(404, "尚無快照，地端還沒推送過");
-      let snap: any;
-      try { snap = JSON.parse(body); } catch { return fail(502, "快照格式錯誤"); }
-      if (!snap.board) {
-        return fail(404, "尚無快照的工地看板資料（地端推送程式待更新，或主場站未設定）");
-      }
       const cache = tokenOk ? "public, max-age=900" : "private, max-age=900";
-      return new Response(JSON.stringify(snap.board), {
+      return new Response(JSON.stringify(await buildBoardData()), {
         headers: {
           "content-type": "application/json; charset=utf-8",
           "cache-control": cache,
@@ -453,6 +565,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
         WHERE id = ${id} AND COALESCE(board_revision, 0) = ${b.revision}
         RETURNING id, code, name, board_config, board_revision`;
       if (!saved) return fail(409, '其他人已更新，請重新載入再編輯');
+      await refreshBoardCache();     // 聯絡人/作業循環/無災害起算等變更即時反映到看板
       return json(boardPayload(saved), {headers: {'cache-control': 'no-store'}});
     }
 
@@ -521,7 +634,9 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
     }
 
     if (p === "/api/inspections" && method === "POST") {
-      return await createInspection(req, me);
+      const resp = await createInspection(req, me);
+      await refreshBoardCache();     // 檢查可能新增缺失，更新看板 DB 快取
+      return resp;
     }
 
     if (p === "/api/inspections" && method === "GET") {
@@ -623,6 +738,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       const bad = buildingTooLong(b.building);
       if (bad) return bad;
       const id = await insertFinding({ ...b, source: b.source || "audit" }, me);
+      await refreshBoardCache();
       return json({ ok: true, finding_id: id });
     }
 
@@ -633,6 +749,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
         UPDATE findings SET fixed_at = NOW(), fix_note = ${b.fix_note ?? null},
           photo_after = COALESCE(${b.photo_after ?? null}, photo_after), status = 'fixed'
         WHERE id = ${parseInt(fixMatch[1], 10)}`;
+      await refreshBoardCache();
       return json({ ok: true });
     }
 
@@ -644,6 +761,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       await db.sql`
         UPDATE findings SET verifier_id = ${me.id}, verified_at = NOW(), status = 'closed'
         WHERE id = ${parseInt(verifyMatch[1], 10)}`;
+      await refreshBoardCache();
       return json({ ok: true });
     }
 
@@ -727,6 +845,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       const delFinding = /^\/api\/admin\/findings\/(\d+)$/.exec(p);
       if (delFinding && (method === "DELETE" || method === "POST")) {
         await db.sql`DELETE FROM findings WHERE id = ${parseInt(delFinding[1], 10)}`;
+        await refreshBoardCache();
         return json({ ok: true });
       }
 

@@ -137,11 +137,39 @@ def _read_external(db) -> dict:
             for n in db.query(NewsItem)
             .order_by(NewsItem.published.desc(), NewsItem.id.desc()).limit(8).all()]
 
+    # 今日作業危害告知：只做「出工」這一半——列控表在雲端沒有。沿用地端
+    # 既有的 hazards_of 關鍵字對應（不重寫），對出工的工種與施作項目取危害。
+    from app.work_hazards import hazards_of
+    hazard_map: dict = {}
+
+    def _note(text, source):
+        for hz in hazards_of(text or ""):
+            lst = hazard_map.setdefault(hz, [])
+            if source not in lst and len(lst) < 6:
+                lst.append(source)
+
+    for w in wl:
+        label = w.vendor + (f"（{w.building}）" if w.building else "")
+        _note(f"{w.trade or ''} {w.tasks or ''}", label)
+    hazards = sorted([{"label": k, "sources": v} for k, v in hazard_map.items()],
+                     key=lambda x: -len(x["sources"]))
+
+    # 上月總出工（人日）：暫存庫裡有整張試算表解析出的多日資料，逐日加總。
+    from datetime import timedelta
+    lm_end = today.replace(day=1) - timedelta(days=1)
+    lm_start = lm_end.replace(day=1)
+    last_month = sum(
+        w.headcount or 0 for w in db.query(WorkLog)
+        .filter(WorkLog.report_date >= lm_start,
+                WorkLog.report_date <= lm_end).all())
+
     return {
         "schema": 1,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "station": station,
         "worklog": worklog,
+        "hazards": hazards,
+        "last_month_mandays": int(last_month),
         "news": news,
     }
 
