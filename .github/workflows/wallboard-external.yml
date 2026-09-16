@@ -61,4 +61,9 @@ jobs:
           CLOUD_INGEST_URL: ${{ vars.CLOUD_INGEST_URL }}
           CLOUD_INGEST_TOKEN: ${{ secrets.CLOUD_INGEST_TOKEN }}
           PYTHONUTF8: "1"
+          # GitHub 的主機跑 UTC，datetime.now() 會比台北慢 8 小時——
+          # generated_at 被看板誤判成 8 小時前而跳「已停止更新」，
+          # 「今天」的出工查詢在台北早上也會查到前一天。整個系統的
+          # 時間戳慣例是「台北時間、無時區註記」，把程序時區釘在台北。
+          TZ: "Asia/Taipei"
         run: python backend/cloud-runner/run_external.py --push

@@ -7,7 +7,7 @@
 const POLL_MS = 60000;        // 資料輪詢
 const NOTICE_MS = 12000;      // 公告輪播
 const PAGE_MS = 10000;        // 聯絡人分頁輪播
-const STALE_AFTER_MIN = 15;   // 資料多久沒更新要在牆上大聲說（沿用舊戰情室）
+let STALE_AFTER_MIN = 15;     // 資料多久沒更新要在牆上大聲說（地端資料每分鐘更新）
 const RETRY_MS = 30000;       // 初始化失敗的重試間隔（冷開機防毒掃描要等）
 const LEVEL_LABELS = ['正常', '注意', '警戒', '危險', '極度危險'];
 const ENV_ROWS = [
@@ -38,6 +38,9 @@ let WALL = false, WALL_KEY = '', POLL = POLL_MS;
   BUILDING_ORDER = buildingList(brand);
   WALL = !!brand.wallboard;
   POLL = WALL ? 900000 : POLL_MS;   // 雲端 15 分鐘（對齊快照）、地端 1 分鐘
+  // 雲端的外部快照每 30 分鐘推一次（GitHub 排程，且可能晚幾分鐘），
+  // 15 分鐘門檻會在兩次推送之間誤報「已停止更新」——放寬到 45 分鐘
+  if (WALL) STALE_AFTER_MIN = 45;
   document.getElementById('org').textContent =
     (brand.org_short ? brand.org_short + '　' : '') + (brand.war_room_name || '工地安全戰情室');
   // 雲端固定視圖：工地下拉不作用（快照只含主場站，工地名由快照帶出、
@@ -154,14 +157,15 @@ function tick() {
     now.toLocaleTimeString('zh-TW', { hour12: false });
 
   // 失更警示：牆上的時鐘照走、面板卻是舊資料時，看起來完全健康——
-  // 必須大聲說。沿用舊戰情室的 15 分鐘門檻。
+  // 必須大聲說。門檻依模式而異：地端 15 分、雲端 45 分（見 STALE_AFTER_MIN）。
   const banner = document.getElementById('staleBanner');
   if (banner) {
     const age = DATA ? now - new Date(DATA.generated_at) : 0;
     banner.hidden = !(DATA && age > STALE_AFTER_MIN * 60000);
     if (!banner.hidden) {
       banner.textContent = `資料已停止更新（最後更新 ${DATA.generated_at.replace('T', ' ')}）`
-        + '——地端主機或收集程式可能已停止，畫面上的數字不是現況';
+        + (WALL ? '——雲端排程可能已停止，畫面上的數字不是現況'
+                : '——地端主機或收集程式可能已停止，畫面上的數字不是現況');
     }
   }
 
