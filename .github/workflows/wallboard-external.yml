@@ -35,7 +35,12 @@ on:
   # Netlify 那邊失效（例如 token 到期）時的後備。
   schedule:
     - cron: "22 * * * *"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      worklog_backfill:
+        description: "出工資料庫：推送試算表內全部歷史（首次建庫或解析規則改版後重算用）"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -89,6 +94,27 @@ jobs:
         # 任一收集程式失敗時 runner 仍推送其餘區塊，然後以非 0 結束——這一步
         # 轉紅、GitHub 寄通知；雲端保留失敗區塊的上一份資料與時間戳。
         run: python backend/cloud-runner/run_external.py --push
+
+      - name: 出工明細寫入資料庫（每天 00:07 那一輪；手動可推全部歷史）
+        # 與上一步無關，上一步失敗也要做。資料庫按醒著的時數計費，只在凌晨
+        # 寫一次（這時段看板每日首次讀取本來就會喚醒資料庫）；重送最近 14 天，
+        # 某晚沒跑到由隔晚補上。00:22 的後備排程不寫，免得多喚醒一次。
+        if: always()
+        env:
+          WORKLOG_SHEET_URL: ${{ secrets.WORKLOG_SHEET_URL }}
+          BUILDING_LABELS: ${{ vars.BUILDING_LABELS }}
+          CLOUD_INGEST_URL: ${{ vars.CLOUD_INGEST_URL }}
+          CLOUD_INGEST_TOKEN: ${{ secrets.CLOUD_INGEST_TOKEN }}
+          BACKFILL: ${{ github.event.inputs.worklog_backfill }}
+          PYTHONUTF8: "1"
+        run: |
+          if [ "$BACKFILL" = "true" ]; then
+            python backend/cloud-runner/push_worklog.py --all
+          elif [ "$(date +%H)" = "00" ] && [ "$(date +%-M)" -lt 20 ]; then
+            python backend/cloud-runner/push_worklog.py --days 14
+          else
+            echo "非凌晨那一輪，略過（出工資料庫每天寫一次）"
+          fi
 
       - name: 保持排程啟用（公開 repo 60 天無活動會被停用）
         # 每天台北 06 點那幾輪做（不論哪種觸發）；上一步失敗也要做。

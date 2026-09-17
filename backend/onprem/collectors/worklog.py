@@ -59,7 +59,9 @@ WORK_WORDS = ("綁紮", "模板", "水電", "帷幕", "鋼筋", "鋼構", "放�
 
 # 這些是施工機具不是工種——鋼構類廠商常把「760塔吊*1」列在人數
 # 清單旁邊，不濾掉的話工種欄會混進機具、加總人數也會多算
-MACHINE_WORDS = ("堆高機", "塔吊", "作業車", "挖掘機", "吊車", "吊卡")
+# 「PC*120*2」是挖土機型號（PC120）×台數，不是 120 人——曾讓工種明細
+# 兩週冒出 600 人日的「PC」
+MACHINE_WORDS = ("堆高機", "塔吊", "作業車", "挖掘機", "吊車", "吊卡", "PC")
 
 ROC_DATE = re.compile(r"(1[0-9]{2})[/.．](\d{1,2})[/.．](\d{1,2})")
 AD_DATE = re.compile(r"(20\d{2})[/.．-](\d{1,2})[/.．-](\d{1,2})")
@@ -253,9 +255,17 @@ def parse_message(content: str, labels: list, fallback_date: Optional[date]) -> 
         tasks.append(ln)
     task_text = "、".join(tasks)[:400] or None
 
+    # 工種明細（供出工資料庫分析）：與工種摘要同一來源，0 人的班別不計。
+    # 同名工種重複列出時合併加總。訊息只寫總人數、沒有逐工種人數時為空。
+    trades: dict = {}
+    for name, n in star_pairs + colon_pairs:
+        if n:
+            trades[name] = trades.get(name, 0) + n
+
     return {"report_date": report_date, "building": building, "vendor": vendor,
             "trade": trade, "headcount": headcount, "supervisor": supervisor,
-            "tasks": task_text}
+            "tasks": task_text,
+            "trades": [{"trade": k, "headcount": v} for k, v in trades.items()]}
 
 
 def fetch_rows() -> list:
@@ -265,13 +275,20 @@ def fetch_rows() -> list:
     return list(csv.DictReader(io.StringIO(r.text)))
 
 
-def poll_once() -> str:
-    labels = building_labels()
-    rows = fetch_rows()
+def collect_reports(rows: Optional[list] = None):
+    """解析整張試算表的出工回報。
 
-    # 解析並以 (日期, 棟別, 廠商) 去重，取最新一則（廠商常重發更正版）
+    回傳 (讀到的列數, {(日期, 棟別, 廠商): 回報}, 解析失敗的訊息清單)。
+    同一天同一棟同一廠商以最新一則為準（廠商常重發更正版）。
+    本機看板收集（poll_once）與雲端出工資料庫（cloud-runner/push_worklog.py）
+    共用這一份解析，兩邊的數字才會一致。
+    """
+    labels = building_labels()
+    if rows is None:
+        rows = fetch_rows()
+
     parsed = {}
-    skipped = 0
+    rejects = []
     for row in rows:
         content = (row.get("訊息內容") or "").strip()
         if "出工回報" not in content[:16]:
@@ -282,20 +299,29 @@ def poll_once() -> str:
                 (row.get("接收時間") or "").strip(), "%Y-%m-%d %H:%M:%S")
         except ValueError:
             pass
+        reporter = (row.get("使用者名稱") or "")[:64] or None
+        message_id = (row.get("LINE訊息ID") or "")[:64] or None
         item = parse_message(content, labels,
                              reported_at.date() if reported_at else None)
         if not item:
-            skipped += 1
+            rejects.append({"message_id": message_id, "reported_at": reported_at,
+                            "reporter": reporter, "raw": content[:2000]})
             continue
-        item["reporter"] = (row.get("使用者名稱") or "")[:64] or None
+        item["reporter"] = reporter
         item["reported_at"] = reported_at
-        item["message_id"] = (row.get("LINE訊息ID") or "")[:64] or None
+        item["message_id"] = message_id
         item["raw"] = content[:2000]
         key = (item["report_date"], item["building"] or "", item["vendor"])
         old = parsed.get(key)
         if old is None or (item["reported_at"] or datetime.min) >= \
                 (old["reported_at"] or datetime.min):
             parsed[key] = item
+    return len(rows), parsed, rejects
+
+
+def poll_once() -> str:
+    row_count, parsed, rejects = collect_reports()
+    skipped = len(rejects)
 
     db = SessionLocal()
     created = updated = 0
@@ -319,7 +345,7 @@ def poll_once() -> str:
     finally:
         db.close()
 
-    msg = (f"讀到 {len(rows)} 列、出工回報 {len(parsed)} 組"
+    msg = (f"讀到 {row_count} 列、出工回報 {len(parsed)} 組"
            f"（新增 {created}、更新 {updated}）")
     if skipped:
         msg += f"，{skipped} 則解析不出廠商或日期已略過"

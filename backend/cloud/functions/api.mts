@@ -310,6 +310,33 @@ async function buildBoardData() {
 // ---------------------------------------------------------------------------
 // 主處理
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// 出工資料庫（worklog_*）：寫入由 GitHub 每晚推送，匯出供分析
+// ---------------------------------------------------------------------------
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const WORKLOG_MAX_REPORTS = 1000;   // 單次推送上限；runner 會分批
+
+/** CSV 儲存格：含逗號／引號／換行時加引號；開頭是 = + - @ 時前綴單引號，
+ *  避免 Excel 把 LINE 原文當公式執行（CSV injection）。 */
+function csvCell(v: unknown): string {
+  if (v === null || v === undefined) return "";
+  let t = String(v);
+  if (/^[=+\-@]/.test(t)) t = "'" + t;
+  return /[",\r\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+}
+
+/** 帶 BOM 的 UTF-8 CSV——沒有 BOM 的話 Excel 會把中文開成亂碼。 */
+function csvResponse(filename: string, header: string[], rows: unknown[][]): Response {
+  const body = "﻿" + [header, ...rows].map((r) => r.map(csvCell).join(",")).join("\r\n");
+  return new Response(body, {
+    headers: {
+      "content-type": "text/csv; charset=utf-8",
+      "content-disposition": `attachment; filename="${filename}"`,
+      "cache-control": "no-store",
+    },
+  });
+}
+
 // 會改動看板 DB 區塊（缺失、工地、看板設定）的寫入路由。在單一出口統一刷新
 // 快取，而不是在各處理器逐一呼叫——逐一加的做法曾漏掉協調會新增、刪除協調
 // 會／檢查、改工地名稱等路徑。刷新只在寫入成功後做，資料庫此時本來就醒著。
@@ -471,6 +498,119 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
       const body = JSON.stringify(out);
       await files().set(EXTERNAL_KEY, body, { metadata: { pushed_at: new Date().toISOString() } });
       return json({ ok: true, bytes: Buffer.byteLength(body, "utf8"), failed: out.failed });
+    }
+
+    // 出工資料庫：GitHub 每晚 00:07 推送最近 14 天解析結果（首次為全部歷史）。
+    // 以 (日期, 棟別, 廠商) upsert；來源消失的列不刪（來源被截斷不能丟歷史）。
+    // 同一則訊息因解析規則改進而改判到不同鍵時，刪掉舊鍵那筆。每步都是
+    // 冪等的：中途失敗時 runner 以非 0 結束，隔晚重送即可補齊。
+    if (p === "/api/v1/ingest/worklog" && method === "POST") {
+      const expected = Netlify.env.get("WALL_INGEST_TOKEN") || "";
+      const token = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
+      if (!expected || token !== expected) return fail(401, "出工資料推送權杖驗證失敗");
+
+      let reports: any[], rejects: any[];
+      try {
+        const b = JSON.parse(await req.text());
+        reports = Array.isArray(b?.reports) ? b.reports : [];
+        rejects = Array.isArray(b?.rejects) ? b.rejects : [];
+        if (reports.length > WORKLOG_MAX_REPORTS) throw Error(`單次最多 ${WORKLOG_MAX_REPORTS} 筆`);
+        for (const r of reports) {
+          if (!ISO_DATE.test(String(r?.report_date || "")) || !String(r?.vendor || "").trim()) {
+            throw Error("回報缺日期或廠商");
+          }
+          if (r.trades !== undefined && !Array.isArray(r.trades)) throw Error("工種明細格式錯誤");
+        }
+      } catch (e: any) {
+        return fail(400, "出工資料格式錯誤：" + (e?.message || ""));
+      }
+
+      const seen = new Set<string>();
+      const rows: any[] = [];
+      for (const r of reports) {
+        const key = `${r.report_date}|${r.building || ""}|${String(r.vendor).trim()}`;
+        if (seen.has(key)) continue;                  // 同鍵只取第一筆（runner 已去重）
+        seen.add(key);
+        rows.push({
+          report_date: r.report_date, building: String(r.building || "").slice(0, 32),
+          vendor: String(r.vendor).trim().slice(0, 64),
+          headcount: Number.isInteger(r.headcount) ? r.headcount : null,
+          trade_summary: r.trade_summary ?? null, supervisor: r.supervisor ?? null,
+          tasks: r.tasks ?? null, reporter: r.reporter ?? null,
+          reported_at: r.reported_at ?? null, message_id: r.message_id ?? null,
+          raw: r.raw ?? null,
+          trades: (r.trades || []).filter((t: any) =>
+            String(t?.trade || "").trim() && Number.isInteger(t?.headcount) && t.headcount > 0),
+        });
+      }
+
+      let upserted: any[] = [];
+      if (rows.length) {
+        const rj = JSON.stringify(rows);
+        await db.sql`
+          DELETE FROM worklog_reports r
+          USING json_to_recordset(${rj}::json)
+            AS x(report_date date, building text, vendor text, message_id text)
+          WHERE x.message_id IS NOT NULL AND r.message_id = x.message_id
+            AND (r.report_date, r.building, r.vendor) IS DISTINCT FROM
+                (x.report_date, x.building, x.vendor)`;
+        upserted = await db.sql`
+          INSERT INTO worklog_reports
+            (report_date, building, vendor, headcount, trade_summary, supervisor,
+             tasks, reporter, reported_at, message_id, raw)
+          SELECT report_date, building, vendor, headcount, trade_summary, supervisor,
+                 tasks, reporter, reported_at, message_id, raw
+          FROM json_to_recordset(${rj}::json) AS x(
+            report_date date, building text, vendor text, headcount int,
+            trade_summary text, supervisor text, tasks text, reporter text,
+            reported_at timestamp, message_id text, raw text)
+          ON CONFLICT (report_date, building, vendor) DO UPDATE SET
+            headcount = EXCLUDED.headcount, trade_summary = EXCLUDED.trade_summary,
+            supervisor = EXCLUDED.supervisor, tasks = EXCLUDED.tasks,
+            reporter = EXCLUDED.reporter, reported_at = EXCLUDED.reported_at,
+            message_id = EXCLUDED.message_id, raw = EXCLUDED.raw, updated_at = NOW()
+          RETURNING id, report_date::text AS report_date, building, vendor`;
+
+        const idOf = new Map(upserted.map((u: any) => [`${u.report_date}|${u.building}|${u.vendor}`, u.id]));
+        const trades: any[] = [];
+        for (const r of rows) {
+          const id = idOf.get(`${r.report_date}|${r.building}|${r.vendor}`);
+          if (id) for (const t of r.trades) trades.push({ report_id: id, trade: String(t.trade).trim().slice(0, 32), headcount: t.headcount });
+        }
+        const ids = JSON.stringify(upserted.map((u: any) => u.id));
+        await db.sql`
+          DELETE FROM worklog_trades
+          WHERE report_id IN (SELECT value::int FROM json_array_elements_text(${ids}::json))`;
+        if (trades.length) {
+          await db.sql`
+            INSERT INTO worklog_trades (report_id, trade, headcount)
+            SELECT report_id, trade, SUM(headcount)
+            FROM json_to_recordset(${JSON.stringify(trades)}::json)
+              AS t(report_id int, trade text, headcount int)
+            GROUP BY report_id, trade`;
+        }
+        // 這次解析成功的訊息，從解析失敗清單移除
+        const okIds = JSON.stringify(rows.map((r) => r.message_id).filter(Boolean));
+        await db.sql`
+          DELETE FROM worklog_rejects
+          WHERE message_id IN (SELECT value FROM json_array_elements_text(${okIds}::json))`;
+      }
+
+      const rejectRows = [...new Map(rejects
+        .filter((x: any) => x?.message_id)
+        .map((x: any) => [String(x.message_id), {
+          message_id: String(x.message_id), reported_at: x.reported_at ?? null,
+          reporter: x.reporter ?? null, raw: x.raw ?? null }])).values()];
+      if (rejectRows.length) {
+        await db.sql`
+          INSERT INTO worklog_rejects (message_id, reported_at, reporter, raw)
+          SELECT message_id, reported_at, reporter, raw
+          FROM json_to_recordset(${JSON.stringify(rejectRows)}::json)
+            AS x(message_id text, reported_at timestamp, reporter text, raw text)
+          ON CONFLICT (message_id) DO UPDATE SET reported_at = EXCLUDED.reported_at,
+            reporter = EXCLUDED.reporter, raw = EXCLUDED.raw, updated_at = NOW()`;
+      }
+      return json({ ok: true, reports: upserted.length, rejects: rejectRows.length });
     }
 
     // 這個看板會在公開網際網路上，內容含缺失描述與廠商名稱，
@@ -641,6 +781,108 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
 
     // ---- 以下皆需登入 ----
     if (!me) return fail(401, "請先登入");
+
+    // ---- 出工資料庫：匯出（CSV）與工種歸類維護 ----
+    // 資料含廠商、作業主管與回報人姓名，限管理員、主管、職安人員。
+    // 查詢會喚醒資料庫（計費），這是分析時手動操作，頻率低。
+    if (p === "/api/worklog/export" && method === "GET") {
+      if (!["admin", "manager", "safety"].includes(me.role)) return fail(403, "無權匯出出工資料");
+      const kind = url.searchParams.get("kind") || "reports";
+      const from = url.searchParams.get("from") || "2000-01-01";
+      const to = url.searchParams.get("to") || "2999-12-31";
+      if (!ISO_DATE.test(from) || !ISO_DATE.test(to)) return fail(400, "日期格式應為 YYYY-MM-DD");
+      const tag = `${from === "2000-01-01" ? "all" : from}_${to === "2999-12-31" ? "now" : to}`;
+
+      if (kind === "reports") {
+        const withRaw = url.searchParams.get("raw") === "1";
+        const rows = await db.sql`
+          SELECT report_date::text AS d, building, vendor, headcount, trade_summary,
+                 supervisor, tasks, reporter,
+                 to_char(reported_at, 'YYYY-MM-DD HH24:MI') AS at, message_id, raw
+          FROM worklog_reports
+          WHERE report_date BETWEEN ${from}::date AND ${to}::date
+          ORDER BY report_date, building, vendor`;
+        const header = ["日期", "棟別", "廠商", "總人數", "工種摘要", "作業主管", "施作項目",
+                        "回報人", "回報時間", "LINE訊息ID", ...(withRaw ? ["原文"] : [])];
+        return csvResponse(`出工回報_${tag}.csv`, header, rows.map((r: any) => [
+          r.d, r.building, r.vendor, r.headcount, r.trade_summary, r.supervisor, r.tasks,
+          r.reporter, r.at, r.message_id, ...(withRaw ? [r.raw] : [])]));
+      }
+      if (kind === "trades") {
+        const rows = await db.sql`
+          SELECT r.report_date::text AS d, r.building, r.vendor, t.trade,
+                 COALESCE(a.trade_group, t.trade) AS trade_group, t.headcount
+          FROM worklog_trades t
+          JOIN worklog_reports r ON r.id = t.report_id
+          LEFT JOIN worklog_trade_aliases a ON a.trade = t.trade
+          WHERE r.report_date BETWEEN ${from}::date AND ${to}::date
+          ORDER BY r.report_date, r.building, r.vendor, t.trade`;
+        return csvResponse(`工種明細_${tag}.csv`,
+          ["日期", "棟別", "廠商", "工種（原寫法）", "工種歸類", "人數"],
+          rows.map((r: any) => [r.d, r.building, r.vendor, r.trade, r.trade_group, r.headcount]));
+      }
+      if (kind === "rejects") {
+        const rows = await db.sql`
+          SELECT message_id, to_char(reported_at, 'YYYY-MM-DD HH24:MI') AS at, reporter, raw
+          FROM worklog_rejects ORDER BY reported_at`;
+        return csvResponse("出工回報_解析失敗.csv", ["LINE訊息ID", "回報時間", "回報人", "原文"],
+          rows.map((r: any) => [r.message_id, r.at, r.reporter, r.raw]));
+      }
+      return fail(400, "kind 應為 reports、trades 或 rejects");
+    }
+
+    if (p === "/api/worklog/trades" && method === "GET") {
+      if (!["admin", "manager", "safety"].includes(me.role)) return fail(403, "無權檢視出工資料");
+      return json(await db.sql`
+        SELECT t.trade, a.trade_group, COUNT(*)::int AS reports, SUM(t.headcount)::int AS mandays,
+               MIN(r.report_date)::text AS first_date, MAX(r.report_date)::text AS last_date
+        FROM worklog_trades t
+        JOIN worklog_reports r ON r.id = t.report_id
+        LEFT JOIN worklog_trade_aliases a ON a.trade = t.trade
+        GROUP BY t.trade, a.trade_group
+        ORDER BY mandays DESC`, { headers: { "cache-control": "no-store" } });
+    }
+
+    if (p === "/api/worklog/summary" && method === "GET") {
+      if (!["admin", "manager", "safety"].includes(me.role)) return fail(403, "無權檢視出工資料");
+      const [r] = await db.sql`
+        SELECT COUNT(*)::int AS reports, COALESCE(SUM(headcount), 0)::int AS mandays,
+               MIN(report_date)::text AS first_date, MAX(report_date)::text AS last_date,
+               to_char(MAX(updated_at), 'YYYY-MM-DD HH24:MI') AS updated_at,
+               (SELECT COUNT(*)::int FROM worklog_rejects) AS rejects
+        FROM worklog_reports`;
+      return json(r, { headers: { "cache-control": "no-store" } });
+    }
+
+    // 工種歸類：[{trade, trade_group}]；trade_group 空白＝移除歸類（回到原寫法）
+    if (p === "/api/worklog/trade-aliases" && method === "POST") {
+      if (!["admin", "manager"].includes(me.role)) return fail(403, "僅管理員或主管可維護工種歸類");
+      let items: any[];
+      try {
+        const b = await req.json();
+        items = Array.isArray(b?.aliases) ? b.aliases : [];
+        if (items.length > 500) throw 0;
+      } catch { return fail(400, "格式錯誤"); }
+      const clean = items
+        .map((x: any) => ({ trade: String(x?.trade || "").trim().slice(0, 32),
+                            trade_group: String(x?.trade_group || "").trim().slice(0, 32) }))
+        .filter((x) => x.trade);
+      const set = clean.filter((x) => x.trade_group);
+      const del = clean.filter((x) => !x.trade_group).map((x) => x.trade);
+      if (set.length) {
+        await db.sql`
+          INSERT INTO worklog_trade_aliases (trade, trade_group)
+          SELECT trade, trade_group FROM json_to_recordset(${JSON.stringify(set)}::json)
+            AS x(trade text, trade_group text)
+          ON CONFLICT (trade) DO UPDATE SET trade_group = EXCLUDED.trade_group, updated_at = NOW()`;
+      }
+      if (del.length) {
+        await db.sql`
+          DELETE FROM worklog_trade_aliases
+          WHERE trade IN (SELECT value FROM json_array_elements_text(${JSON.stringify(del)}::json))`;
+      }
+      return json({ ok: true, saved: set.length, removed: del.length });
+    }
 
     if (p === '/api/board-sites' && method === 'GET') {
       // 工地清單一個月改不了幾次，短快取就能讓重複開頁不喚醒資料庫

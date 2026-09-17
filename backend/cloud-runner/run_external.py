@@ -50,57 +50,23 @@ Actions 日誌任何人可讀，而出工試算表網址等同資料存取權。
 """
 from __future__ import annotations
 
+import _bootstrap as bs  # noqa: I001 —— 必須最先：時區、暫存 SQLite、import 路徑
+
 import json
 import os
-import re
 import sys
-import tempfile
-import time
 from datetime import date, datetime, timedelta
-
-# 全系統的時間戳慣例是「台北時間、無時區註記」。GitHub 的主機跑 UTC，
-# 不在程式裡釘住的話 generated_at 會慢 8 小時、台北早上的「今天」會查到
-# 前一天——而且換任何執行環境都會重犯。POSIX 設 TZ＋tzset 即生效；
-# Windows 沒有 tzset，下面檢查到偏移不對就大聲警告。
-os.environ["TZ"] = "Asia/Taipei"
-if hasattr(time, "tzset"):
-    time.tzset()
-
-# 收集程式與模型都在 backend/onprem 底下；把它加進 import 路徑。
-ONPREM = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "onprem"))
-sys.path.insert(0, ONPREM)
-
-# 一定要在 import app.db 之前決定資料庫後端：用暫存 SQLite，絕不連正式庫。
-_TMP_DB = os.path.join(tempfile.gettempdir(),
-                       f"wallboard-external-{os.getpid()}-{int(time.time())}.db")
-os.environ["DB_BACKEND"] = "sqlite"
-os.environ["DATABASE_URL"] = "sqlite:///" + _TMP_DB.replace("\\", "/")
 
 try:
     import requests
 except ImportError:
     sys.exit("需要 requests 套件，請先執行：pip install requests")
 
-from app.db import SessionLocal, Site, WorkLog, engine, init_db  # noqa: E402
+from app.db import SessionLocal, Site, WorkLog, init_db  # noqa: E402
 from app.envfile import load_env  # noqa: E402
 
 TIMEOUT = 30
 HISTORY_DAYS = 70          # 每日出工總數回推天數（雲端累積，供上月人日）
-
-_URL = re.compile(r"https?://[^\s）)」]+")
-
-
-def _redact(msg: str) -> str:
-    """隱去網址。requests 的錯誤字串含完整請求網址，出工試算表的網址就在
-    裡面；GitHub 只遮蔽與 Secret 完全相同的字串，轉換過的網址遮不到。"""
-    return _URL.sub("<網址已隱藏>", str(msg))
-
-
-def _check_timezone() -> None:
-    offset = datetime.now().astimezone().utcoffset()
-    if offset != timedelta(hours=8):
-        print(f"[警告] 目前時區偏移 {offset}，不是台北（+08:00）——時間戳與"
-              f"「今天」的判定會錯。請以 TZ=Asia/Taipei 執行。", file=sys.stderr)
 
 
 def _seed_primary_site(db) -> None:
@@ -130,11 +96,11 @@ def _run_collectors() -> dict:
                          ("worklog", worklog.poll_once),
                          ("news", osha_news.poll_once)):
             try:
-                result[name] = (True, _redact(fn()))
+                result[name] = (True, bs.redact(fn()))
             except SystemExit as e:
-                result[name] = (False, _redact(f"略過（{e}）"))
+                result[name] = (False, bs.redact(f"略過（{e}）"))
             except Exception as e:         # noqa: BLE001
-                result[name] = (False, _redact(f"失敗（{type(e).__name__}: {e}）"))
+                result[name] = (False, bs.redact(f"失敗（{type(e).__name__}: {e}）"))
     return result
 
 
@@ -183,18 +149,13 @@ def _push(payload: dict) -> None:
     r = requests.post(url, json=payload,
                       headers={"Authorization": f"Bearer {token}"}, timeout=TIMEOUT)
     if not r.ok:
-        sys.exit(_redact(f"推送失敗（HTTP {r.status_code}）：{r.text[:200]}"))
+        sys.exit(bs.redact(f"推送失敗（HTTP {r.status_code}）：{r.text[:200]}"))
     print(f"已推送 external 快照（{len(json.dumps(payload))} bytes）")
 
 
 def main() -> int:
-    # 輸出一律 UTF-8：Windows 本機 stdout 預設 cp950，遇到中文會整支炸掉。
-    for stream in (sys.stdout, sys.stderr):
-        try:
-            stream.reconfigure(encoding="utf-8")
-        except (AttributeError, ValueError):
-            pass
-    _check_timezone()
+    bs.utf8_stdio()
+    bs.check_timezone()
     load_env()                 # 有 .env 就讀（setdefault，不覆寫上面釘住的值）
     try:
         init_db()
@@ -209,11 +170,7 @@ def main() -> int:
         finally:
             db.close()
     finally:
-        engine.dispose()       # 先釋放連線，Windows 才刪得掉檔案
-        try:
-            os.remove(_TMP_DB)
-        except OSError:
-            pass
+        bs.remove_tmp_db()
 
     if not any(ok.values()):
         print("三支收集程式全部失敗，不推送（雲端保留上一份資料）", file=sys.stderr)

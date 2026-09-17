@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>出工資料庫</title>
+<link rel="stylesheet" href="/static/brand.css">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:var(--sp-3); }
+  .stats div { border-top:2px solid var(--border-strong); padding-top:var(--sp-2); }
+  .stats b { display:block; font-size:1.5rem; font-variant-numeric:tabular-nums; }
+  .stats span { font-size:var(--fs-sm); color:var(--text-muted); }
+  .exports { display:flex; flex-wrap:wrap; gap:var(--sp-2); margin-top:var(--sp-3); }
+  .alias-table { width:100%; border-collapse:collapse; margin-top:var(--sp-3); }
+  .alias-table th, .alias-table td { text-align:left; padding:.45rem .5rem; border-bottom:1px solid var(--border); font-size:var(--fs-sm); }
+  .alias-table td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .alias-table input { width:100%; min-width:8rem; }
+  .alias-table tr.changed { background:var(--bg-sunken); }
+  .table-scroll { overflow-x:auto; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand" id="brand"></div>
+  <div class="spacer"></div>
+  <a href="/static/home.html"><button class="ghost">首頁</button></a>
+</div>
+
+<div class="wrap">
+  <div class="page-head">
+    <div class="eyebrow">Workforce Records</div>
+    <h1>出工資料庫</h1>
+    <p class="lede">工務所 LINE 群組出工回報的歷史明細，每天凌晨自動更新（重算最近 14 天）。
+      下載 CSV 可用 Excel、Power BI 分析。資料含廠商與人員姓名，請勿外流。</p>
+  </div>
+
+  <div class="card">
+    <h2>資料概況</h2>
+    <div class="stats" id="stats"><p class="muted">載入中…</p></div>
+    <p class="muted" id="statsNote" style="margin-top:var(--sp-3)"></p>
+  </div>
+
+  <div class="card">
+    <h2>下載 CSV</h2>
+    <p class="muted">「總人數」看出工回報；工種結構看工種明細——只有逐項寫人數的回報才有工種明細，
+      且工種加總不一定等於總人數（總人數常含工程師，或只列部分工種）。</p>
+    <div class="row">
+      <div><label>起日（留空＝全部）</label><input type="date" id="from"></div>
+      <div><label>迄日（留空＝至今）</label><input type="date" id="to"></div>
+    </div>
+    <label style="margin-top:var(--sp-2);display:flex;gap:.4rem;align-items:center">
+      <input type="checkbox" id="withRaw" style="width:auto"> 出工回報含 LINE 原文（檔案較大）
+    </label>
+    <div class="exports">
+      <button type="button" data-kind="reports">出工回報（一家廠商一天一筆）</button>
+      <button type="button" data-kind="trades">工種明細（含歸類）</button>
+      <button type="button" class="ghost" data-kind="rejects">解析失敗的回報</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>工種歸類</h2>
+    <p class="muted">同一工種常有多種寫法（電班／電工班、電焊工／電銲工），也有把作業項目當工種寫的
+      （「B區版筋綁紮：5人」）。在「歸類」欄填入統一名稱，工種明細匯出時會多一欄歸類結果；
+      清空即取消歸類。作業項目可歸成「（作業分派）」之類的名稱，分析時再排除。</p>
+    <div class="table-scroll">
+      <table class="alias-table">
+        <thead><tr><th>工種（原寫法）</th><th>歸類</th><th>回報筆數</th><th>累計人日</th><th>期間</th></tr></thead>
+        <tbody id="aliases"><tr><td colspan="5" class="muted">載入中…</td></tr></tbody>
+      </table>
+    </div>
+    <div style="display:flex;gap:var(--sp-3);align-items:center;margin-top:var(--sp-3)">
+      <button type="button" id="saveAliases" disabled>儲存歸類</button>
+      <span class="muted" id="aliasState"></span>
+    </div>
+  </div>
+</div>
+
+<script src="/static/common.js"></script>
+<script>
+let CAN_EDIT = false;
+
+(async () => {
+  renderBrand('system_name');
+  const r = await API.get('/api/me');
+  if (!r.user) { location.href = '/static/index.html?next=' + encodeURIComponent(location.pathname); return; }
+  if (!['admin', 'manager', 'safety'].includes(r.user.role)) {
+    document.querySelector('.wrap').innerHTML = '<div class="card"><p>此頁限管理員、主管與職安人員使用。</p></div>';
+    return;
+  }
+  CAN_EDIT = ['admin', 'manager'].includes(r.user.role);
+  document.querySelectorAll('.exports button').forEach(b => b.onclick = () => download(b.dataset.kind));
+  document.getElementById('saveAliases').onclick = saveAliases;
+  loadStats();
+  loadAliases();
+})();
+
+async function loadStats() {
+  try {
+    const s = await API.get('/api/worklog/summary');
+    if (!s.reports) {
+      document.getElementById('stats').innerHTML = '<p class="muted">尚無資料——每天凌晨自動寫入，首次建庫需手動推送一次全部歷史。</p>';
+      return;
+    }
+    document.getElementById('stats').innerHTML = [
+      ['出工回報', s.reports.toLocaleString() + ' 筆'],
+      ['累計人日', s.mandays.toLocaleString()],
+      ['資料期間', `${s.first_date}<br>～ ${s.last_date}`],
+      ['解析失敗', s.rejects + ' 則'],
+    ].map(([k, v]) => `<div><b>${v}</b><span>${k}</span></div>`).join('');
+    document.getElementById('statsNote').textContent = `最後更新 ${s.updated_at}`;
+  } catch (e) {
+    document.getElementById('stats').innerHTML = `<p class="muted">讀取失敗：${esc(e.message)}</p>`;
+  }
+}
+
+function download(kind) {
+  const q = new URLSearchParams({ kind });
+  const from = document.getElementById('from').value, to = document.getElementById('to').value;
+  if (from) q.set('from', from);
+  if (to) q.set('to', to);
+  if (kind === 'reports' && document.getElementById('withRaw').checked) q.set('raw', '1');
+  // 同源、帶 session cookie 的一般連結下載；伺服器回 attachment
+  location.href = '/api/worklog/export?' + q.toString();
+}
+
+async function loadAliases() {
+  const body = document.getElementById('aliases');
+  let rows;
+  try {
+    rows = await API.get('/api/worklog/trades');
+  } catch (e) {
+    body.innerHTML = `<tr><td colspan="5" class="muted">讀取失敗：${esc(e.message)}</td></tr>`;
+    return;
+  }
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="5" class="muted">尚無工種明細</td></tr>';
+    return;
+  }
+  body.innerHTML = rows.map(r => `<tr data-trade="${esc(r.trade)}" data-orig="${esc(r.trade_group || '')}">
+    <td>${esc(r.trade)}</td>
+    <td><input type="text" value="${esc(r.trade_group || '')}" placeholder="${esc(r.trade)}" maxlength="32" ${CAN_EDIT ? '' : 'disabled'}></td>
+    <td class="num">${r.reports}</td><td class="num">${r.mandays}</td>
+    <td>${esc(r.first_date)} ～ ${esc(r.last_date)}</td></tr>`).join('');
+  body.querySelectorAll('input').forEach(inp => inp.oninput = markChanged);
+  if (!CAN_EDIT) document.getElementById('aliasState').textContent = '僅管理員或主管可修改歸類';
+}
+
+function markChanged(ev) {
+  const tr = ev.target.closest('tr');
+  tr.classList.toggle('changed', ev.target.value.trim() !== tr.dataset.orig);
+  document.getElementById('saveAliases').disabled = !document.querySelector('#aliases tr.changed');
+}
+
+async function saveAliases() {
+  const changed = [...document.querySelectorAll('#aliases tr.changed')].map(tr => ({
+    trade: tr.dataset.trade, trade_group: tr.querySelector('input').value.trim(),
+  }));
+  if (!changed.length) return;
+  const btn = document.getElementById('saveAliases');
+  btn.disabled = true;
+  try {
+    const r = await API.post('/api/worklog/trade-aliases', { aliases: changed });
+    toast(`已儲存 ${r.saved} 筆、取消 ${r.removed} 筆歸類`);
+    document.getElementById('aliasState').textContent = '';
+    loadAliases();
+  } catch (e) {
+    toast('儲存失敗：' + e.message, 4200);
+    btn.disabled = false;
+  }
+}
+</script>
+</body>
+</html>
