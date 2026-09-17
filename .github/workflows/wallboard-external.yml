@@ -29,11 +29,13 @@
 name: 工地看板外部區塊
 
 on:
+  # 主要時鐘是 Netlify 排程函式（backend/cloud/functions/wallboard-tick.mts）
+  # 每 30 分鐘以 API 觸發 workflow_dispatch——實測 GitHub 自己的「每 30 分鐘」
+  # 排程 20 小時只跑 6 次、間隔 2~5 小時，不能當主力。這裡的 schedule 只是
+  # Netlify 那邊失效（例如 token 到期）時的後備。
   schedule:
-    # 每 30 分鐘。避開整點／半點——那是 GitHub 排程最擁擠、最常延遲甚至
-    # 略過的時段。
-    - cron: "7,37 * * * *"
-  workflow_dispatch: {}   # 允許手動觸發，驗證用
+    - cron: "22 * * * *"
+  workflow_dispatch: {}
 
 permissions:
   contents: read
@@ -41,7 +43,7 @@ permissions:
 
 concurrency:
   group: wallboard-external
-  cancel-in-progress: true
+  cancel-in-progress: false   # 排隊而非取消：時鐘觸發與後備排程撞在一起時不丟任何一輪
 
 jobs:
   push-external:
@@ -89,8 +91,9 @@ jobs:
         run: python backend/cloud-runner/run_external.py --push
 
       - name: 保持排程啟用（公開 repo 60 天無活動會被停用）
-        # 每天台北 06 點那一輪做一次；上一步失敗也要做
-        if: always() && github.event_name == 'schedule'
+        # 每天台北 06 點那幾輪做（不論哪種觸發）；上一步失敗也要做。
+        # 停用後連 API 觸發都會被拒，所以時鐘改到 Netlify 後這步仍然需要。
+        if: always()
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
