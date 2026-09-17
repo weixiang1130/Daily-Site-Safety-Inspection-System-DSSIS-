@@ -7,7 +7,7 @@
 const POLL_MS = 60000;        // 資料輪詢
 const NOTICE_MS = 12000;      // 公告輪播
 const PAGE_MS = 10000;        // 聯絡人分頁輪播
-let STALE_AFTER_MIN = 15;     // 資料多久沒更新要在牆上大聲說（地端資料每分鐘更新）
+const STALE_AFTER_MIN = 15;   // 失更門檻（分）；伺服器有下發 stale_after_min 時以它為準
 const RETRY_MS = 30000;       // 初始化失敗的重試間隔（冷開機防毒掃描要等）
 const LEVEL_LABELS = ['正常', '注意', '警戒', '危險', '極度危險'];
 const ENV_ROWS = [
@@ -22,11 +22,12 @@ let SITE_ID = null;
 let notices = [], noticeIdx = 0, noticePaused = false;
 let contactPage = 0, wfPage = 0;
 let wfPer = 6;                // 出工每頁列數；畫完被裁切會自動縮（renderWorkforce）
+let lastWfSig = '';           // 上次出工資料的指紋；資料變了才把列數放回上限
 let BUILDING_ORDER = [];      // 出工一覽表分棟顯示的棟別順序（依 branding）
 let pollTimer = null;
-// 雲端快照模式：站台是唯讀看板（branding.wallboard=true）時，board-data
-// 讀地端每 15 分鐘推上來的快照，而非即時查詢。此時是「固定視圖」——
-// 主場站、隱藏工地下拉、輪詢對齊推送間隔，比照舊戰情室的看板模式。
+// 雲端模式：站台是唯讀看板（branding.wallboard=true）時，board-data 合併
+// GitHub 排程推上來的外部區塊與雲端快取，而非即時查詢。此時是「固定視圖」——
+// 主場站、隱藏工地下拉，比照舊戰情室的看板模式。
 let WALL = false, WALL_KEY = '', POLL = POLL_MS;
 
 // ---------------------------------------------------------------------------
@@ -37,10 +38,9 @@ let WALL = false, WALL_KEY = '', POLL = POLL_MS;
   const brand = (await renderBrandLite()) || {};
   BUILDING_ORDER = buildingList(brand);
   WALL = !!brand.wallboard;
-  POLL = WALL ? 900000 : POLL_MS;   // 雲端 15 分鐘（對齊快照）、地端 1 分鐘
-  // 雲端的外部快照每 30 分鐘推一次（GitHub 排程，且可能晚幾分鐘），
-  // 15 分鐘門檻會在兩次推送之間誤報「已停止更新」——放寬到 45 分鐘
-  if (WALL) STALE_AFTER_MIN = 45;
+  // 雲端 5 分鐘（board-data 不碰資料庫、回應快取 5 分；輪詢太疏會墊高資料
+  // 年齡而誤報失更）、地端 1 分鐘
+  POLL = WALL ? 300000 : POLL_MS;
   document.getElementById('org').textContent =
     (brand.org_short ? brand.org_short + '　' : '') + (brand.war_room_name || '工地安全戰情室');
   // 雲端固定視圖：工地下拉不作用（快照只含主場站，工地名由快照帶出、
@@ -157,14 +157,18 @@ function tick() {
     now.toLocaleTimeString('zh-TW', { hour12: false });
 
   // 失更警示：牆上的時鐘照走、面板卻是舊資料時，看起來完全健康——
-  // 必須大聲說。門檻依模式而異：地端 15 分、雲端 45 分（見 STALE_AFTER_MIN）。
+  // 必須大聲說。門檻由伺服器依資料來源的更新節奏下發（雲端約 75 分），
+  // 沒下發就用地端的 15 分。generated_at 為 null 代表外部資料從未送達。
   const banner = document.getElementById('staleBanner');
   if (banner) {
-    const age = DATA ? now - new Date(DATA.generated_at) : 0;
-    banner.hidden = !(DATA && age > STALE_AFTER_MIN * 60000);
-    if (!banner.hidden) {
-      banner.textContent = `資料已停止更新（最後更新 ${DATA.generated_at.replace('T', ' ')}）`
-        + (WALL ? '——雲端排程可能已停止，畫面上的數字不是現況'
+    const limit = (DATA && DATA.stale_after_min) || STALE_AFTER_MIN;
+    const at = DATA && DATA.generated_at;
+    const stale = !!DATA && (!at || now - new Date(at) > limit * 60000);
+    banner.hidden = !stale;
+    if (stale) {
+      banner.textContent = (at ? `資料已停止更新（最後更新 ${at.replace('T', ' ')}）`
+                               : '尚未收到外部資料（氣象／出工）')
+        + (WALL ? '——雲端排程可能已停止或收集失敗，畫面上的數字不是現況'
                 : '——地端主機或收集程式可能已停止，畫面上的數字不是現況');
     }
   }
@@ -206,13 +210,18 @@ async function load() {
     return;
   }
   DATA = d;
+  // 出工資料變了就把每頁列數放回上限重估——只縮不長的話，某天一筆特長的
+  // 施作項目會讓之後每一天、每一棟都被切得過細
+  const wfSig = JSON.stringify((d.worklog && d.worklog.rows) || []);
+  if (wfSig !== lastWfSig) { lastWfSig = wfSig; wfPer = 6; }
   // 雲端固定視圖：工地名由快照帶出，填進（已停用的）下拉當標題
   if (WALL && d.board && d.board.site_name) {
     document.getElementById('site').innerHTML =
       `<option>${esc(d.board.site_name)}</option>`;
   }
-  setStatus(`資料更新於 ${d.generated_at.replace('T', ' ')}`
-    + (WALL ? '（雲端快照，最長 15 分鐘更新一次）' : ''));
+  setStatus(d.generated_at
+    ? `資料更新於 ${d.generated_at.replace('T', ' ')}` + (WALL ? '（雲端排程，約 30 分鐘更新一次）' : '')
+    : '尚未收到外部資料（氣象／出工）', !d.generated_at);
   buildNotices();
   renderContacts();
   renderRecords();
@@ -382,6 +391,34 @@ function renderEnvironment() {
 // ---------------------------------------------------------------------------
 // 05 本日出工一覽表
 // ---------------------------------------------------------------------------
+/**
+ * 出工分頁：辦公棟／住宅棟分開，先依棟別分組（順序照 branding，沒對到的
+ * 棟別排後面、未填棟別歸「未分棟」），每頁只放同一棟、同棟太多就分頁。
+ * 純函式——縮列時要用新的列數重算頁序。
+ */
+function workforcePages(rows, per) {
+  const groups = new Map();                         // 棟別 → rows[]
+  for (const r of rows) {
+    const b = r.building || '未分棟';
+    if (!groups.has(b)) groups.set(b, []);
+    groups.get(b).push(r);
+  }
+  const order = [...BUILDING_ORDER,
+    ...[...groups.keys()].filter(b => !BUILDING_ORDER.includes(b))];
+  const pages = [];
+  for (const b of order) {
+    const list = groups.get(b);
+    if (!list || !list.length) continue;
+    const headcount = list.reduce((sum, r) => sum + (r.headcount || 0), 0);
+    const total = Math.ceil(list.length / per);
+    for (let i = 0; i < total; i++) {
+      pages.push({ building: b, start: i * per, rows: list.slice(i * per, i * per + per),
+        headcount, vendors: list.length, pg: i + 1, total });
+    }
+  }
+  return pages;
+}
+
 function renderWorkforce() {
   const w = DATA.worklog;
   const body = document.getElementById('wfRows');
@@ -397,29 +434,7 @@ function renderWorkforce() {
     document.getElementById('wfMeta').textContent = '工種 / 人數 / 施作項目';
     return;
   }
-  // 辦公棟／住宅棟分開顯示：先依棟別分組（順序照 branding，沒對到的棟別
-  // 排後面、未填棟別歸「未分棟」），每一頁只放同一棟。同棟廠商多到整版
-  // 塞不下就分頁（牆上沒有人會捲動），所有分頁依序自動輪播跳轉。
-  const PER = wfPer;
-  const groups = new Map();                         // 棟別 → rows[]
-  for (const r of w.rows) {
-    const b = r.building || '未分棟';
-    if (!groups.has(b)) groups.set(b, []);
-    groups.get(b).push(r);
-  }
-  const order = [...BUILDING_ORDER,
-    ...[...groups.keys()].filter(b => !BUILDING_ORDER.includes(b))];
-  const pages = [];                                 // 每頁只含單一棟別
-  for (const b of order) {
-    const rows = groups.get(b);
-    if (!rows || !rows.length) continue;
-    const headcount = rows.reduce((s, r) => s + (r.headcount || 0), 0);
-    const total = Math.ceil(rows.length / PER);
-    for (let i = 0; i < total; i++) {
-      pages.push({ building: b, rows: rows.slice(i * PER, i * PER + PER),
-        headcount, vendors: rows.length, pg: i + 1, total });
-    }
-  }
+  const pages = workforcePages(w.rows, wfPer);
   const page = pages[wfPage % pages.length];
 
   // 摘要以「本頁棟別」為主，人數與家數各棟分開計；全案總計併陳於下方一行，
@@ -445,13 +460,18 @@ function renderWorkforce() {
 
   // 畫完發現最後一列仍超出表格區（牆面 overflow:hidden 會直接裁掉半列）
   // 就少放一列重畫，縮到塞得下為止；手機版 table-area 可捲動，不縮。
-  // 視窗尺寸變動（含進出全螢幕）時 wfPer 會重設回 6 再重估。
+  // 視窗尺寸變動（含進出全螢幕）或出工資料變動時 wfPer 會重設回 6 再重估。
   const area = body.closest('.table-area');
   if (area && wfPer > 2 && getComputedStyle(area).overflowY !== 'auto') {
     const last = body.lastElementChild;
     if (last && last.getBoundingClientRect().bottom >
         area.getBoundingClientRect().bottom + 1) {
       wfPer--;
+      // 縮列會改變總頁數：把輪播位置對到「同一棟、包含本頁第一列」的新頁，
+      // 否則頁序位移會讓某些廠商列在這一輪完全沒被顯示
+      const idx = workforcePages(w.rows, wfPer).findIndex(x => x.building === page.building
+        && x.start <= page.start && page.start < x.start + wfPer);
+      if (idx >= 0) wfPage = idx;
       renderWorkforce();
     }
   }

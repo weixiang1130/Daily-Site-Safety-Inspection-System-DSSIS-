@@ -5,7 +5,7 @@
 # 雲端 Blob。看板從此不依賴任何一台特定電腦，你的電腦關著也不會過期。
 #
 # 缺失統計、無災害、看板設定等「要資料庫」的區塊不在這裡——由雲端自己
-# 以事件驅動維護，看板讀取時再合併。因此本工作流程完全不吵醒雲端資料庫。
+# 在寫入時維護，看板讀取時再合併。因此本工作流程完全不吵醒雲端資料庫。
 #
 # 需要在 repo 設定的值（Settings → Secrets and variables → Actions）：
 #   Secrets（機密）
@@ -21,14 +21,23 @@
 #     CLOUD_INGEST_URL      例：https://safety-ops-dssis.netlify.app/api/v1/ingest/external
 #
 # 專案值放 Secrets/Variables、不寫進這支 YAML——公開 repo 不留任何工地資訊。
+#
+# 注意：公開 repo 連續 60 天沒有活動，GitHub 會自動停用排程。下方「保持排程
+# 啟用」每天呼叫一次啟用 API 刷新狀態；若仍被停用（Actions 頁會顯示停用），
+# 到 Actions → 工地看板外部區塊 → Enable workflow 即可恢復。
 
 name: 工地看板外部區塊
 
 on:
   schedule:
-    # 每 30 分鐘。GitHub cron 是 UTC；排程本身不分時段，看板端會標示過期。
-    - cron: "*/30 * * * *"
+    # 每 30 分鐘。避開整點／半點——那是 GitHub 排程最擁擠、最常延遲甚至
+    # 略過的時段。
+    - cron: "7,37 * * * *"
   workflow_dispatch: {}   # 允許手動觸發，驗證用
+
+permissions:
+  contents: read
+  actions: write          # 僅供「保持排程啟用」呼叫 workflow enable API
 
 concurrency:
   group: wallboard-external
@@ -38,7 +47,21 @@ jobs:
   push-external:
     runs-on: ubuntu-latest
     timeout-minutes: 8
+    env:
+      # 全系統時間戳慣例是「台北時間、無時區註記」。runner 程式本身也會釘住，
+      # 這裡再設一次讓 shell 步驟（例如下方判斷時段）一致。
+      TZ: "Asia/Taipei"
     steps:
+      - name: 遮蔽機密的衍生值
+        env:
+          WORKLOG_SHEET_URL: ${{ secrets.WORKLOG_SHEET_URL }}
+        run: |
+          # GitHub 只遮蔽與 Secret 完全相同的字串，而程式實際請求的是轉換過的
+          # /export?format=csv 網址。把試算表 ID 本身登記為遮蔽字串，任何形式
+          # 的網址出現在日誌裡都會被遮掉（公開 repo 的日誌任何人可讀）。
+          id=$(printf '%s' "$WORKLOG_SHEET_URL" | grep -oE '/d/[A-Za-z0-9_-]{10,}' | cut -c4- | head -n1)
+          if [ -n "$id" ]; then echo "::add-mask::$id"; fi
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
@@ -61,9 +84,18 @@ jobs:
           CLOUD_INGEST_URL: ${{ vars.CLOUD_INGEST_URL }}
           CLOUD_INGEST_TOKEN: ${{ secrets.CLOUD_INGEST_TOKEN }}
           PYTHONUTF8: "1"
-          # GitHub 的主機跑 UTC，datetime.now() 會比台北慢 8 小時——
-          # generated_at 被看板誤判成 8 小時前而跳「已停止更新」，
-          # 「今天」的出工查詢在台北早上也會查到前一天。整個系統的
-          # 時間戳慣例是「台北時間、無時區註記」，把程序時區釘在台北。
-          TZ: "Asia/Taipei"
+        # 任一收集程式失敗時 runner 仍推送其餘區塊，然後以非 0 結束——這一步
+        # 轉紅、GitHub 寄通知；雲端保留失敗區塊的上一份資料與時間戳。
         run: python backend/cloud-runner/run_external.py --push
+
+      - name: 保持排程啟用（公開 repo 60 天無活動會被停用）
+        # 每天台北 06 點那一輪做一次；上一步失敗也要做
+        if: always() && github.event_name == 'schedule'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$(date +%H)" = "06" ]; then
+            gh api -X PUT "repos/${{ github.repository }}/actions/workflows/wallboard-external.yml/enable"
+            echo "已刷新排程啟用狀態"
+          fi

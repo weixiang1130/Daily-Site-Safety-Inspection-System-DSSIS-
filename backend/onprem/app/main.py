@@ -181,6 +181,58 @@ def save_site_board(site_id: int, request: Request, payload: dict = Body(...),
     return board_payload(site)
 
 
+# ---------------------------------------------------------------------------
+# 工地看板的「外部來源」三段：地端 board_data 與雲端排程 runner
+# （backend/cloud-runner/run_external.py）共用同一份組裝邏輯——兩邊輸出的
+# 欄位必須一致，雲端合併時才不用再轉換，也不會各改各的而靜默分歧。
+# ---------------------------------------------------------------------------
+def worklog_section(db: Session, today: date):
+    """本日出工。回傳 (WorkLog 物件清單, 看板用 dict)，物件清單供危害對應。"""
+    wl = (db.query(WorkLog).filter(WorkLog.report_date == today)
+          .order_by(WorkLog.building, WorkLog.vendor).all())
+    return wl, {
+        "date": today.isoformat(),
+        "total": sum(w.headcount or 0 for w in wl),
+        "rows": [{
+            "building": w.building, "vendor": w.vendor, "trade": w.trade,
+            "headcount": w.headcount, "supervisor": w.supervisor,
+            "tasks": w.tasks,
+            "reported_at": (w.reported_at.isoformat(timespec="minutes")
+                            if w.reported_at else None),
+        } for w in wl],
+    }
+
+
+def hazards_section(worklogs, tasks=()) -> list:
+    """今日作業危害告知：出工的工種與施作項目＋列控表今日進行中的葉工項，
+    經 work_hazards 對應出「應注意危害」。只做提示不做判定（對不到關鍵字
+    的作業不硬湊）。雲端沒有列控表，tasks 傳空。"""
+    hazard_map = {}          # 危害 → 觸發它的作業來源（去重、保序）
+
+    def note(text, source):
+        for hz in hazards_of(text or ""):
+            lst = hazard_map.setdefault(hz, [])
+            if source not in lst and len(lst) < 6:
+                lst.append(source)
+
+    for w in worklogs:
+        note(f"{w.trade or ''} {w.tasks or ''}",
+             w.vendor + (f"（{w.building}）" if w.building else ""))
+    for t in tasks:
+        bld = BUILDING_LABELS.get(t.site_code)
+        note(t.name, t.name[:16] + (f"（{bld}）" if bld else ""))
+    return sorted([{"label": k, "sources": v} for k, v in hazard_map.items()],
+                  key=lambda x: -len(x["sources"]))
+
+
+def news_section(db: Session, limit: int = 8) -> list:
+    return [{"title": n.title, "url": n.url,
+             "published": n.published.isoformat() if n.published else None}
+            for n in db.query(NewsItem)
+            .order_by(NewsItem.published.desc(), NewsItem.id.desc())
+            .limit(limit).all()]
+
+
 @app.get("/api/board-data/{site_id}")
 def board_data(site_id: int, request: Request, db: Session = Depends(get_db)):
     """工地看板的整頁資料。
@@ -206,46 +258,16 @@ def board_data(site_id: int, request: Request, db: Session = Depends(get_db)):
     stats = finding_stats(db)
 
     # 本日出工（工務所 LINE 出工回報，collectors/worklog.py 解析落地）
-    wl = (db.query(WorkLog).filter(WorkLog.report_date == today)
-          .order_by(WorkLog.building, WorkLog.vendor).all())
-    worklog = {
-        "date": today.isoformat(),
-        "total": sum(w.headcount or 0 for w in wl),
-        "rows": [{
-            "building": w.building, "vendor": w.vendor, "trade": w.trade,
-            "headcount": w.headcount, "supervisor": w.supervisor,
-            "tasks": w.tasks,
-            "reported_at": (w.reported_at.isoformat(timespec="minutes")
-                            if w.reported_at else None),
-        } for w in wl],
-    }
+    wl, worklog = worklog_section(db, today)
 
-    # 今日作業危害告知：出工回報的工種與施作項目＋列控表今日進行中的
-    # 葉工項，經 work_hazards 對應出「應注意危害」。只做提示不做判定
-    # （對不到關鍵字的作業不硬湊），佈告輪播會插一張告知卡。
-    hazard_map = {}          # 危害 → 觸發它的作業來源（去重、保序）
-
-    def note_hazards(text, source):
-        for hz in hazards_of(text or ""):
-            lst = hazard_map.setdefault(hz, [])
-            if source not in lst and len(lst) < 6:
-                lst.append(source)
-
-    for w in wl:
-        label = w.vendor + (f"（{w.building}）" if w.building else "")
-        note_hazards(f"{w.trade or ''} {w.tasks or ''}", label)
+    # 今日作業危害告知：出工＋列控表今日進行中的葉工項
     codes = list(BUILDING_LABELS) or ([primary_code] if primary_code else [])
-    if codes:
-        for t in (db.query(PlannedTask)
-                  .filter(PlannedTask.is_leaf == True,  # noqa: E712
-                          PlannedTask.site_code.in_(codes),
-                          PlannedTask.start_date <= today,
-                          PlannedTask.end_date >= today).all()):
-            bld = BUILDING_LABELS.get(t.site_code)
-            note_hazards(t.name, t.name[:16] + (f"（{bld}）" if bld else ""))
-    hazards = sorted(
-        [{"label": k, "sources": v} for k, v in hazard_map.items()],
-        key=lambda x: -len(x["sources"]))
+    tasks = (db.query(PlannedTask)
+             .filter(PlannedTask.is_leaf == True,  # noqa: E712
+                     PlannedTask.site_code.in_(codes),
+                     PlannedTask.start_date <= today,
+                     PlannedTask.end_date >= today).all()) if codes else []
+    hazards = hazards_section(wl, tasks)
 
     # 無災害紀錄以「天」計：起算日當天算第 1 天，逐日累計；起算日
     # （出過事就改成復工日重算）與起算前已累計天數由看板維護頁提供。
@@ -273,11 +295,7 @@ def board_data(site_id: int, request: Request, db: Session = Depends(get_db)):
         "since": start_raw or None,
     }
 
-    news = [{"title": n.title, "url": n.url,
-             "published": n.published.isoformat() if n.published else None}
-            for n in db.query(NewsItem)
-            .order_by(NewsItem.published.desc(), NewsItem.id.desc())
-            .limit(8).all()]
+    news = news_section(db)
 
     return {"generated_at": datetime.now().isoformat(timespec="seconds"),
             "station": station, "stats": stats, "worklog": worklog,

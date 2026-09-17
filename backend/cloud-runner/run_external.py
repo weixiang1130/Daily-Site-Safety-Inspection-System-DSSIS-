@@ -36,6 +36,13 @@
     CLOUD_INGEST_URL             例：https://<站台>/api/v1/ingest/external
     CLOUD_INGEST_TOKEN           對應雲端 WALL_INGEST_TOKEN
 
+失敗處理
+--------
+任何一支收集程式失敗時，**不推那一塊**（雲端保留上一份好的資料與它的
+時間戳，看板會因該塊過期而亮警示），推完其餘區塊後以非 0 結束，讓
+GitHub Actions 顯示紅燈並寄通知。錯誤訊息一律隱去網址——公開 repo 的
+Actions 日誌任何人可讀，而出工試算表網址等同資料存取權。
+
 用法
 ----
     python backend/cloud-runner/run_external.py            # 跑一次、印出（本機驗證）
@@ -45,18 +52,27 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import tempfile
-from datetime import date, datetime
+import time
+from datetime import date, datetime, timedelta
+
+# 全系統的時間戳慣例是「台北時間、無時區註記」。GitHub 的主機跑 UTC，
+# 不在程式裡釘住的話 generated_at 會慢 8 小時、台北早上的「今天」會查到
+# 前一天——而且換任何執行環境都會重犯。POSIX 設 TZ＋tzset 即生效；
+# Windows 沒有 tzset，下面檢查到偏移不對就大聲警告。
+os.environ["TZ"] = "Asia/Taipei"
+if hasattr(time, "tzset"):
+    time.tzset()
 
 # 收集程式與模型都在 backend/onprem 底下；把它加進 import 路徑。
 ONPREM = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "onprem"))
 sys.path.insert(0, ONPREM)
 
 # 一定要在 import app.db 之前決定資料庫後端：用暫存 SQLite，絕不連正式庫。
-# 每次執行換一個檔名，跑完即棄——這台機器不保留任何狀態。
 _TMP_DB = os.path.join(tempfile.gettempdir(),
-                       f"wallboard-external-{os.getpid()}.db")
+                       f"wallboard-external-{os.getpid()}-{int(time.time())}.db")
 os.environ["DB_BACKEND"] = "sqlite"
 os.environ["DATABASE_URL"] = "sqlite:///" + _TMP_DB.replace("\\", "/")
 
@@ -65,16 +81,32 @@ try:
 except ImportError:
     sys.exit("需要 requests 套件，請先執行：pip install requests")
 
-from app.db import NewsItem, Site, SessionLocal, WorkLog, init_db  # noqa: E402
+from app.db import SessionLocal, Site, WorkLog, engine, init_db  # noqa: E402
 from app.envfile import load_env  # noqa: E402
 
 TIMEOUT = 30
+HISTORY_DAYS = 70          # 每日出工總數回推天數（雲端累積，供上月人日）
+
+_URL = re.compile(r"https?://[^\s）)」]+")
+
+
+def _redact(msg: str) -> str:
+    """隱去網址。requests 的錯誤字串含完整請求網址，出工試算表的網址就在
+    裡面；GitHub 只遮蔽與 Secret 完全相同的字串，轉換過的網址遮不到。"""
+    return _URL.sub("<網址已隱藏>", str(msg))
+
+
+def _check_timezone() -> None:
+    offset = datetime.now().astimezone().utcoffset()
+    if offset != timedelta(hours=8):
+        print(f"[警告] 目前時區偏移 {offset}，不是台北（+08:00）——時間戳與"
+              f"「今天」的判定會錯。請以 TZ=Asia/Taipei 執行。", file=sys.stderr)
 
 
 def _seed_primary_site(db) -> None:
     """氣象站收集把測站對到工地代碼；暫存庫是空的，先塞一筆主場站，
-    讓 environment_snapshot 能把 site_code 對回工地名（對不到只是少了
-    工地名，不影響數值）。棟別不細分，看板環境本來就以主場站為準。"""
+    讓 environment_snapshot 能把 site_code 對回工地（對不到只是少了
+    工地名，不影響數值）。"""
     code = (os.environ.get("PRIMARY_SITE_CODE") or "").strip()
     if not code or db.query(Site).filter(Site.code == code).first():
         return
@@ -83,95 +115,64 @@ def _seed_primary_site(db) -> None:
     db.commit()
 
 
-def _run_collectors() -> list:
-    """依序 poll 三支收集程式，回傳每支的結果訊息（給 log 看）。
-    任何一支失敗都不該讓另外兩支跟著沒有——各自 try，壞的那塊留空。
+def _run_collectors() -> dict:
+    """依序 poll 三支收集程式。回傳 {名稱: (是否成功, 訊息)}。
+    缺設定（sys.exit）也算失敗——該塊資料就是拿不到。
 
-    收集程式內部 log() 印到 stdout，會污染我們要輸出的 JSON——收集期間
-    把 stdout 導到 stderr，讓 stdout 只留最後那份乾淨資料。"""
+    收集程式內部 log() 印到 stdout，會污染要輸出的 JSON——收集期間把
+    stdout 導到 stderr。"""
     import contextlib
 
     from collectors import osha_news, weather, worklog
-    msgs = []
+    result = {}
     with contextlib.redirect_stdout(sys.stderr):
         for name, fn in (("weather", weather.poll_once),
                          ("worklog", worklog.poll_once),
                          ("news", osha_news.poll_once)):
             try:
-                msgs.append(f"{name}: {fn()}")
-            except SystemExit as e:        # 收集程式對缺設定會 sys.exit
-                msgs.append(f"{name}: 略過（{e}）")
+                result[name] = (True, _redact(fn()))
+            except SystemExit as e:
+                result[name] = (False, _redact(f"略過（{e}）"))
             except Exception as e:         # noqa: BLE001
-                msgs.append(f"{name}: 失敗（{e}）")
-    return msgs
+                result[name] = (False, _redact(f"失敗（{type(e).__name__}: {e}）"))
+    return result
 
 
-def _read_external(db) -> dict:
-    """把三塊外部資料讀成看板 board-data 相容的形狀。
-    station/worklog/news 的欄位與 app.main.board_data 對齊，雲端合併時
-    才不用再轉換。"""
-    from app.main import environment_snapshot
-
-    primary = (os.environ.get("PRIMARY_SITE_CODE") or "").strip()
-    env_all = environment_snapshot(db)
-    station = next((s for s in env_all if s.get("site_code") == primary),
-                   env_all[0] if env_all else None)
+def _read_external(db, ok: dict) -> dict:
+    """組看板外部區塊；只放成功的收集程式負責的區塊（weather→station、
+    worklog→worklog/hazards/daily_totals、news→news），失敗的整組不放。
+    組裝邏輯與地端 board_data 共用（app.main 的 *_section），欄位一致。"""
+    from app.main import (environment_snapshot, hazards_section, news_section,
+                          worklog_section)
 
     today = date.today()
-    wl = (db.query(WorkLog).filter(WorkLog.report_date == today)
-          .order_by(WorkLog.building, WorkLog.vendor).all())
-    worklog = {
-        "date": today.isoformat(),
-        "total": sum(w.headcount or 0 for w in wl),
-        "rows": [{
-            "building": w.building, "vendor": w.vendor, "trade": w.trade,
-            "headcount": w.headcount, "supervisor": w.supervisor,
-            "tasks": w.tasks,
-            "reported_at": (w.reported_at.isoformat(timespec="minutes")
-                            if w.reported_at else None),
-        } for w in wl],
-    }
+    out = {"schema": 2,
+           "generated_at": datetime.now().isoformat(timespec="seconds"),
+           "failed": sorted(n for n, good in ok.items() if not good)}
 
-    news = [{"title": n.title, "url": n.url,
-             "published": n.published.isoformat() if n.published else None}
-            for n in db.query(NewsItem)
-            .order_by(NewsItem.published.desc(), NewsItem.id.desc()).limit(8).all()]
+    if ok.get("weather"):
+        primary = (os.environ.get("PRIMARY_SITE_CODE") or "").strip()
+        env_all = environment_snapshot(db)
+        out["station"] = next((s for s in env_all if s.get("site_code") == primary),
+                              env_all[0] if env_all else None)
 
-    # 今日作業危害告知：只做「出工」這一半——列控表在雲端沒有。沿用地端
-    # 既有的 hazards_of 關鍵字對應（不重寫），對出工的工種與施作項目取危害。
-    from app.work_hazards import hazards_of
-    hazard_map: dict = {}
+    if ok.get("worklog"):
+        wl, out["worklog"] = worklog_section(db, today)
+        out["hazards"] = hazards_section(wl)          # 雲端沒有列控表
+        # 每日出工總數：暫存庫每次清空，無法自己累積歷史——把試算表現有的
+        # 各日總數送上雲端，由雲端逐日合併保存，上月人日在雲端算。
+        since = today - timedelta(days=HISTORY_DAYS)
+        totals: dict = {}
+        for w in (db.query(WorkLog)
+                  .filter(WorkLog.report_date >= since,
+                          WorkLog.report_date <= today).all()):
+            k = w.report_date.isoformat()
+            totals[k] = totals.get(k, 0) + (w.headcount or 0)
+        out["daily_totals"] = totals
 
-    def _note(text, source):
-        for hz in hazards_of(text or ""):
-            lst = hazard_map.setdefault(hz, [])
-            if source not in lst and len(lst) < 6:
-                lst.append(source)
-
-    for w in wl:
-        label = w.vendor + (f"（{w.building}）" if w.building else "")
-        _note(f"{w.trade or ''} {w.tasks or ''}", label)
-    hazards = sorted([{"label": k, "sources": v} for k, v in hazard_map.items()],
-                     key=lambda x: -len(x["sources"]))
-
-    # 上月總出工（人日）：暫存庫裡有整張試算表解析出的多日資料，逐日加總。
-    from datetime import timedelta
-    lm_end = today.replace(day=1) - timedelta(days=1)
-    lm_start = lm_end.replace(day=1)
-    last_month = sum(
-        w.headcount or 0 for w in db.query(WorkLog)
-        .filter(WorkLog.report_date >= lm_start,
-                WorkLog.report_date <= lm_end).all())
-
-    return {
-        "schema": 1,
-        "generated_at": datetime.now().isoformat(timespec="seconds"),
-        "station": station,
-        "worklog": worklog,
-        "hazards": hazards,
-        "last_month_mandays": int(last_month),
-        "news": news,
-    }
+    if ok.get("news"):
+        out["news"] = news_section(db)
+    return out
 
 
 def _push(payload: dict) -> None:
@@ -182,39 +183,54 @@ def _push(payload: dict) -> None:
     r = requests.post(url, json=payload,
                       headers={"Authorization": f"Bearer {token}"}, timeout=TIMEOUT)
     if not r.ok:
-        sys.exit(f"推送失敗（HTTP {r.status_code}）：{r.text[:200]}")
+        sys.exit(_redact(f"推送失敗（HTTP {r.status_code}）：{r.text[:200]}"))
     print(f"已推送 external 快照（{len(json.dumps(payload))} bytes）")
 
 
-def main() -> None:
-    # 輸出一律 UTF-8：GitHub Actions（Linux）本來就是，但 Windows 本機驗證
-    # 時 stdout 預設 cp950（Big5），遇到看板裡的中文（如「黃」）會整支炸掉。
+def main() -> int:
+    # 輸出一律 UTF-8：Windows 本機 stdout 預設 cp950，遇到中文會整支炸掉。
     for stream in (sys.stdout, sys.stderr):
         try:
             stream.reconfigure(encoding="utf-8")
         except (AttributeError, ValueError):
             pass
-    load_env()                 # 有 .env 就讀（本機驗證方便）；Actions 走環境變數
-    init_db()
-    db = SessionLocal()
+    _check_timezone()
+    load_env()                 # 有 .env 就讀（setdefault，不覆寫上面釘住的值）
     try:
-        _seed_primary_site(db)
-        for m in _run_collectors():
-            print("[collector]", m, file=sys.stderr)
-        payload = _read_external(db)
+        init_db()
+        db = SessionLocal()
+        try:
+            _seed_primary_site(db)
+            results = _run_collectors()
+            for name, (good, msg) in results.items():
+                print(f"[collector] {name}: {msg}", file=sys.stderr)
+            ok = {n: good for n, (good, _) in results.items()}
+            payload = _read_external(db, ok)
+        finally:
+            db.close()
     finally:
-        db.close()
+        engine.dispose()       # 先釋放連線，Windows 才刪得掉檔案
+        try:
+            os.remove(_TMP_DB)
+        except OSError:
+            pass
+
+    if not any(ok.values()):
+        print("三支收集程式全部失敗，不推送（雲端保留上一份資料）", file=sys.stderr)
+        return 1
 
     if "--push" in sys.argv:
         _push(payload)
     else:
         print(json.dumps(payload, ensure_ascii=False, indent=1, default=str))
 
-    try:
-        os.remove(_TMP_DB)     # 用完即棄，不留狀態
-    except OSError:
-        pass
+    if payload["failed"]:
+        # 已推的區塊照常更新；以非 0 結束讓 Actions 顯示紅燈、寄通知。
+        print(f"部分收集失敗：{', '.join(payload['failed'])}（這些區塊沿用雲端"
+              f"上一份資料，看板過期時會亮警示）", file=sys.stderr)
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
