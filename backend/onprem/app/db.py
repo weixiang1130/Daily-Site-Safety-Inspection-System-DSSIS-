@@ -463,6 +463,46 @@ class WorklogReject(Base):
     raw = Column(UnicodeText)
 
 
+# ---------------------------------------------------------------------------
+# 氣象歷史（分析用）：微型氣象站每 5 分鐘一列，供「天氣 × 出工／工種」分析累積。
+#
+# 與上面的 device_readings 分工：device_readings 是戰情室牆面用的即時值
+# （每 15 分鐘抓最新一筆，關機期間的資料不會補）；這張由
+# collectors/weather_archive.py 每天一次抓「前一天以前的完整日」，
+# 漏掉的日子自動補，一列一個時間點、各指標並排，Excel／Power BI 直接可用。
+# 每日彙總與出工對照見檢視表 v_weather_daily、v_worklog_weather_daily。
+# ---------------------------------------------------------------------------
+class WeatherReading(Base):
+    __tablename__ = "weather_readings"
+    id = Column(Integer, primary_key=True)
+    site_code = Column(Unicode(32))                  # WEATHER_SITE_MAP 對應的工地代碼
+    device_id = Column(Unicode(64), nullable=False)  # 測站 mac
+    reading_at = Column(DateTime, nullable=False)    # 台北時間，5 分鐘一格
+    pm25 = Column(Numeric(9, 2))
+    pm10 = Column(Numeric(9, 2))
+    noise = Column(Numeric(9, 2))                    # dB，即時音壓級
+    temperature = Column(Numeric(9, 2))
+    humidity = Column(Numeric(9, 2))
+    heat_index = Column(Numeric(9, 2))               # 廠商未提供時由溫濕度推算
+    hazard_level = Column(Integer)                   # app/hazard.py 自行判定，0~4
+    fetched_at = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint("device_id", "reading_at", name="uq_weather_device_time"),
+        Index("ix_weather_site_time", "site_code", "reading_at"),
+    )
+
+
+class WeatherArchiveProgress(Base):
+    """每台測站已歸檔到哪一天。測站斷線沒資料的日子也算歸檔過，
+    否則每天都會從斷線那天重查一次、越查越多。"""
+    __tablename__ = "weather_archive_progress"
+    device_id = Column(Unicode(64), primary_key=True)
+    site_code = Column(Unicode(32))
+    archived_through = Column(Date, nullable=False)
+    updated_at = Column(DateTime, default=datetime.now)
+
+
 class NewsItem(Base):
     """職安新知——看板「安全佈告／宣導」輪播的外部來源。
 

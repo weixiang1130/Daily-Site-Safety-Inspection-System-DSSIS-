@@ -200,6 +200,9 @@ if ($CheckOnly) {
     # 出工資料庫雲端每晚 00:07 已寫好，任何時間抓內容都一樣，跟表單同一輪免多喚醒雲端資料庫
     Register-SafetyOpsTask 'SafetyOps-Sync'      'run_sync_forms.cmd' `
         (New-ScheduledTaskTrigger -Daily -At '10:00')
+    # 氣象歷史歸檔（分析用）：與同步同一時間，只抓已過完的日子，關機漏掉的日子下次自動補
+    Register-SafetyOpsTask 'SafetyOps-WeatherArchive' 'run_weather_archive.cmd' `
+        (New-ScheduledTaskTrigger -Daily -At '10:00')
     foreach ($old in 'SafetyOps-Sync-AM', 'SafetyOps-Sync-PM') {
         if (Get-ScheduledTask -TaskName $old -ErrorAction SilentlyContinue) {
             Unregister-ScheduledTask -TaskName $old -Confirm:$false
