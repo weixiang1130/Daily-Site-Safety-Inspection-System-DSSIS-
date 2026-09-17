@@ -196,10 +196,16 @@ if ($CheckOnly) {
     # 工地看板的資料來源：出工回報（LINE 群組經試算表）與職安署新知
     Register-SafetyOpsTask 'SafetyOps-Worklog'   'run_worklog.cmd'        (& $every 15)
     Register-SafetyOpsTask 'SafetyOps-OshaNews'  'run_osha_news.cmd'      (& $every 360)
-    Register-SafetyOpsTask 'SafetyOps-Sync-AM'   'run_sync_forms.cmd' `
-        (New-ScheduledTaskTrigger -Daily -At '07:00')
-    Register-SafetyOpsTask 'SafetyOps-Sync-PM'   'run_sync_forms.cmd' `
-        (New-ScheduledTaskTrigger -Daily -At '19:00')
+    # 表單與出工資料庫一天同步一次。10:00 而非 07:00：工地早上 7 點多半還沒填表；
+    # 出工資料庫雲端每晚 00:07 已寫好，任何時間抓內容都一樣，跟表單同一輪免多喚醒雲端資料庫
+    Register-SafetyOpsTask 'SafetyOps-Sync'      'run_sync_forms.cmd' `
+        (New-ScheduledTaskTrigger -Daily -At '10:00')
+    foreach ($old in 'SafetyOps-Sync-AM', 'SafetyOps-Sync-PM') {
+        if (Get-ScheduledTask -TaskName $old -ErrorAction SilentlyContinue) {
+            Unregister-ScheduledTask -TaskName $old -Confirm:$false
+            Say-Warn " 已移除舊排程 $old（改為每日 10:00 一次）"
+        }
+    }
     # 月結資料，一天一次已經過於頻繁，但成本極低且能自動補上改期的月結
     Register-SafetyOpsTask 'SafetyOps-Finops'    'run_finops.cmd' `
         (New-ScheduledTaskTrigger -Daily -At '06:30')

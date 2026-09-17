@@ -1,5 +1,5 @@
 @echo off
-rem Cloud form sync, single shot per trigger (SafetyOps-Sync, 07:00 and 19:00).
+rem Cloud form sync, single shot per trigger (SafetyOps-Sync, daily 10:00).
 chcp 65001 >nul
 cd /d "%~dp0..\onprem"
 set PYTHONIOENCODING=utf-8
