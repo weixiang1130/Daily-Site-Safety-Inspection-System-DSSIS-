@@ -10,8 +10,12 @@ collectors/weather.py 是給戰情室牆面的：每 15 分鐘抓「今天最新
 平台保留一年以上的歷史，所以電腦關機幾天，下次執行會自動補齊；第一次
 執行從 WEATHER_ARCHIVE_FROM 開始回補。
 
-每次都重抓最近 OVERLAP_DAYS 天：測站斷線期間的資料可能在恢復連線後才
-補傳到平台。重抓是「刪掉該區間再寫入」，不會重複。
+每次都重抓最近 OVERLAP_DAYS 天；測站斷線過的話，從最後有資料那天起重抓
+（最多追 LATE_UPLOAD_DAYS 天）——恢復連線後才補傳到平台的資料也會進來。
+重抓以日為單位「刪掉重寫」，不會重複；沒拿到資料的日子不刪既有資料。
+
+故障值的過濾（VALID_RANGE、clean_values）與熱指數推算（derive_metrics）
+沿用 weather.py，牆面與歷史用同一套規則。
 
 設定（.env.onprem，測站與帳密沿用 weather.py 的設定）：
 
@@ -33,31 +37,39 @@ from datetime import date, datetime, timedelta
 from typing import Dict, List
 from urllib.parse import urlencode
 
-from sqlalchemy import text
+from sqlalchemy import func, text
 
 from app.db import (IS_MSSQL, SessionLocal, WeatherArchiveProgress,
                     WeatherReading, engine, init_db)
-from app.hazard import heat_index_c, station_level
+from app.hazard import THRESHOLDS
 
 from . import weather as w
 from .config import env, load_env, log
 
 CHUNK_DAYS = 7          # 一次查 7 天約 2,000 個時間點，回應約數百 KB
 OVERLAP_DAYS = 3
+LATE_UPLOAD_DAYS = 14   # 斷線測站最多往回追幾天的補傳資料
 PAUSE_SEC = 0.5         # 回補上百次查詢時，別對廠商平台連續猛打
 
-# 廠商頻道名稱 → weather_readings 欄位。噪音時段警報實測恆為 0，不存。
-COLUMN_OF: Dict[str, str] = {
-    "PM2.5": "pm25", "PM10": "pm10", "噪音": "noise",
-    "溫度": "temperature", "濕度": "humidity", "熱指數": "heat_index",
-}
+ARCHIVE_COLUMNS = ("pm25", "pm10", "noise", "temperature", "humidity", "heat_index")
+# 廠商頻道名稱 → 欄位，由 weather.METRIC_MAP 導出：牆面為新的頻道寫法加別名時，
+# 歷史歸檔一併生效。噪音時段警報實測恆為 0，不存。
+COLUMN_OF: Dict[str, str] = {name: metric for name, metric in w.METRIC_MAP.items()
+                             if metric in ARCHIVE_COLUMNS}
+
+# 分析檢視表的工作時段（07:00–17:00）
+WORK_HOURS = "DATEPART(hour, reading_at) BETWEEN 7 AND 16"
 
 
 def fetch_range(base: str, uid: str, mac: str, d1: date, d2: date) -> Dict[datetime, dict]:
-    """查 d1~d2（含）的 5 分鐘序列，回傳 {時間: {欄位: 值}}。
+    """查 d1~d2（含）的 5 分鐘序列，回傳 {時間: {欄位: 值}}（尚未過濾故障值）。
 
     平台的 endT 會多給隔天 00:00 那一格；那格屬於下一段，這裡濾掉，
     由下一次查詢負責，避免同一格被兩段各寫一次。
+
+    回應裡一個頻道都沒有時丟例外：平台出錯是回 HTTP 200 加錯誤文字（登入
+    失敗就是這樣），當成「查無資料」的話，會把該區間記成已歸檔而永遠不再查。
+    斷線測站的正常回應仍會列出頻道，只是值是空的。
     """
     body = urlencode({
         "startT": d1.isoformat(), "endT": d2.isoformat(),
@@ -68,12 +80,16 @@ def fetch_range(base: str, uid: str, mac: str, d1: date, d2: date) -> Dict[datet
         "UserIdx": uid, "val": str(random.random()),
     })
     payload = w.post(base, "TrendData", body)
+    series = w.RE_SERIES.findall(payload)
+    if not series:
+        raise RuntimeError(f"TrendData 回應沒有任何頻道（{d1}～{d2}），"
+                           f"可能是登入逾時或平台異常：{payload[:80]!r}")
     start = datetime.combine(d1, datetime.min.time())
     end = datetime.combine(d2 + timedelta(days=1), datetime.min.time())
 
     rows: Dict[datetime, dict] = {}
     seen = set()
-    for name, times_raw, vals_raw in w.RE_SERIES.findall(payload):
+    for name, times_raw, vals_raw in series:
         col = COLUMN_OF.get("-".join(w.safe_decode(name).split("-")[1:]))
         if not col or col in seen:
             continue
@@ -94,14 +110,17 @@ def fetch_range(base: str, uid: str, mac: str, d1: date, d2: date) -> Dict[datet
 
 
 def to_row(site_code, mac: str, at: datetime, vals: dict) -> dict:
-    if vals.get("heat_index") is None and vals.get("temperature") is not None \
-            and vals.get("humidity") is not None:
-        vals["heat_index"] = heat_index_c(vals["temperature"], vals["humidity"])
-    level = station_level({k: v for k, v in vals.items()
-                           if k in ("pm25", "pm10", "noise", "heat_index")})
+    """已過濾的讀值 → 資料列。熱指數缺值時推算、危害等級自行判定，與牆面同一套。"""
+    vals = dict(vals)
+    level = 0
+    for d in w.derive_metrics([{"metric": c, "value": v, "at": at} for c, v in vals.items()]):
+        if d["metric"] == "hazard_level":
+            level = int(d["value"])
+        else:
+            vals[d["metric"]] = d["value"]
     return dict(site_code=site_code, device_id=mac, reading_at=at,
                 hazard_level=level, fetched_at=datetime.now(),
-                **{c: vals.get(c) for c in COLUMN_OF.values()})
+                **{c: vals.get(c) for c in ARCHIVE_COLUMNS})
 
 
 def archive_station(base: str, uid: str, mac: str, site_code, first: date,
@@ -109,34 +128,49 @@ def archive_station(base: str, uid: str, mac: str, site_code, first: date,
     db = SessionLocal()
     try:
         prog = db.get(WeatherArchiveProgress, mac)
-        start = first if prog is None else max(
-            first, prog.archived_through - timedelta(days=OVERLAP_DAYS - 1))
+        last_at = (db.query(func.max(WeatherReading.reading_at))
+                   .filter(WeatherReading.device_id == mac).scalar())
     finally:
         db.close()
+
+    if prog is None:
+        start = first
+    else:
+        start = prog.archived_through - timedelta(days=OVERLAP_DAYS - 1)
+        # 斷線的測站恢復連線後會補傳緩存資料：從最後有資料那天起重查。
+        # 只追 LATE_UPLOAD_DAYS 天，長期停用的測站不必每天從停用日查起。
+        if last_at is not None and (yesterday - last_at.date()).days <= LATE_UPLOAD_DAYS:
+            start = min(start, last_at.date())
+        start = max(first, start)
 
     written = 0
     d1 = start
     while d1 <= yesterday:
         d2 = min(d1 + timedelta(days=CHUNK_DAYS - 1), yesterday)
         rows = fetch_range(base, uid, mac, d1, d2)
+        batch = [to_row(site_code, mac, at, v) for at, v in
+                 ((at, w.clean_values(vals)) for at, vals in sorted(rows.items())) if v]
         db = SessionLocal()
         try:
-            # 整段替換：重抓的區間可能多了補傳資料，也可能少了被平台修正掉的點
-            db.query(WeatherReading).filter(
-                WeatherReading.device_id == mac,
-                WeatherReading.reading_at >= datetime.combine(d1, datetime.min.time()),
-                WeatherReading.reading_at < datetime.combine(d2 + timedelta(days=1),
-                                                             datetime.min.time()),
-            ).delete(synchronize_session=False)
-            if rows:
-                db.bulk_insert_mappings(WeatherReading, [
-                    to_row(site_code, mac, at, vals) for at, vals in sorted(rows.items())])
+            # 以「日」為單位替換：這次有拿到資料的日子整天刪掉重寫（可能多了補傳
+            # 的點，也可能少了被平台修正掉的點）；沒拿到資料的日子不動——平台不會
+            # 真的收回資料，查無多半是測站斷線或暫時異常，刪了就是把好資料換成空白。
+            for day in sorted({r["reading_at"].date() for r in batch}):
+                db.query(WeatherReading).filter(
+                    WeatherReading.device_id == mac,
+                    WeatherReading.reading_at >= datetime.combine(day, datetime.min.time()),
+                    WeatherReading.reading_at < datetime.combine(day + timedelta(days=1),
+                                                                 datetime.min.time()),
+                ).delete(synchronize_session=False)
+            if batch:
+                db.bulk_insert_mappings(WeatherReading, batch)
             prog = db.get(WeatherArchiveProgress, mac)
             if prog is None:
                 prog = WeatherArchiveProgress(device_id=mac)
                 db.add(prog)
             prog.site_code = site_code
-            prog.archived_through = d2
+            # 只前進不後退：斷線重查的區間在進度之前，不能把進度拉回去
+            prog.archived_through = max(d2, prog.archived_through or d2)
             prog.updated_at = datetime.now()
             # 資料與進度同一個交易：寫一半失敗就兩者都不動，下次從同一天重來
             db.commit()
@@ -145,7 +179,7 @@ def archive_station(base: str, uid: str, mac: str, site_code, first: date,
             raise
         finally:
             db.close()
-        written += len(rows)
+        written += len(batch)
         d1 = d2 + timedelta(days=1)
         time.sleep(PAUSE_SEC)
     return written
@@ -159,15 +193,19 @@ def _safe_code(v: str) -> str:
 def ensure_views() -> None:
     """建立（或更新）分析用檢視表。只支援 SQL Server；SQLite 的工地檢視器不歸檔。
 
-    工作時段取 07:00–17:00（hour 7~16）。hours_* 以「符合的 5 分鐘格數 × 5 分」
+    工作時段取 07:00–17:00（WORK_HOURS）。hours_* 以「符合的 5 分鐘格數 × 5 分」
     換算，測站斷線的時段不計入，所以 samples 偏低的日子時數也會偏低。
-    熱指數分界 32.2／40.6 °C 為《高氣溫作業熱危害預防指引》附表二的第二、三級，
-    與 app/hazard.py 相同，不可四捨五入。
+    熱指數第二、三級分界直接取 app/hazard.py 的 THRESHOLDS——指引修正時只改那裡，
+    這裡每天重建檢視表會自動跟上。
+    噪音平均是能量平均（等效音壓級）：分貝是對數尺度，直接平均會低估，
+    半天 90 dB、半天 60 dB 算術平均是 75，等效音壓級約 87。
     """
     if not IS_MSSQL:
         return
+    breaks = THRESHOLDS["heat_index"].breaks
+    lv2, lv3 = float(breaks[1]), float(breaks[2])
     primary = _safe_code(env("PRIMARY_SITE_CODE"))
-    daily = """
+    daily = f"""
 CREATE OR ALTER VIEW v_weather_daily AS
 SELECT site_code, device_id,
        CAST(reading_at AS date) AS obs_date,
@@ -175,13 +213,14 @@ SELECT site_code, device_id,
        MIN(temperature) AS temp_min, AVG(temperature) AS temp_avg, MAX(temperature) AS temp_max,
        AVG(humidity) AS humidity_avg,
        MAX(heat_index) AS heat_index_max,
-       MAX(CASE WHEN DATEPART(hour, reading_at) BETWEEN 7 AND 16 THEN heat_index END) AS heat_index_max_work,
-       AVG(CASE WHEN DATEPART(hour, reading_at) BETWEEN 7 AND 16 THEN heat_index END) AS heat_index_avg_work,
-       SUM(CASE WHEN DATEPART(hour, reading_at) BETWEEN 7 AND 16 AND heat_index >= 32.2 THEN 5 ELSE 0 END) / 60.0 AS hours_hi_lv2_work,
-       SUM(CASE WHEN DATEPART(hour, reading_at) BETWEEN 7 AND 16 AND heat_index >= 40.6 THEN 5 ELSE 0 END) / 60.0 AS hours_hi_lv3_work,
+       MAX(CASE WHEN {WORK_HOURS} THEN heat_index END) AS heat_index_max_work,
+       AVG(CASE WHEN {WORK_HOURS} THEN heat_index END) AS heat_index_avg_work,
+       SUM(CASE WHEN {WORK_HOURS} AND heat_index >= {lv2!r} THEN 5 ELSE 0 END) / 60.0 AS hours_hi_lv2_work,
+       SUM(CASE WHEN {WORK_HOURS} AND heat_index >= {lv3!r} THEN 5 ELSE 0 END) / 60.0 AS hours_hi_lv3_work,
        AVG(pm25) AS pm25_avg, MAX(pm25) AS pm25_max,
        AVG(pm10) AS pm10_avg, MAX(pm10) AS pm10_max,
-       AVG(CASE WHEN DATEPART(hour, reading_at) BETWEEN 7 AND 16 THEN noise END) AS noise_avg_work,
+       10 * LOG10(AVG(CASE WHEN {WORK_HOURS}
+                           THEN POWER(CAST(10 AS float), CAST(noise AS float) / 10) END)) AS noise_leq_work,
        MAX(noise) AS noise_max,
        MAX(hazard_level) AS hazard_level_max
 FROM weather_readings
@@ -203,7 +242,7 @@ SELECT wd.obs_date AS report_date,
        COALESCE(wl.headcount, 0) AS headcount,
        wd.samples, wd.temp_max, wd.temp_avg, wd.humidity_avg,
        wd.heat_index_max_work, wd.hours_hi_lv2_work, wd.hours_hi_lv3_work,
-       wd.pm25_avg, wd.pm10_avg, wd.noise_avg_work, wd.hazard_level_max
+       wd.pm25_avg, wd.pm10_avg, wd.noise_leq_work, wd.hazard_level_max
 FROM v_weather_daily wd
 LEFT JOIN wl ON wl.report_date = wd.obs_date
 WHERE wd.site_code = '{primary}'

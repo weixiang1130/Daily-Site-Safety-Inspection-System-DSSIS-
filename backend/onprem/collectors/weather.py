@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import random
 import re
 import sys
@@ -65,6 +66,36 @@ METRIC_MAP: Dict[str, str] = {
     "晚間警報": "noise_alarm_evening",
     "夜間警報": "noise_alarm_night",
 }
+
+# 感測器故障值的合理範圍（含端點）。平台原始資料混有故障值，實測：PM10
+# 65,384,730,624、噪音 1.1e28 dB、溫濕度感測器未接時溫度／濕度／熱指數全是 0、
+# 測站失效時 PM2.5 與 PM10 同為 0，以及溫濕度正常但熱指數給 0。不擋的話：
+# 噪音超出欄位範圍讓整輪寫入失敗（所有測站一起丟）、PM 故障值上牆變「危險」、
+# 熱指數 0 看起來安全。歷史歸檔（weather_archive.py）用同一份。
+VALID_RANGE: Dict[str, tuple] = {
+    "pm25": (0, 1000), "pm10": (0, 2000), "noise": (20, 140),
+    "temperature": (-10, 60), "humidity": (1, 100), "heat_index": (1, 80),
+}
+
+
+def clean_values(vals: Dict[str, float]) -> Dict[str, float]:
+    """去掉故障值，回傳新的 {指標: 值}。不在 VALID_RANGE 的指標原樣保留。
+
+    熱指數 0 會被濾掉，之後由 derive_metrics() 依溫濕度重算。
+    """
+    out = {k: v for k, v in vals.items()
+           if k not in VALID_RANGE
+           or (math.isfinite(v) and VALID_RANGE[k][0] <= v <= VALID_RANGE[k][1])}
+    # 濕度有給但無效（感測器未接時回 0）：同一顆感測器的溫度與熱指數也不可信
+    if "humidity" in vals and "humidity" not in out:
+        out.pop("temperature", None)
+        out.pop("heat_index", None)
+    # PM2.5 與 PM10 同時剛好是 0 是測站失效，不是空氣極乾淨
+    if vals.get("pm25") == 0 and vals.get("pm10") == 0:
+        out.pop("pm25", None)
+        out.pop("pm10", None)
+    return out
+
 
 TIMEOUT = 30
 
@@ -182,7 +213,8 @@ def read_station(base: str, uid: str, mac: str) -> List[dict]:
 
         seen.add(metric)
         out.append({"metric": metric, "value": v, "at": taipei_to_dt(times[i])})
-    return out
+    ok = clean_values({r["metric"]: r["value"] for r in out})
+    return [r for r in out if r["metric"] in ok]
 
 
 def derive_metrics(readings: List[dict]) -> List[dict]:

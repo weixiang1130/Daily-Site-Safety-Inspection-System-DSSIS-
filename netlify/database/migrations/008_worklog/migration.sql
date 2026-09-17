@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS worklog_reports (
 );
 CREATE INDEX IF NOT EXISTS worklog_reports_date ON worklog_reports (report_date);
 CREATE INDEX IF NOT EXISTS worklog_reports_message ON worklog_reports (message_id);
+-- 地端副本的增量匯出以（更新時間, id）為游標排序
+CREATE INDEX IF NOT EXISTS worklog_reports_updated_idx ON worklog_reports (updated_at, id);
 
 -- 工種明細：一筆回報拆成多個工種。只有訊息逐項寫了人數才有（實測約四成），
 -- 且加總不一定等於總人數（總人數常含工程師、或只列部分工種）——分析時

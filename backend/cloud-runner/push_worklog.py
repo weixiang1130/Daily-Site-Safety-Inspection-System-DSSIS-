@@ -62,6 +62,7 @@ def _report(item: dict) -> dict:
         "message_id": item["message_id"],
         "raw": item["raw"],
         "trades": item.get("trades") or [],
+        "superseded_message_ids": item.get("superseded_ids") or [],
     }
 
 
@@ -86,8 +87,11 @@ def main() -> int:
         bs.remove_tmp_db()
 
     since = None if args.all else date.today() - timedelta(days=args.days)
+    # 出工日期或回報時間任一落在視窗內就送：廠商補報三週前的出工時，
+    # 出工日期早已在視窗外，只看出工日期的話每晚都會漏掉它
     reports = [_report(i) for i in parsed.values()
-               if since is None or i["report_date"] >= since]
+               if since is None or i["report_date"] >= since
+               or (i["reported_at"] is not None and i["reported_at"].date() >= since)]
     rejects = [{"message_id": x["message_id"], "reported_at": _iso(x["reported_at"]),
                 "reporter": x["reporter"], "raw": x["raw"]}
                for x in rejects

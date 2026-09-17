@@ -110,7 +110,7 @@ async function load() {
   if (d.management_url) {
     hint.innerHTML = `此站台的看板設定請至雲端填報站維護：
       <a href="${esc(d.management_url)}/static/board-settings.html" target="_blank">前往雲端看板管理</a>。
-      儲存後最慢下一輪表單同步（預設 12 小時）帶回本機；急用可手動跑一次同步。`;
+      儲存後於下一輪表單同步帶回本機（中央主機每日 10:00；工地檢視器預設每 12 小時）；急用可手動跑一次同步。`;
     hint.classList.remove('hidden');
     document.getElementById('fields').disabled = true;
   } else {

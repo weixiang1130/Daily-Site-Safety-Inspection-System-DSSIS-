@@ -59,9 +59,11 @@ WORK_WORDS = ("綁紮", "模板", "水電", "帷幕", "鋼筋", "鋼構", "放�
 
 # 這些是施工機具不是工種——鋼構類廠商常把「760塔吊*1」列在人數
 # 清單旁邊，不濾掉的話工種欄會混進機具、加總人數也會多算
-# 「PC*120*2」是挖土機型號（PC120）×台數，不是 120 人——曾讓工種明細
-# 兩週冒出 600 人日的「PC」
-MACHINE_WORDS = ("堆高機", "塔吊", "作業車", "挖掘機", "吊車", "吊卡", "PC")
+MACHINE_WORDS = ("堆高機", "塔吊", "作業車", "挖掘機", "吊車", "吊卡")
+
+# 單行人數上限。「聯絡電話：0912345678」「編號X3000000000」也長得像
+# 「名稱：數字」，不擋的話一則訊息就是幾十億人，還會讓雲端寫入整批失敗。
+MAX_COUNT = 999
 
 ROC_DATE = re.compile(r"(1[0-9]{2})[/.．](\d{1,2})[/.．](\d{1,2})")
 AD_DATE = re.compile(r"(20\d{2})[/.．-](\d{1,2})[/.．-](\d{1,2})")
@@ -159,22 +161,29 @@ def parse_message(content: str, labels: list, fallback_date: Optional[date]) -> 
     def is_machine(name: str) -> bool:
         return any(w in name for w in MACHINE_WORDS)
 
+    def is_trade(name: str, n: int) -> bool:
+        # 名稱不含中文的是機具型號或分區代號，不是工種：「PC*120*2」是挖土機
+        # PC120 × 2 台（曾讓工種明細兩週冒出 600 人日）、「B1F*2」是樓層。
+        # 用「有沒有中文」判斷而非列舉型號——「PC吊裝*6」（預鑄班）要留著，
+        # 小寫 pc、全形ＰＣ、ZX200 也都要擋。
+        return bool(HAS_CJK.search(name)) and not is_machine(name) and n <= MAX_COUNT
+
     # 人數優先序：總人數／合計（取最後一個，且不再加總其他項）→
     # 「出工數」們加總（本籍＋外籍分列）→「工種*人數」加總 →
     # 「工種：N人」行加總（此時工程師、製圖員等也會計入——訊息沒給
     # 總數，只能全列都算）。機具不算人。
-    grands = [int(n) for n in GRAND_COUNT.findall(content)]
+    grands = [int(n) for n in GRAND_COUNT.findall(content) if int(n) <= MAX_COUNT]
     totals = [grands[-1]] if grands else \
-        [int(n) for n in TOTAL_COUNT.findall(content)]
+        [int(n) for n in TOTAL_COUNT.findall(content) if int(n) <= MAX_COUNT]
     star_pairs = [(name, int(n)) for name, n in STAR_COUNT.findall(content)
-                  if not is_machine(name)]
+                  if is_trade(name, int(n))]
     colon_pairs = []
     for ln in lines:
         cm = COLON_COUNT.match(ln)
         if not cm:
             continue
         name = cm.group(1)
-        if "出工" in name or "人數" in name or is_machine(name):
+        if "出工" in name or "人數" in name or not is_trade(name, int(cm.group(2))):
             continue
         colon_pairs.append((name, int(cm.group(2))))
     if totals:
@@ -208,7 +217,7 @@ def parse_message(content: str, labels: list, fallback_date: Optional[date]) -> 
         vm = VENDOR_COUNT.match(rest)    # 「本公司移工 13人」自帶人數
         if vm:
             rest = vm.group(1).strip()
-            if headcount is None:
+            if headcount is None and int(vm.group(2)) <= MAX_COUNT:
                 headcount = int(vm.group(2))
         tokens = [t.strip(" ，,、。　") for t in re.split(r"[-－：:／/]", rest)]
         tokens = [t for t in tokens if t and HAS_CJK.search(t)]
@@ -279,7 +288,9 @@ def collect_reports(rows: Optional[list] = None):
     """解析整張試算表的出工回報。
 
     回傳 (讀到的列數, {(日期, 棟別, 廠商): 回報}, 解析失敗的訊息清單)。
-    同一天同一棟同一廠商以最新一則為準（廠商常重發更正版）。
+    同一天同一棟同一廠商以最新一則為準（廠商常重發更正版）；被蓋過的訊息
+    記在勝出回報的 superseded_ids——雲端要靠它刪掉這些訊息改判前留在別的
+    鍵上的舊列，否則解析規則一改，同一批人會在兩個鍵各算一次。
     本機看板收集（poll_once）與雲端出工資料庫（cloud-runner/push_worklog.py）
     共用這一份解析，兩邊的數字才會一致。
     """
@@ -313,9 +324,17 @@ def collect_reports(rows: Optional[list] = None):
         item["raw"] = content[:2000]
         key = (item["report_date"], item["building"] or "", item["vendor"])
         old = parsed.get(key)
-        if old is None or (item["reported_at"] or datetime.min) >= \
-                (old["reported_at"] or datetime.min):
+        if old is None:
+            item["superseded_ids"] = []
             parsed[key] = item
+        elif (item["reported_at"] or datetime.min) >= (old["reported_at"] or datetime.min):
+            item["superseded_ids"] = old["superseded_ids"] + [old["message_id"]]
+            parsed[key] = item
+        else:
+            old["superseded_ids"].append(message_id)
+    for item in parsed.values():
+        item["superseded_ids"] = [m for m in dict.fromkeys(item["superseded_ids"])
+                                  if m and m != item["message_id"]]
     return len(rows), parsed, rejects
 
 

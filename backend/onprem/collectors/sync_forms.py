@@ -33,8 +33,8 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
-import unicodedata
 import time
 from datetime import date, datetime
 from pathlib import Path
@@ -97,10 +97,13 @@ def seconds_since_last_sync() -> Optional[float]:
 
 def _write_state(**changes) -> None:
     # 合併寫入：表單與出工資料庫各有自己的游標，整檔覆蓋會把另一個洗掉，
-    # 下一輪就變成全量重抓。
+    # 下一輪就變成全量重抓。先寫暫存檔再換名：直接覆寫時檔案有一瞬間是空的，
+    # 另一個同時執行的同步讀到空檔會當成沒同步過，再把只剩自己游標的內容寫回去。
     d = _state()
     d.update(changes)
-    STATE_FILE.write_text(json.dumps(d), encoding="utf-8")
+    tmp = STATE_FILE.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(d), encoding="utf-8")
+    os.replace(tmp, STATE_FILE)
 
 
 def write_state(since: Optional[str]) -> None:
@@ -324,18 +327,11 @@ def _cut(v, n: int) -> Optional[str]:
     return str(v)[:n] if v else None
 
 
-def _pk(name: str) -> str:
-    """SQL Server 預設定序不分大小寫與全半形（PC／pc／ＰＣ 視為相同），雲端
-    PostgreSQL 則分得開。直接寫入會撞主鍵、整批 rollback、之後每輪卡在同一批，
-    所以主鍵欄位先用這個鍵合併。"""
-    return unicodedata.normalize("NFKC", name).casefold()
-
-
 def sync_worklog_once(full: bool = False) -> tuple:
     """出工資料庫同步一輪。回傳（訊息, 是否還有未取回的資料）。
 
     正本在雲端（GitHub 每晚寫入），地端只是副本：以雲端 id（cloud_id）比對，
-    不在地端自行判斷「同一天同一廠商」。游標是雲端給的「更新時間|id」字串，
+    不在地端自行判斷「同一天同一廠商」；雲端刪掉的列以最後一頁的 live_ids 對帳刪除。游標是雲端給的「更新時間|id」字串，
     原樣存回、原樣送出，不在地端解析——兩邊時區不同，解析後再格式化容易
     差幾個小時而漏資料。
     """
@@ -344,7 +340,7 @@ def sync_worklog_once(full: bool = False) -> tuple:
     reports = data.get("reports", [])
 
     db = SessionLocal()
-    added = 0
+    added = removed = 0
     try:
         cloud_ids = [r["id"] for r in reports]
         existing = {}
@@ -355,22 +351,6 @@ def sync_worklog_once(full: bool = False) -> tuple:
                 existing[obj.cloud_id] = obj
 
         for row in reports:
-            # 雲端同一則訊息改判到另一個（日期, 棟, 廠商）時，會刪掉舊列、
-            # 產生新 id。地端看不到刪除，只能用 message_id 對出舊列清掉，
-            # 否則副本會多一筆重複的人數。
-            mid = row.get("message_id")
-            if mid:
-                stale = (db.query(WorklogReport)
-                         .filter(WorklogReport.message_id == mid,
-                                 WorklogReport.cloud_id != row["id"]).all())
-                for old in stale:
-                    db.query(WorklogTrade).filter(
-                        WorklogTrade.report_id == old.id).delete(synchronize_session=False)
-                    existing.pop(old.cloud_id, None)
-                    db.delete(old)
-                if stale:
-                    db.flush()
-
             obj = existing.get(row["id"])
             if not obj:
                 obj = WorklogReport(cloud_id=row["id"])
@@ -383,46 +363,54 @@ def sync_worklog_once(full: bool = False) -> tuple:
             obj.trade_summary = _cut(row.get("trade_summary"), 128)
             obj.supervisor = _cut(row.get("supervisor"), 64)
             obj.tasks = row.get("tasks")
-            obj.reporter = _cut(row.get("reporter"), 64)
             obj.reported_at = parse_dt(row.get("reported_at"))
-            obj.message_id = _cut(mid, 64)
-            obj.raw = row.get("raw")
+            obj.message_id = _cut(row.get("message_id"), 64)
             obj.updated_at = parse_dt(row.get("updated_at"))
             obj.synced_at = datetime.now()
             db.flush()
 
-            # 工種明細整組替換：更正版可能少了某個工種，逐筆 upsert 會殘留舊的
+            # 工種明細整組替換：更正版可能少了某個工種，逐筆 upsert 會殘留舊的。
+            # 截斷後同名的合併（雲端欄位不限長度，地端 32 字）。
             db.query(WorklogTrade).filter(
                 WorklogTrade.report_id == obj.id).delete(synchronize_session=False)
             merged = {}
             for t in row.get("trades") or []:
                 name = str(t.get("trade") or "").strip()[:32]
                 if name and isinstance(t.get("headcount"), int):
-                    first, hc = merged.get(_pk(name), (name, 0))
-                    merged[_pk(name)] = (first, hc + t["headcount"])
-            for name, hc in merged.values():
+                    merged[name] = merged.get(name, 0) + t["headcount"]
+            for name, hc in merged.items():
                 db.add(WorklogTrade(report_id=obj.id, trade=name, headcount=hc))
+
+        # 雲端已刪除的列（同一則訊息改判到別的鍵、被蓋過的舊列）：最後一頁附上
+        # 雲端現存的全部 id，不在其中的地端列刪掉。雲端回空清單、或要刪掉超過
+        # 一半時不動——那比較像雲端資料庫出事，副本正是這種時候要留著。
+        live = data.get("live_ids")
+        if live is not None and not data.get("truncated"):
+            live = set(live)
+            local = dict(db.query(WorklogReport.cloud_id, WorklogReport.id).all())
+            stale = [rid for cid, rid in local.items() if cid not in live]
+            if stale and (not live or len(stale) * 2 > len(local)):
+                log(f"出工資料庫：雲端少了 {len(stale)}／{len(local)} 筆，比例異常，本輪不刪地端副本")
+            elif stale:
+                for i in range(0, len(stale), 500):
+                    part = stale[i:i + 500]
+                    db.query(WorklogTrade).filter(
+                        WorklogTrade.report_id.in_(part)).delete(synchronize_session=False)
+                    db.query(WorklogReport).filter(
+                        WorklogReport.id.in_(part)).delete(synchronize_session=False)
+                removed = len(stale)
 
         # 歸類與解析失敗清單筆數少，雲端每次全量給，這裡整批覆蓋
         if "aliases" in data:
             db.query(WorklogTradeAlias).delete(synchronize_session=False)
-            seen = set()
-            for a in data["aliases"]:
-                if _pk(a["trade"][:32]) not in seen:
-                    seen.add(_pk(a["trade"][:32]))
-                    db.add(WorklogTradeAlias(trade=a["trade"][:32],
-                                             trade_group=a["trade_group"][:32]))
+            aliases = {a["trade"][:32]: a["trade_group"][:32] for a in data["aliases"]}
+            for trade, group in aliases.items():
+                db.add(WorklogTradeAlias(trade=trade, trade_group=group))
         if "rejects" in data:
             db.query(WorklogReject).delete(synchronize_session=False)
-            seen = set()
-            for x in data["rejects"]:
-                if _pk(x["message_id"][:64]) in seen:
-                    continue
-                seen.add(_pk(x["message_id"][:64]))
-                db.add(WorklogReject(message_id=x["message_id"][:64],
-                                     reported_at=parse_dt(x.get("reported_at")),
-                                     reporter=_cut(x.get("reporter"), 64),
-                                     raw=x.get("raw")))
+            rejects = {x["message_id"][:64]: x.get("reported_at") for x in data["rejects"]}
+            for mid, at in rejects.items():
+                db.add(WorklogReject(message_id=mid, reported_at=parse_dt(at)))
         db.commit()
     except Exception:
         db.rollback()
@@ -436,6 +424,8 @@ def sync_worklog_once(full: bool = False) -> tuple:
         _write_state(worklog_since=nxt)
 
     msg = f"出工資料庫：取得 {len(reports)} 筆異動，新增 {added}"
+    if removed:
+        msg += f"、移除雲端已刪除的 {removed} 筆"
     more = bool(data.get("truncated")) and nxt != since
     if data.get("truncated"):
         msg += "（達單次上限，尚有未同步的資料）"

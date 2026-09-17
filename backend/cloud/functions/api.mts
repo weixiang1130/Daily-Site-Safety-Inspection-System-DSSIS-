@@ -59,6 +59,9 @@ const BRANDING = {
   // 前端據此決定走「快照模式」：雲端沒有即時的 /api/dashboard，
   // 一律讀 /api/wallboard 的快照。地端則為 false，走即時查詢。
   wallboard: true,
+  // 出工資料庫（/api/worklog/*）只在雲端。地端與工地檢視器共用同一份 home.html，
+  // 沒有這個旗標就不顯示入口，否則點進去是 404。
+  worklog_db: true,
 };
 
 // 過期判定改在前端做（frontend/dashboard-detail.html 的 STALE_AFTER_MIN）：
@@ -313,8 +316,24 @@ async function buildBoardData() {
 // ---------------------------------------------------------------------------
 // 出工資料庫（worklog_*）：寫入由 GitHub 每晚推送，匯出供分析
 // ---------------------------------------------------------------------------
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const WORKLOG_MAX_REPORTS = 1000;   // 單次推送上限；runner 會分批
+// 單一廠商一天的人數上限。解析器會把「聯絡電話：0912345678」這類行當成人數，
+// 超過 int 範圍時整批寫入失敗、之後每晚卡在同一批——寧可把離譜值存成 NULL。
+const WORKLOG_MAX_HEADCOUNT = 2000;
+
+/** YYYY-MM-DD 且是真實存在的日期。只驗格式的話 2026-02-30 會通過，
+ *  到 ::date 轉型才失敗，變成 500 而不是 400。 */
+function isIsoDate(v: unknown): boolean {
+  const t = String(v ?? "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return false;
+  const d = new Date(`${t}T00:00:00Z`);
+  return !isNaN(d.getTime()) && d.toISOString().slice(0, 10) === t;
+}
+
+function headcountOf(v: unknown): number | null {
+  return Number.isInteger(v) && (v as number) >= 0 && (v as number) <= WORKLOG_MAX_HEADCOUNT
+    ? (v as number) : null;
+}
 
 /** CSV 儲存格：含逗號／引號／換行時加引號；開頭是 = + - @ 時前綴單引號，
  *  避免 Excel 把 LINE 原文當公式執行（CSV injection）。 */
@@ -325,13 +344,16 @@ function csvCell(v: unknown): string {
   return /[",\r\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
 }
 
-/** 帶 BOM 的 UTF-8 CSV——沒有 BOM 的話 Excel 會把中文開成亂碼。 */
-function csvResponse(filename: string, header: string[], rows: unknown[][]): Response {
+/** 帶 BOM 的 UTF-8 CSV——沒有 BOM 的話 Excel 會把中文開成亂碼。
+ *  檔名：HTTP 標頭只能放 Latin-1，中文檔名直接放進去 new Response() 會丟例外
+ *  （每個匯出都變 500）。filename 給 ASCII 備援、filename* 給 RFC 5987 編碼的中文名。 */
+function csvResponse(filename: string, asciiName: string, header: string[], rows: unknown[][]): Response {
   const body = "﻿" + [header, ...rows].map((r) => r.map(csvCell).join(",")).join("\r\n");
   return new Response(body, {
     headers: {
       "content-type": "text/csv; charset=utf-8",
-      "content-disposition": `attachment; filename="${filename}"`,
+      "content-disposition":
+        `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
       "cache-control": "no-store",
     },
   });
@@ -502,8 +524,9 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
 
     // 出工資料庫：GitHub 每晚 00:07 推送最近 14 天解析結果（首次為全部歷史）。
     // 以 (日期, 棟別, 廠商) upsert；來源消失的列不刪（來源被截斷不能丟歷史）。
-    // 同一則訊息因解析規則改進而改判到不同鍵時，刪掉舊鍵那筆。每步都是
-    // 冪等的：中途失敗時 runner 以非 0 結束，隔晚重送即可補齊。
+    // 訊息因解析規則改進而改判到不同鍵時，刪掉舊鍵那筆——包括被同鍵較新訊息
+    // 蓋過、沒有被送出的舊訊息（superseded_message_ids），否則舊鍵那筆會留著
+    // 讓人數重複。每步都是冪等的：中途失敗時 runner 以非 0 結束，隔晚重送即可補齊。
     if (p === "/api/v1/ingest/worklog" && method === "POST") {
       const expected = Netlify.env.get("WALL_INGEST_TOKEN") || "";
       const token = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
@@ -516,10 +539,13 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
         rejects = Array.isArray(b?.rejects) ? b.rejects : [];
         if (reports.length > WORKLOG_MAX_REPORTS) throw Error(`單次最多 ${WORKLOG_MAX_REPORTS} 筆`);
         for (const r of reports) {
-          if (!ISO_DATE.test(String(r?.report_date || "")) || !String(r?.vendor || "").trim()) {
+          if (!isIsoDate(r?.report_date) || !String(r?.vendor || "").trim()) {
             throw Error("回報缺日期或廠商");
           }
           if (r.trades !== undefined && !Array.isArray(r.trades)) throw Error("工種明細格式錯誤");
+          if (r.superseded_message_ids !== undefined && !Array.isArray(r.superseded_message_ids)) {
+            throw Error("superseded_message_ids 格式錯誤");
+          }
         }
       } catch (e: any) {
         return fail(400, "出工資料格式錯誤：" + (e?.message || ""));
@@ -528,30 +554,38 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
       const seen = new Set<string>();
       const rows: any[] = [];
       for (const r of reports) {
-        const key = `${r.report_date}|${r.building || ""}|${String(r.vendor).trim()}`;
+        const building = String(r.building || "").slice(0, 32);
+        const vendor = String(r.vendor).trim().slice(0, 64);
+        // 鍵用截斷後的值：兩筆只在第 64 字後不同時，同一個 INSERT 內會撞同一列
+        const key = `${r.report_date}|${building}|${vendor}`;
         if (seen.has(key)) continue;                  // 同鍵只取第一筆（runner 已去重）
         seen.add(key);
         rows.push({
-          report_date: r.report_date, building: String(r.building || "").slice(0, 32),
-          vendor: String(r.vendor).trim().slice(0, 64),
-          headcount: Number.isInteger(r.headcount) ? r.headcount : null,
+          report_date: r.report_date, building, vendor,
+          headcount: headcountOf(r.headcount),
           trade_summary: r.trade_summary ?? null, supervisor: r.supervisor ?? null,
           tasks: r.tasks ?? null, reporter: r.reporter ?? null,
           reported_at: r.reported_at ?? null, message_id: r.message_id ?? null,
           raw: r.raw ?? null,
+          superseded: (r.superseded_message_ids || []).map(String).filter(Boolean),
           trades: (r.trades || []).filter((t: any) =>
-            String(t?.trade || "").trim() && Number.isInteger(t?.headcount) && t.headcount > 0),
+            String(t?.trade || "").trim() && (headcountOf(t?.headcount) ?? 0) > 0),
         });
       }
 
       let upserted: any[] = [];
       if (rows.length) {
         const rj = JSON.stringify(rows);
+        // 每個回報鍵連同它蓋過的舊訊息：那些訊息若還留在別的鍵，就是改判前的舊列
+        const owned = rows.flatMap((r) => [r.message_id, ...r.superseded].filter(Boolean)
+          .map((m: string) => ({ report_date: r.report_date, building: r.building,
+                                 vendor: r.vendor, message_id: m })));
+        const oj = JSON.stringify(owned);
         await db.sql`
           DELETE FROM worklog_reports r
-          USING json_to_recordset(${rj}::json)
+          USING json_to_recordset(${oj}::json)
             AS x(report_date date, building text, vendor text, message_id text)
-          WHERE x.message_id IS NOT NULL AND r.message_id = x.message_id
+          WHERE r.message_id = x.message_id
             AND (r.report_date, r.building, r.vendor) IS DISTINCT FROM
                 (x.report_date, x.building, x.vendor)`;
         upserted = await db.sql`
@@ -578,19 +612,27 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
           if (id) for (const t of r.trades) trades.push({ report_id: id, trade: String(t.trade).trim().slice(0, 32), headcount: t.headcount });
         }
         const ids = JSON.stringify(upserted.map((u: any) => u.id));
+        // 工種明細整組替換，放在同一個語句裡：分成「全刪」「再寫」兩句時，寫入
+        // 那句失敗會讓這批回報只剩刪除、要等隔晚才補回來。同一語句內不能先刪
+        // 再插同一個主鍵（PostgreSQL 會判重複），所以只刪「新明細裡沒有的工種」，
+        // 其餘以 upsert 更新人數——兩者碰不到同一列。
         await db.sql`
-          DELETE FROM worklog_trades
-          WHERE report_id IN (SELECT value::int FROM json_array_elements_text(${ids}::json))`;
-        if (trades.length) {
-          await db.sql`
-            INSERT INTO worklog_trades (report_id, trade, headcount)
-            SELECT report_id, trade, SUM(headcount)
+          WITH fresh AS (
+            SELECT report_id, trade, SUM(headcount)::int AS headcount
             FROM json_to_recordset(${JSON.stringify(trades)}::json)
               AS t(report_id int, trade text, headcount int)
-            GROUP BY report_id, trade`;
-        }
-        // 這次解析成功的訊息，從解析失敗清單移除
-        const okIds = JSON.stringify(rows.map((r) => r.message_id).filter(Boolean));
+            GROUP BY report_id, trade
+          ), gone AS (
+            DELETE FROM worklog_trades w
+            WHERE w.report_id IN (SELECT value::int FROM json_array_elements_text(${ids}::json))
+              AND NOT EXISTS (SELECT 1 FROM fresh f
+                              WHERE f.report_id = w.report_id AND f.trade = w.trade)
+          )
+          INSERT INTO worklog_trades (report_id, trade, headcount)
+          SELECT report_id, trade, headcount FROM fresh
+          ON CONFLICT (report_id, trade) DO UPDATE SET headcount = EXCLUDED.headcount`;
+        // 這次解析成功的訊息（含被蓋過的舊訊息），從解析失敗清單移除
+        const okIds = JSON.stringify(owned.map((o) => o.message_id));
         await db.sql`
           DELETE FROM worklog_rejects
           WHERE message_id IN (SELECT value FROM json_array_elements_text(${okIds}::json))`;
@@ -767,6 +809,10 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
     // 設 SYNC_WORKLOG=true 時，在表單同步的同一輪呼叫——資料庫本來就醒著）。
     // 游標是「更新時間|id」：每晚寫入整批共用同一個 NOW()，只用時間當游標的話，
     // 剛好切在分頁邊界的同時間資料會被跳過。
+    //
+    // 這組代理權杖也打包在每個工地檢視器裡，所以只給分析需要的欄位：不含
+    // LINE 原文與回報人（LINE 顯示名稱）；那些只能登入後從出工資料庫頁下載。
+    // 最後一頁附上雲端現存的全部 id，地端據此刪掉雲端已刪除的列（改判的舊列）。
     if (p === "/api/v1/export/worklog" && method === "GET") {
       const expected = Netlify.env.get("SITE_AGENT_TOKEN") || "";
       const token = req.headers.get("x-agent-token") || "";
@@ -779,9 +825,9 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
 
       const reports = await db.sql`
         SELECT r.id, r.report_date::text AS report_date, r.building, r.vendor, r.headcount,
-               r.trade_summary, r.supervisor, r.tasks, r.reporter,
+               r.trade_summary, r.supervisor, r.tasks,
                to_char(r.reported_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS reported_at,
-               r.message_id, r.raw,
+               r.message_id,
                to_char(r.updated_at, 'YYYY-MM-DD"T"HH24:MI:SS.US') AS updated_at,
                COALESCE((SELECT json_agg(json_build_object('trade', t.trade, 'headcount', t.headcount)
                                          ORDER BY t.trade)
@@ -793,13 +839,17 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
       // 歸類與解析失敗清單筆數很少，每次全量給，地端整批覆蓋即可
       const aliases = await db.sql`SELECT trade, trade_group FROM worklog_trade_aliases ORDER BY trade`;
       const rejects = await db.sql`
-        SELECT message_id, to_char(reported_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS reported_at, reporter, raw
+        SELECT message_id, to_char(reported_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS reported_at
         FROM worklog_rejects ORDER BY message_id`;
+      const truncated = reports.length >= LIMIT;
+      const liveIds = truncated ? undefined
+        : (await db.sql`SELECT id FROM worklog_reports ORDER BY id`).map((x: any) => x.id);
       const last: any = reports.at(-1);
       return json({
         next_since: last ? `${last.updated_at}|${last.id}` : `${sinceTs}|${sinceId}`,
-        truncated: reports.length >= LIMIT,
+        truncated,
         reports, aliases, rejects,
+        ...(liveIds ? { live_ids: liveIds } : {}),
       });
     }
 
@@ -830,7 +880,7 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
       const kind = url.searchParams.get("kind") || "reports";
       const from = url.searchParams.get("from") || "2000-01-01";
       const to = url.searchParams.get("to") || "2999-12-31";
-      if (!ISO_DATE.test(from) || !ISO_DATE.test(to)) return fail(400, "日期格式應為 YYYY-MM-DD");
+      if (!isIsoDate(from) || !isIsoDate(to)) return fail(400, "日期格式應為 YYYY-MM-DD");
       const tag = `${from === "2000-01-01" ? "all" : from}_${to === "2999-12-31" ? "now" : to}`;
 
       if (kind === "reports") {
@@ -844,7 +894,7 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
           ORDER BY report_date, building, vendor`;
         const header = ["日期", "棟別", "廠商", "總人數", "工種摘要", "作業主管", "施作項目",
                         "回報人", "回報時間", "LINE訊息ID", ...(withRaw ? ["原文"] : [])];
-        return csvResponse(`出工回報_${tag}.csv`, header, rows.map((r: any) => [
+        return csvResponse(`出工回報_${tag}.csv`, `worklog_reports_${tag}.csv`, header, rows.map((r: any) => [
           r.d, r.building, r.vendor, r.headcount, r.trade_summary, r.supervisor, r.tasks,
           r.reporter, r.at, r.message_id, ...(withRaw ? [r.raw] : [])]));
       }
@@ -857,7 +907,7 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
           LEFT JOIN worklog_trade_aliases a ON a.trade = t.trade
           WHERE r.report_date BETWEEN ${from}::date AND ${to}::date
           ORDER BY r.report_date, r.building, r.vendor, t.trade`;
-        return csvResponse(`工種明細_${tag}.csv`,
+        return csvResponse(`工種明細_${tag}.csv`, `worklog_trades_${tag}.csv`,
           ["日期", "棟別", "廠商", "工種（原寫法）", "工種歸類", "人數"],
           rows.map((r: any) => [r.d, r.building, r.vendor, r.trade, r.trade_group, r.headcount]));
       }
@@ -865,7 +915,7 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
         const rows = await db.sql`
           SELECT message_id, to_char(reported_at, 'YYYY-MM-DD HH24:MI') AS at, reporter, raw
           FROM worklog_rejects ORDER BY reported_at`;
-        return csvResponse("出工回報_解析失敗.csv", ["LINE訊息ID", "回報時間", "回報人", "原文"],
+        return csvResponse("出工回報_解析失敗.csv", "worklog_rejects.csv", ["LINE訊息ID", "回報時間", "回報人", "原文"],
           rows.map((r: any) => [r.message_id, r.at, r.reporter, r.raw]));
       }
       return fail(400, "kind 應為 reports、trades 或 rejects");
@@ -888,7 +938,9 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
       const [r] = await db.sql`
         SELECT COUNT(*)::int AS reports, COALESCE(SUM(headcount), 0)::int AS mandays,
                MIN(report_date)::text AS first_date, MAX(report_date)::text AS last_date,
-               to_char(MAX(updated_at), 'YYYY-MM-DD HH24:MI') AS updated_at,
+               -- updated_at 是 NOW() 以連線時區（雲端為 UTC）存的無時區時間，先還原再轉台北
+               to_char((MAX(updated_at) AT TIME ZONE current_setting('TimeZone'))
+                       AT TIME ZONE 'Asia/Taipei', 'YYYY-MM-DD HH24:MI') AS updated_at,
                (SELECT COUNT(*)::int FROM worklog_rejects) AS rejects
         FROM worklog_reports`;
       return json(r, { headers: { "cache-control": "no-store" } });

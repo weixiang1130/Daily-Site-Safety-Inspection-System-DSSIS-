@@ -16,7 +16,8 @@
   .alias-table th, .alias-table td { text-align:left; padding:.45rem .5rem; border-bottom:1px solid var(--border); font-size:var(--fs-sm); }
   .alias-table td.num { text-align:right; font-variant-numeric:tabular-nums; }
   .alias-table input { width:100%; min-width:8rem; }
-  .alias-table tr.changed { background:var(--bg-sunken); }
+  /* 不可用底色：全站表格的滑鼠移入也是 --bg-sunken，會分不出哪列改過 */
+  .alias-table tr.changed td:first-child { box-shadow:inset 3px 0 0 var(--accent); font-weight:600; }
   .table-scroll { overflow-x:auto; }
 </style>
 </head>
