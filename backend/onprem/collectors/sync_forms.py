@@ -19,7 +19,9 @@
 
     CLOUD_API_URL      雲端站台網址
     CLOUD_SYNC_TOKEN   與站台 SITE_AGENT_TOKEN 相同的權杖
-    SYNC_INTERVAL      每輪間隔秒數，預設 300
+    SYNC_INTERVAL      每輪間隔秒數，預設 43200（12 小時）
+    SYNC_WORKLOG       true 時同一輪順便把出工資料庫（worklog_*）拉一份副本。
+                       只在中央主機開；工地檢視器不需要，也不該多打雲端。
 
 用法（在 backend/onprem 目錄下執行）：
 
@@ -32,6 +34,7 @@ from __future__ import annotations
 
 import json
 import sys
+import unicodedata
 import time
 from datetime import date, datetime
 from pathlib import Path
@@ -43,7 +46,8 @@ except ImportError:
     sys.exit("需要 requests 套件，請先執行：pip install requests")
 
 from app.db import (BASE_DIR, Coordination, Finding, Inspection, SessionLocal,
-                    Site, User, Vendor, init_db)
+                    Site, User, Vendor, WorklogReject, WorklogReport,
+                    WorklogTrade, WorklogTradeAlias, init_db)
 
 from .cloud_budget import spend
 from .config import env, load_env, log
@@ -91,12 +95,18 @@ def seconds_since_last_sync() -> Optional[float]:
         return None
 
 
+def _write_state(**changes) -> None:
+    # 合併寫入：表單與出工資料庫各有自己的游標，整檔覆蓋會把另一個洗掉，
+    # 下一輪就變成全量重抓。
+    d = _state()
+    d.update(changes)
+    STATE_FILE.write_text(json.dumps(d), encoding="utf-8")
+
+
 def write_state(since: Optional[str]) -> None:
     if since:
-        STATE_FILE.write_text(
-            json.dumps({"since": since,
-                        "last_sync_at": datetime.now().isoformat(timespec="seconds")}),
-            encoding="utf-8")
+        _write_state(since=since,
+                     last_sync_at=datetime.now().isoformat(timespec="seconds"))
 
 
 SYNC_USER = "cloud-sync"
@@ -150,7 +160,7 @@ def parse_date(v) -> Optional[date]:
     return dt.date() if dt else None
 
 
-def fetch(since: Optional[str]) -> dict:
+def fetch(since: Optional[str], path: str = "/api/v1/export") -> dict:
     base = env("CLOUD_API_URL").rstrip("/")
     token = env("CLOUD_SYNC_TOKEN")
     if not base or not token:
@@ -162,7 +172,7 @@ def fetch(since: Optional[str]) -> dict:
         raise RuntimeError("今日雲端呼叫已達上限，本輪不同步（保護機制）")
 
     r = requests.get(
-        f"{base}/api/v1/export",
+        f"{base}{path}",
         params={"since": since} if since else {},
         headers={"X-Agent-Token": token},
         timeout=TIMEOUT,
@@ -306,6 +316,132 @@ def sync_once(full: bool = False) -> tuple:
     return msg, more
 
 
+def worklog_enabled() -> bool:
+    return (env("SYNC_WORKLOG", "") or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _cut(v, n: int) -> Optional[str]:
+    return str(v)[:n] if v else None
+
+
+def _pk(name: str) -> str:
+    """SQL Server 預設定序不分大小寫與全半形（PC／pc／ＰＣ 視為相同），雲端
+    PostgreSQL 則分得開。直接寫入會撞主鍵、整批 rollback、之後每輪卡在同一批，
+    所以主鍵欄位先用這個鍵合併。"""
+    return unicodedata.normalize("NFKC", name).casefold()
+
+
+def sync_worklog_once(full: bool = False) -> tuple:
+    """出工資料庫同步一輪。回傳（訊息, 是否還有未取回的資料）。
+
+    正本在雲端（GitHub 每晚寫入），地端只是副本：以雲端 id（cloud_id）比對，
+    不在地端自行判斷「同一天同一廠商」。游標是雲端給的「更新時間|id」字串，
+    原樣存回、原樣送出，不在地端解析——兩邊時區不同，解析後再格式化容易
+    差幾個小時而漏資料。
+    """
+    since = None if full else _state().get("worklog_since")
+    data = fetch(since, "/api/v1/export/worklog")
+    reports = data.get("reports", [])
+
+    db = SessionLocal()
+    added = 0
+    try:
+        cloud_ids = [r["id"] for r in reports]
+        existing = {}
+        # SQL Server 單一查詢的參數上限約 2100，分批查
+        for i in range(0, len(cloud_ids), 500):
+            for obj in (db.query(WorklogReport)
+                        .filter(WorklogReport.cloud_id.in_(cloud_ids[i:i + 500]))):
+                existing[obj.cloud_id] = obj
+
+        for row in reports:
+            # 雲端同一則訊息改判到另一個（日期, 棟, 廠商）時，會刪掉舊列、
+            # 產生新 id。地端看不到刪除，只能用 message_id 對出舊列清掉，
+            # 否則副本會多一筆重複的人數。
+            mid = row.get("message_id")
+            if mid:
+                stale = (db.query(WorklogReport)
+                         .filter(WorklogReport.message_id == mid,
+                                 WorklogReport.cloud_id != row["id"]).all())
+                for old in stale:
+                    db.query(WorklogTrade).filter(
+                        WorklogTrade.report_id == old.id).delete(synchronize_session=False)
+                    existing.pop(old.cloud_id, None)
+                    db.delete(old)
+                if stale:
+                    db.flush()
+
+            obj = existing.get(row["id"])
+            if not obj:
+                obj = WorklogReport(cloud_id=row["id"])
+                db.add(obj)
+                added += 1
+            obj.report_date = parse_date(row.get("report_date"))
+            obj.building = (row.get("building") or "")[:32]
+            obj.vendor = (row.get("vendor") or "")[:64]
+            obj.headcount = row.get("headcount")
+            obj.trade_summary = _cut(row.get("trade_summary"), 128)
+            obj.supervisor = _cut(row.get("supervisor"), 64)
+            obj.tasks = row.get("tasks")
+            obj.reporter = _cut(row.get("reporter"), 64)
+            obj.reported_at = parse_dt(row.get("reported_at"))
+            obj.message_id = _cut(mid, 64)
+            obj.raw = row.get("raw")
+            obj.updated_at = parse_dt(row.get("updated_at"))
+            obj.synced_at = datetime.now()
+            db.flush()
+
+            # 工種明細整組替換：更正版可能少了某個工種，逐筆 upsert 會殘留舊的
+            db.query(WorklogTrade).filter(
+                WorklogTrade.report_id == obj.id).delete(synchronize_session=False)
+            merged = {}
+            for t in row.get("trades") or []:
+                name = str(t.get("trade") or "").strip()[:32]
+                if name and isinstance(t.get("headcount"), int):
+                    first, hc = merged.get(_pk(name), (name, 0))
+                    merged[_pk(name)] = (first, hc + t["headcount"])
+            for name, hc in merged.values():
+                db.add(WorklogTrade(report_id=obj.id, trade=name, headcount=hc))
+
+        # 歸類與解析失敗清單筆數少，雲端每次全量給，這裡整批覆蓋
+        if "aliases" in data:
+            db.query(WorklogTradeAlias).delete(synchronize_session=False)
+            seen = set()
+            for a in data["aliases"]:
+                if _pk(a["trade"][:32]) not in seen:
+                    seen.add(_pk(a["trade"][:32]))
+                    db.add(WorklogTradeAlias(trade=a["trade"][:32],
+                                             trade_group=a["trade_group"][:32]))
+        if "rejects" in data:
+            db.query(WorklogReject).delete(synchronize_session=False)
+            seen = set()
+            for x in data["rejects"]:
+                if _pk(x["message_id"][:64]) in seen:
+                    continue
+                seen.add(_pk(x["message_id"][:64]))
+                db.add(WorklogReject(message_id=x["message_id"][:64],
+                                     reported_at=parse_dt(x.get("reported_at")),
+                                     reporter=_cut(x.get("reporter"), 64),
+                                     raw=x.get("raw")))
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+    # 與表單同步相同：寫入成功才推進游標
+    nxt = data.get("next_since")
+    if nxt:
+        _write_state(worklog_since=nxt)
+
+    msg = f"出工資料庫：取得 {len(reports)} 筆異動，新增 {added}"
+    more = bool(data.get("truncated")) and nxt != since
+    if data.get("truncated"):
+        msg += "（達單次上限，尚有未同步的資料）"
+    return msg, more
+
+
 def main() -> None:
     load_env()
     init_db()
@@ -313,6 +449,7 @@ def main() -> None:
     loop = "--loop" in sys.argv
     full = "--full" in sys.argv
 
+    wl_full = full
     while True:
         try:
             more = True
@@ -322,6 +459,18 @@ def main() -> None:
                 log(msg)
         except Exception as e:                          # noqa: BLE001
             log(f"本輪失敗：{e}")
+        # 出工資料庫接在表單同步之後：雲端資料庫剛被上面那次查詢喚醒，
+        # 同一輪多查幾張表不會多一段醒著的時間。獨立 try——出工同步壞掉
+        # 不能拖累牆上的缺失資料。
+        if worklog_enabled():
+            try:
+                more = True
+                while more:
+                    msg, more = sync_worklog_once(full=wl_full)
+                    wl_full = False
+                    log(msg)
+            except Exception as e:                      # noqa: BLE001
+                log(f"出工資料庫同步失敗：{e}")
         if not loop:
             return
         time.sleep(interval)

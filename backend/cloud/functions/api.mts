@@ -763,6 +763,46 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
       });
     }
 
+    // 出工資料庫的增量匯出，供地端 SQL Server 保留一份副本（collectors/sync_forms.py
+    // 設 SYNC_WORKLOG=true 時，在表單同步的同一輪呼叫——資料庫本來就醒著）。
+    // 游標是「更新時間|id」：每晚寫入整批共用同一個 NOW()，只用時間當游標的話，
+    // 剛好切在分頁邊界的同時間資料會被跳過。
+    if (p === "/api/v1/export/worklog" && method === "GET") {
+      const expected = Netlify.env.get("SITE_AGENT_TOKEN") || "";
+      const token = req.headers.get("x-agent-token") || "";
+      if (!expected || token !== expected) return fail(401, "代理權杖驗證失敗");
+
+      const [tsRaw, idRaw] = (url.searchParams.get("since") || "").split("|");
+      const sinceTs = tsRaw && !isNaN(Date.parse(tsRaw)) ? tsRaw : "1970-01-01T00:00:00";
+      const sinceId = Number.parseInt(idRaw || "0", 10) || 0;
+      const LIMIT = 1000;
+
+      const reports = await db.sql`
+        SELECT r.id, r.report_date::text AS report_date, r.building, r.vendor, r.headcount,
+               r.trade_summary, r.supervisor, r.tasks, r.reporter,
+               to_char(r.reported_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS reported_at,
+               r.message_id, r.raw,
+               to_char(r.updated_at, 'YYYY-MM-DD"T"HH24:MI:SS.US') AS updated_at,
+               COALESCE((SELECT json_agg(json_build_object('trade', t.trade, 'headcount', t.headcount)
+                                         ORDER BY t.trade)
+                         FROM worklog_trades t WHERE t.report_id = r.id), '[]'::json) AS trades
+        FROM worklog_reports r
+        WHERE (r.updated_at, r.id) > (${sinceTs}::timestamp, ${sinceId})
+        ORDER BY r.updated_at, r.id
+        LIMIT ${LIMIT}`;
+      // 歸類與解析失敗清單筆數很少，每次全量給，地端整批覆蓋即可
+      const aliases = await db.sql`SELECT trade, trade_group FROM worklog_trade_aliases ORDER BY trade`;
+      const rejects = await db.sql`
+        SELECT message_id, to_char(reported_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS reported_at, reporter, raw
+        FROM worklog_rejects ORDER BY message_id`;
+      const last: any = reports.at(-1);
+      return json({
+        next_since: last ? `${last.updated_at}|${last.id}` : `${sinceTs}|${sinceId}`,
+        truncated: reports.length >= LIMIT,
+        reports, aliases, rejects,
+      });
+    }
+
     // ---- 檔案 ----
     if (p.startsWith(FILE_PREFIX)) {
       if (!me) return fail(401, "請先登入");

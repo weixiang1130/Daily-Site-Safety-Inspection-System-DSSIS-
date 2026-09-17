@@ -409,6 +409,60 @@ class WorkLog(Base):
     )
 
 
+# ---------------------------------------------------------------------------
+# 出工資料庫副本（雲端 worklog_* 表的鏡像，供公司內 SQL Server／Power BI 分析）
+#
+# 正本在雲端（GitHub 每晚寫入，見 docs/出工資料庫.md），這裡由
+# collectors/sync_forms.py 在 SYNC_WORKLOG=true 時增量同步下來。與上面看板用
+# 的 work_logs 是兩回事：work_logs 是本機收集程式直接寫的「今日工作表」，
+# 這四張只由同步寫入、以雲端為準。欄位與雲端同名，分析 SQL 兩邊通用。
+# ---------------------------------------------------------------------------
+class WorklogReport(Base):
+    __tablename__ = "worklog_reports"
+    id = Column(Integer, primary_key=True)
+    cloud_id = Column(Integer, nullable=False, unique=True)   # 雲端 worklog_reports.id
+    report_date = Column(Date, nullable=False)
+    building = Column(Unicode(32), nullable=False, default="")
+    vendor = Column(Unicode(64), nullable=False)
+    headcount = Column(Integer)              # 總人數
+    trade_summary = Column(Unicode(128))
+    supervisor = Column(Unicode(64))
+    tasks = Column(UnicodeText)
+    reporter = Column(Unicode(64))
+    reported_at = Column(DateTime)
+    message_id = Column(Unicode(64))
+    raw = Column(UnicodeText)
+    updated_at = Column(DateTime)            # 雲端最後更新（UTC）
+    synced_at = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        Index("ix_worklog_reports_date", "report_date"),
+        Index("ix_worklog_reports_message", "message_id"),
+    )
+
+
+class WorklogTrade(Base):
+    """工種明細。只有訊息逐項寫了人數的回報才有，加總不一定等於總人數。"""
+    __tablename__ = "worklog_trades"
+    report_id = Column(Integer, ForeignKey("worklog_reports.id"), primary_key=True)
+    trade = Column(Unicode(32), primary_key=True)     # 原寫法
+    headcount = Column(Integer, nullable=False)
+
+
+class WorklogTradeAlias(Base):
+    __tablename__ = "worklog_trade_aliases"
+    trade = Column(Unicode(32), primary_key=True)
+    trade_group = Column(Unicode(32), nullable=False)
+
+
+class WorklogReject(Base):
+    __tablename__ = "worklog_rejects"
+    message_id = Column(Unicode(64), primary_key=True)
+    reported_at = Column(DateTime)
+    reporter = Column(Unicode(64))
+    raw = Column(UnicodeText)
+
+
 class NewsItem(Base):
     """職安新知——看板「安全佈告／宣導」輪播的外部來源。
 
