@@ -64,6 +64,28 @@ def cloud_endpoint(name: str) -> str:
     return base.rsplit("/", 1)[0] + "/" + name if base else ""
 
 
+def is_transient(exc: BaseException) -> bool:
+    """連不上、逾時、對方 5xx／429——過一會兒通常自己好，不值得寄信。
+
+    權杖錯（401／403）、網址失效（404）、試算表進垃圾桶、解析錯、缺設定
+    都不算：那些不會自己好，要人處理，照樣讓工作流程轉紅寄信。
+    """
+    import requests
+    if isinstance(exc, (requests.ConnectionError, requests.Timeout)):
+        return True
+    if isinstance(exc, requests.HTTPError) and exc.response is not None:
+        code = exc.response.status_code
+        return code >= 500 or code == 429
+    return False
+
+
+def annotate(level: str, title: str, msg: str) -> None:
+    """GitHub Actions 註記：顯示在執行摘要頁與通知信，**不必登入就看得到**
+    （完整日誌要登入）。level 為 warning 或 error；內容一律先隱去網址。"""
+    clean = redact(msg).replace("%", "%25").replace("\r", "").replace("\n", " ")
+    print(f"::{level} title={title}::{clean}", flush=True)
+
+
 def remove_tmp_db() -> None:
     try:
         from app.db import engine

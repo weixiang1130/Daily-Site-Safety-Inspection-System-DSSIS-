@@ -39,9 +39,19 @@
 失敗處理
 --------
 任何一支收集程式失敗時，**不推那一塊**（雲端保留上一份好的資料與它的
-時間戳，看板會因該塊過期而亮警示），推完其餘區塊後以非 0 結束，讓
-GitHub Actions 顯示紅燈並寄通知。錯誤訊息一律隱去網址——公開 repo 的
-Actions 日誌任何人可讀，而出工試算表網址等同資料存取權。
+時間戳，看板會因該塊過期而亮警示），其餘區塊照推。
+
+失敗分兩種（_bootstrap.is_transient）：
+- **暫時性**（連不上、逾時、對方 5xx）：30 秒後重試一次；仍失敗只留黃色
+  註記、以 0 結束——不寄信。實測 2026-09-18 晚上連續 1.5 小時、9/20 凌晨
+  各有一段抓不到，都自己恢復；每次都寄「All jobs have failed」只是噪音。
+  持續抓不到時由看板的過期警示（75 分）反映。
+- **需要處理**（權杖錯、網址失效、試算表進垃圾桶、缺設定、程式錯）：紅色
+  註記、以非 0 結束，Actions 轉紅寄信。
+
+註記會寫出是哪一塊、什麼原因，執行摘要與通知信不必登入就看得到。錯誤訊息
+一律隱去網址——公開 repo 的 Actions 日誌任何人可讀，而出工試算表網址等同
+資料存取權。
 
 用法
 ----
@@ -55,6 +65,7 @@ import _bootstrap as bs  # noqa: I001 —— 必須最先：時區、暫存 SQLi
 import json
 import os
 import sys
+import time
 from datetime import date, datetime, timedelta
 
 try:
@@ -81,26 +92,40 @@ def _seed_primary_site(db) -> None:
     db.commit()
 
 
+LABELS = {"weather": "微型氣象站", "worklog": "出工回報", "news": "職安新知"}
+RETRY_WAIT_SEC = 30
+
+
+def _poll(fn) -> tuple:
+    """回傳 (是否成功, 訊息, 是否為暫時性失敗)。缺設定（sys.exit）也算失敗——
+    該塊資料就是拿不到，而且不會自己好。"""
+    try:
+        return True, bs.redact(fn()), False
+    except SystemExit as e:
+        return False, bs.redact(f"略過（{e}）"), False
+    except Exception as e:             # noqa: BLE001
+        return False, bs.redact(f"失敗（{type(e).__name__}: {e}）"), bs.is_transient(e)
+
+
 def _run_collectors() -> dict:
-    """依序 poll 三支收集程式。回傳 {名稱: (是否成功, 訊息)}。
-    缺設定（sys.exit）也算失敗——該塊資料就是拿不到。
+    """依序 poll 三支收集程式，暫時性失敗的等 30 秒重試一次。
+    回傳 {名稱: (是否成功, 訊息, 是否為暫時性失敗)}。
 
     收集程式內部 log() 印到 stdout，會污染要輸出的 JSON——收集期間把
     stdout 導到 stderr。"""
     import contextlib
 
     from collectors import osha_news, weather, worklog
-    result = {}
+    fns = {"weather": weather.poll_once, "worklog": worklog.poll_once,
+           "news": osha_news.poll_once}
     with contextlib.redirect_stdout(sys.stderr):
-        for name, fn in (("weather", weather.poll_once),
-                         ("worklog", worklog.poll_once),
-                         ("news", osha_news.poll_once)):
-            try:
-                result[name] = (True, bs.redact(fn()))
-            except SystemExit as e:
-                result[name] = (False, bs.redact(f"略過（{e}）"))
-            except Exception as e:         # noqa: BLE001
-                result[name] = (False, bs.redact(f"失敗（{type(e).__name__}: {e}）"))
+        result = {name: _poll(fn) for name, fn in fns.items()}
+        retry = [n for n, (good, _, transient) in result.items() if not good and transient]
+        if retry:
+            print(f"暫時連不上：{', '.join(retry)}，{RETRY_WAIT_SEC} 秒後重試", file=sys.stderr)
+            time.sleep(RETRY_WAIT_SEC)
+            for name in retry:
+                result[name] = _poll(fns[name])
     return result
 
 
@@ -141,16 +166,29 @@ def _read_external(db, ok: dict) -> dict:
     return out
 
 
-def _push(payload: dict) -> None:
+def _push(payload: dict) -> bool:
+    """推上雲端。成功回 True；雲端暫時連不上回 False（不寄信，下一輪再推）；
+    權杖錯等需要處理的失敗直接結束（非 0）。"""
     url = (os.environ.get("CLOUD_INGEST_URL") or "").strip()
     token = (os.environ.get("CLOUD_INGEST_TOKEN") or "").strip()
     if not url or not token:
-        sys.exit("要 --push 需設定 CLOUD_INGEST_URL 與 CLOUD_INGEST_TOKEN")
-    r = requests.post(url, json=payload,
-                      headers={"Authorization": f"Bearer {token}"}, timeout=TIMEOUT)
-    if not r.ok:
-        sys.exit(bs.redact(f"推送失敗（HTTP {r.status_code}）：{r.text[:200]}"))
+        bs.annotate("error", "工地看板：未設定推送目的地", "需設定 CLOUD_INGEST_URL 與 CLOUD_INGEST_TOKEN")
+        sys.exit(1)
+    try:
+        r = requests.post(url, json=payload,
+                          headers={"Authorization": f"Bearer {token}"}, timeout=TIMEOUT)
+        r.raise_for_status()
+    except Exception as e:                 # noqa: BLE001
+        msg = f"推送失敗（{type(e).__name__}: {e}）"
+        if isinstance(e, requests.HTTPError):
+            msg += f"：{e.response.text[:200]}"
+        if bs.is_transient(e):
+            bs.annotate("warning", "工地看板：雲端暫時連不上", msg + "（下一輪再推）")
+            return False
+        bs.annotate("error", "工地看板：推送被拒", msg)
+        sys.exit(1)
     print(f"已推送 external 快照（{len(json.dumps(payload))} bytes）")
+    return True
 
 
 def main() -> int:
@@ -163,18 +201,31 @@ def main() -> int:
         try:
             _seed_primary_site(db)
             results = _run_collectors()
-            for name, (good, msg) in results.items():
+            for name, (good, msg, _) in results.items():
                 print(f"[collector] {name}: {msg}", file=sys.stderr)
-            ok = {n: good for n, (good, _) in results.items()}
+            ok = {n: good for n, (good, _, _) in results.items()}
             payload = _read_external(db, ok)
         finally:
             db.close()
     finally:
         bs.remove_tmp_db()
 
+    # 失敗的區塊寫成註記（摘要頁與通知信看得到）。暫時性的只留黃色註記，
+    # 需要處理的轉紅寄信。
+    needs_fix = False
+    for name, (good, msg, transient) in results.items():
+        if good:
+            continue
+        if transient:
+            bs.annotate("warning", f"工地看板：{LABELS[name]}暫時連不上",
+                        f"{msg}（已重試一次；這塊沿用上一份資料，下一輪再抓）")
+        else:
+            needs_fix = True
+            bs.annotate("error", f"工地看板：{LABELS[name]}需要處理", msg)
+
     if not any(ok.values()):
         print("三支收集程式全部失敗，不推送（雲端保留上一份資料）", file=sys.stderr)
-        return 1
+        return 1 if needs_fix else 0
 
     if "--push" in sys.argv:
         _push(payload)
@@ -182,11 +233,9 @@ def main() -> int:
         print(json.dumps(payload, ensure_ascii=False, indent=1, default=str))
 
     if payload["failed"]:
-        # 已推的區塊照常更新；以非 0 結束讓 Actions 顯示紅燈、寄通知。
         print(f"部分收集失敗：{', '.join(payload['failed'])}（這些區塊沿用雲端"
               f"上一份資料，看板過期時會亮警示）", file=sys.stderr)
-        return 1
-    return 0
+    return 1 if needs_fix else 0
 
 
 if __name__ == "__main__":

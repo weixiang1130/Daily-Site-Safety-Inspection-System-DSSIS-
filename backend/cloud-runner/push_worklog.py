@@ -66,6 +66,16 @@ def _report(item: dict) -> dict:
     }
 
 
+def _fail(msg: str, transient: bool) -> int:
+    """暫時連不上：黃色註記、以 0 結束不寄信——每晚重送最近 14 天，隔晚自然補上。
+    其餘（權杖錯、試算表失效、手動回補時的任何失敗）：紅色註記、非 0 結束。"""
+    if transient:
+        bs.annotate("warning", "出工資料庫：暫時連不上", msg + "（明晚重送最近 14 天會補上）")
+        return 0
+    bs.annotate("error", "出工資料庫：需要處理", msg)
+    return 1
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="出工資料庫推送")
     ap.add_argument("--days", type=int, default=14, help="重送最近幾天（預設 14）")
@@ -81,8 +91,8 @@ def main() -> int:
         try:
             row_count, parsed, rejects = collect_reports()
         except Exception as e:                           # noqa: BLE001
-            print(bs.redact(f"讀取出工回報失敗（{type(e).__name__}: {e}）"), file=sys.stderr)
-            return 1
+            return _fail(f"讀取出工回報失敗（{type(e).__name__}: {e}）",
+                         bs.is_transient(e) and not args.all)
     finally:
         bs.remove_tmp_db()
 
@@ -120,12 +130,12 @@ def main() -> int:
                               headers={"Authorization": f"Bearer {token}",
                                        "Content-Type": "application/json"},
                               timeout=TIMEOUT)
+            r.raise_for_status()
         except requests.RequestException as e:
-            print(bs.redact(f"推送失敗（{type(e).__name__}: {e}）"), file=sys.stderr)
-            return 1
-        if not r.ok:
-            print(bs.redact(f"推送失敗（HTTP {r.status_code}）：{r.text[:200]}"), file=sys.stderr)
-            return 1
+            msg = f"推送失敗（{type(e).__name__}: {e}）"
+            if isinstance(e, requests.HTTPError):
+                msg += f"：{e.response.text[:200]}"
+            return _fail(msg, bs.is_transient(e) and not args.all)
         done += r.json().get("reports", 0)
     print(f"已寫入出工資料庫：回報 {done} 筆（{len(batches)} 批）")
     return 0
