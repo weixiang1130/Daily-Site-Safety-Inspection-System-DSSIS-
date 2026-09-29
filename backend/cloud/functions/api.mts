@@ -161,10 +161,11 @@ async function readFileBytes(pathOrKey: string | null): Promise<Uint8Array | nul
 // ---------------------------------------------------------------------------
 const EXTERNAL_KEY = "wallboard/external.json";
 const DBSECTIONS_KEY = "wallboard/dbsections.json";
-// 看板失更門檻（分鐘）：推送 30＋回應快取 5＋前端輪詢 5，正常最大資料年齡
-// 約 40 分，GitHub 排程在尖峰常晚 10~30 分——75 分才不會在正常運作下誤報，
-// 漏跑兩輪仍會在 90 分鐘內亮警示。由伺服器下發，前端不必各自寫死。
-const WALL_STALE_AFTER_MIN = 75;
+// 看板失更門檻（分鐘）：推送 120＋回應快取 5＋前端輪詢 15，正常最大資料年齡
+// 約 140 分，GitHub 排程在尖峰常晚 10~30 分——180 分才不會在正常運作下誤報。
+// 由伺服器下發，前端不必各自寫死。收集頻率改動時這個值要一起改：小於「推送
+// 間隔＋40 分」會在一切正常時亮警示，大到兩倍以上則漏跑整輪也看不出來。
+const WALL_STALE_AFTER_MIN = 180;
 const DAILY_TOTALS_KEEP_DAYS = 100;
 
 async function readJsonBlob(key: string): Promise<any> {

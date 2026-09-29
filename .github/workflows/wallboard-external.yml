@@ -35,7 +35,7 @@ on:
   # 排程 20 小時只跑 6 次、間隔 2~5 小時，不能當主力。這裡的 schedule 只是
   # Netlify 那邊失效（例如 token 到期）時的後備。
   schedule:
-    - cron: "22 * * * *"
+    - cron: "22 */2 * * *"
   workflow_dispatch:
     inputs:
       worklog_backfill:
@@ -111,7 +111,7 @@ jobs:
         run: |
           if [ "$BACKFILL" = "true" ]; then
             python backend/cloud-runner/push_worklog.py --all
-          elif [ "$(date +%H)" = "00" ] && [ "$(date +%-M)" -lt 20 ]; then
+          elif [ "$(date +%H)" = "00" ] && [ "$(date +%-M)" -lt 45 ]; then
             python backend/cloud-runner/push_worklog.py --days 14
           else
             echo "非凌晨那一輪，略過（出工資料庫每天寫一次）"

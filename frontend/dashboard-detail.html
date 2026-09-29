@@ -290,9 +290,12 @@ const KIOSK = !!WALL_KEY;
 // 由 /api/branding 的 wallboard 旗標決定，在初始化時設定。
 let WALL = false;
 
-// 資料超過幾分鐘沒更新就在版頭示警。地端每 5 分鐘推一次快照，
-// 15 分鐘容得下連續漏推兩次，又不會讓牆上長時間顯示舊資料而沒人察覺。
+// 資料超過幾分鐘沒更新就在版頭示警。地端直連是即時的（每分鐘），15 分鐘容得下
+// 連續漏兩次；雲端看板讀的是地端每 2 小時推一次的快照，門檻放到 180 分（＝推送
+// 間隔＋1 小時餘裕），否則一切正常也會一直亮「資料已停止更新」。
+// WALL 要到初始化（brand.wallboard）才知道，所以在比較時才取值，不能寫成常數。
 const STALE_AFTER_MIN = 15;
+const STALE_AFTER_MIN_WALL = 180;
 
 async function fetchWall() {
   const q = WALL_KEY ? '?k=' + encodeURIComponent(WALL_KEY) : '';
@@ -1027,7 +1030,7 @@ async function load(preloaded) {
   // 牆上只會顯示一個舊時間戳、樣式完全正常——長官照著三天前的在場人數
   // 做判斷，比畫面直接壞掉更危險。超過門檻就把時間戳標紅講明白。
   const ageMin = (Date.now() - genAt.getTime()) / 60000;
-  if (ageMin > STALE_AFTER_MIN) {
+  if (ageMin > (WALL ? STALE_AFTER_MIN_WALL : STALE_AFTER_MIN)) {
     stamp.classList.add('stale');
     stamp.textContent = `⚠ 資料已停止更新 ${Math.floor(ageMin)} 分鐘`
       + (WALL ? '（地端主機或推送排程可能已停止）' : '');
@@ -1142,10 +1145,10 @@ function startAutoRefresh() {
     el.textContent = '⚠ 更新失敗（' + (err && err.message || '連線問題')
       + '），顯示的是最後一次成功的畫面';
   });
-  // 看板讀的是地端推上來的快照，輪詢間隔與推送節奏（15 分）對齊：
-  // 讀得比資料更新還勤，只是對同一份內容重複付費。地端直連沒有這個
-  // 顧慮（不經雲端），維持每分鐘。
-  setInterval(tick, WALL ? 900000 : 60000);
+  // 看板讀的是地端推上來的快照（每 2 小時一份）：讀得比資料更新還勤，只是對
+  // 同一份內容重複付費，所以 30 分鐘輪一次就好。地端直連沒有這個顧慮
+  // （不經雲端），維持每分鐘。
+  setInterval(tick, WALL ? 1800000 : 60000);
 }
 </script>
 </body>

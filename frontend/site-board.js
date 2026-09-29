@@ -38,9 +38,9 @@ let WALL = false, WALL_KEY = '', POLL = POLL_MS;
   const brand = (await renderBrandLite()) || {};
   BUILDING_ORDER = buildingList(brand);
   WALL = !!brand.wallboard;
-  // 雲端 5 分鐘（board-data 不碰資料庫、回應快取 5 分；輪詢太疏會墊高資料
-  // 年齡而誤報失更）、地端 1 分鐘
-  POLL = WALL ? 300000 : POLL_MS;
+  // 雲端 15 分鐘（資料每 2 小時才更新一次，輪詢再勤也是對同一份快照付費；
+  // 失更門檻 180 分容得下這個輪詢間隔）、地端 1 分鐘
+  POLL = WALL ? 900000 : POLL_MS;
   document.getElementById('org').textContent =
     (brand.org_short ? brand.org_short + '　' : '') + (brand.war_room_name || '工地安全戰情室');
   // 雲端固定視圖：工地下拉不作用（快照只含主場站，工地名由快照帶出、

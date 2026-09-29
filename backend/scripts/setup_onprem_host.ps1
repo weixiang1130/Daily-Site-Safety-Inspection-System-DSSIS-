@@ -182,7 +182,8 @@ if ($CheckOnly) {
     # 雲端看板是備援（正規做法是工地檢視器直連資料庫），只在明確開啟時排程
     $envText2 = if (Test-Path $envFile) { Get-Content $envFile -Raw } else { '' }
     if ($envText2 -match '(?m)^\s*WALL_ENABLED\s*=\s*true') {
-        Register-SafetyOpsTask 'SafetyOps-Wallboard' 'run_push_wallboard.cmd' (& $every 5)
+        # 每 2 小時（2026-09-29 由 5 分鐘放寬：雲端看板是備援，實際使用率低）
+        Register-SafetyOpsTask 'SafetyOps-Wallboard' 'run_push_wallboard.cmd' (& $every 120)
     } else {
         Say-Warn ' WALL_ENABLED 未開啟，略過雲端看板排程（備援用，見 docs/工地檢視器.md）'
         # 之前開過又關掉的話，舊排程要清掉——留著每 5 分鐘空轉一次，

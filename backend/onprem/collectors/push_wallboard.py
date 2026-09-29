@@ -36,7 +36,7 @@
                       （與 sync_forms 共用同一組，不另外設）
     WALL_DAYS         快照涵蓋幾天的統計，預設 30
     WALL_SITE_ID      只看單一工地時填其 id；留空＝全部工地
-    WALL_INTERVAL     每輪間隔秒數，預設 900（15 分，與前端輪詢對齊）
+    WALL_INTERVAL     每輪間隔秒數，預設 7200（2 小時，與工作排程和前端輪詢對齊）
     WALL_HOURS        推送時段，預設 6-20；時段外不推（牆前沒有人）
     CLOUD_DAILY_BUDGET 每台機器每日雲端呼叫上限，預設 300（見 cloud_budget.py）
     ONPREM_API_URL    本機 API 位址，預設 http://127.0.0.1:8000
@@ -227,7 +227,7 @@ def push_once() -> str:
 
 def main() -> None:
     load_env()
-    interval = int(env("WALL_INTERVAL", "900") or 900)
+    interval = int(env("WALL_INTERVAL", "7200") or 7200)
     loop = "--loop" in sys.argv
     while True:
         try:
