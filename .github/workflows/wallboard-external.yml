@@ -59,6 +59,11 @@ jobs:
       # 全系統時間戳慣例是「台北時間、無時區註記」。runner 程式本身也會釘住，
       # 這裡再設一次讓 shell 步驟（例如下方判斷時段）一致。
       TZ: "Asia/Taipei"
+      # 2026-10-05：出工試算表被 Google 以「違反服務條款」封鎖（連擁有者的
+      # 公開連結也回 403），短期修不好。暫停出工這一塊：不抓、不寫資料庫、
+      # 不算失敗（否則每 2 小時寄一次信講同一件事）。氣象與職安新知照常。
+      # 換到新來源後把這裡改回 "false"（或整段刪掉）即可恢復。
+      WORKLOG_PAUSED: "true"
     steps:
       - name: 遮蔽機密的衍生值
         env:
@@ -109,7 +114,9 @@ jobs:
           BACKFILL: ${{ github.event.inputs.worklog_backfill }}
           PYTHONUTF8: "1"
         run: |
-          if [ "$BACKFILL" = "true" ]; then
+          if [ "${WORKLOG_PAUSED:-false}" = "true" ]; then
+            echo "出工資料庫已暫停（WORKLOG_PAUSED），本輪略過"
+          elif [ "$BACKFILL" = "true" ]; then
             python backend/cloud-runner/push_worklog.py --all
           elif [ "$(date +%H)" = "00" ] && [ "$(date +%-M)" -lt 45 ]; then
             python backend/cloud-runner/push_worklog.py --days 14

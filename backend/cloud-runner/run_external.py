@@ -95,6 +95,16 @@ def _seed_primary_site(db) -> None:
 LABELS = {"weather": "微型氣象站", "worklog": "出工回報", "news": "職安新知"}
 RETRY_WAIT_SEC = 30
 
+# 來源壞掉、短期修不好時的暫停開關（環境變數設 true）。暫停的那一塊不抓、
+# 不推，也不算失敗——否則每一輪都寄一次信，而信裡講的是同一件已知的事。
+# 看板上那一塊會沿用舊資料並照常亮過期警示，所以不會「安靜地假裝正常」。
+PAUSE_FLAGS = {"worklog": "WORKLOG_PAUSED"}
+
+
+def _paused(name: str) -> bool:
+    flag = PAUSE_FLAGS.get(name)
+    return bool(flag) and (os.environ.get(flag) or "").strip().lower() in ("1", "true", "yes", "on")
+
 
 def _poll(fn) -> tuple:
     """回傳 (是否成功, 訊息, 是否為暫時性失敗)。缺設定（sys.exit）也算失敗——
@@ -119,7 +129,9 @@ def _run_collectors() -> dict:
     fns = {"weather": weather.poll_once, "worklog": worklog.poll_once,
            "news": osha_news.poll_once}
     with contextlib.redirect_stdout(sys.stderr):
-        result = {name: _poll(fn) for name, fn in fns.items()}
+        # transient=None 代表「人為暫停」，與失敗分開處理
+        result = {name: (False, f"已暫停（{PAUSE_FLAGS[name]}）", None) if _paused(name)
+                  else _poll(fn) for name, fn in fns.items()}
         retry = [n for n, (good, _, transient) in result.items() if not good and transient]
         if retry:
             print(f"暫時連不上：{', '.join(retry)}，{RETRY_WAIT_SEC} 秒後重試", file=sys.stderr)
@@ -216,7 +228,10 @@ def main() -> int:
     for name, (good, msg, transient) in results.items():
         if good:
             continue
-        if transient:
+        if transient is None:
+            bs.annotate("warning", f"工地看板：{LABELS[name]}已暫停",
+                        f"{msg}；這塊沿用上一份資料，看板會照常亮過期警示")
+        elif transient:
             bs.annotate("warning", f"工地看板：{LABELS[name]}暫時連不上",
                         f"{msg}（已重試一次；這塊沿用上一份資料，下一輪再抓）")
         else:
