@@ -932,7 +932,7 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
                  to_char(r.reported_at, 'YYYY-MM-DD HH24:MI') AS at, r.message_id, r.raw
           FROM worklog_reports r LEFT JOIN sites s ON s.code = r.site_code
           WHERE r.report_date BETWEEN ${from}::date AND ${to}::date
-            AND (${site} = '' OR r.site_code = ${site})
+            AND (${site}::text = '' OR r.site_code = ${site}::text)
           ORDER BY r.site_code, r.report_date, r.building, r.vendor`;
         const header = ["工地代碼", "工地", "日期", "棟別", "廠商", "總人數", "工種摘要", "作業主管", "施作項目",
                         "回報人", "回報時間", "LINE訊息ID", ...(withRaw ? ["原文"] : [])];
@@ -950,7 +950,7 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
           LEFT JOIN sites s ON s.code = r.site_code
           LEFT JOIN worklog_trade_aliases a ON a.trade = t.trade
           WHERE r.report_date BETWEEN ${from}::date AND ${to}::date
-            AND (${site} = '' OR r.site_code = ${site})
+            AND (${site}::text = '' OR r.site_code = ${site}::text)
           ORDER BY r.site_code, r.report_date, r.building, r.vendor, t.trade`;
         return csvResponse(`工種明細_${tag}.csv`, `worklog_trades_${tag}.csv`,
           ["工地代碼", "工地", "日期", "棟別", "廠商", "工種（原寫法）", "工種歸類", "人數"],
@@ -961,7 +961,7 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
           SELECT x.site_code, COALESCE(s.name, x.site_code) AS site_name, x.message_id,
                  to_char(x.reported_at, 'YYYY-MM-DD HH24:MI') AS at, x.reporter, x.raw
           FROM worklog_rejects x LEFT JOIN sites s ON s.code = x.site_code
-          WHERE (${site} = '' OR x.site_code = ${site})
+          WHERE (${site}::text = '' OR x.site_code = ${site}::text)
           ORDER BY x.site_code, x.reported_at`;
         return csvResponse("出工回報_解析失敗.csv", "worklog_rejects.csv",
           ["工地代碼", "工地", "LINE訊息ID", "回報時間", "回報人", "原文"],
@@ -980,7 +980,7 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
         FROM worklog_trades t
         JOIN worklog_reports r ON r.id = t.report_id
         LEFT JOIN worklog_trade_aliases a ON a.trade = t.trade
-        WHERE (${site} = '' OR r.site_code = ${site})
+        WHERE (${site}::text = '' OR r.site_code = ${site}::text)
         GROUP BY t.trade, a.trade_group
         ORDER BY mandays DESC`, { headers: { "cache-control": "no-store" } });
     }
@@ -996,9 +996,9 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
                to_char((MAX(updated_at) AT TIME ZONE current_setting('TimeZone'))
                        AT TIME ZONE 'Asia/Taipei', 'YYYY-MM-DD HH24:MI') AS updated_at,
                (SELECT COUNT(*)::int FROM worklog_rejects x
-                WHERE ${site} = '' OR x.site_code = ${site}) AS rejects
+                WHERE ${site}::text = '' OR x.site_code = ${site}::text) AS rejects
         FROM worklog_reports
-        WHERE ${site} = '' OR site_code = ${site}`;
+        WHERE ${site}::text = '' OR site_code = ${site}::text`;
       // 各工地一列，供頁面的工地選單與概況表
       const sites = await db.sql`
         SELECT r.site_code AS code, COALESCE(s.name, r.site_code) AS name,

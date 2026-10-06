@@ -224,6 +224,8 @@ GROUP BY site_code, device_id, CAST(reading_at AS date)
     # 同一台測站的天氣）。以天氣的日期為底——沒有任何出工回報的日子（例如豪雨
     # 停工）也要留著，那正是分析要看的；只取該工地出工資料開始之後的日子。
     # 沒有氣象站的工地（WEATHER_SITE_MAP 沒列）不會出現在這張檢視表。
+    # 前提：一個工地一台測站。v_weather_daily 以 (site_code, device_id) 分組，同工地
+    # 若裝第二台，這裡那天的出工會在兩列各算一次——屆時要先選定以哪台為準。
     joined = """
 CREATE OR ALTER VIEW v_worklog_weather_daily AS
 WITH wl AS (
