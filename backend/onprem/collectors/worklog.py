@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import csv
 import io
+import os
 import re
 import sys
 import time
@@ -81,16 +82,48 @@ TASK_LINE = re.compile(r"^\d+[.、)]\s*(.+)$")
 VENDOR_COUNT = re.compile(r"^(.{2,20}?)[\s　]+(\d+)\s*人$")
 HAS_CJK = re.compile(r"[一-鿿]")
 
+# 「施工回報」：一天一則、逐行列出各廠商——另一種回報寫法（例如 BD10）。
+#   施工回報 115/10/03（六）
+#   1. 〇〇-9工-D區 #6〇〇〇
+#   2. 〇〇-0工-
+#   〇〇合計出工：88工
+# 每行「名稱-N工-施作內容」，名稱是廠商簡稱。0 工的行是當天沒出工，不計。
+DAILY_LINE = re.compile(r"^\s*\d+\s*[.、]\s*(.+?)\s*-\s*(\d+)\s*工\s*-?\s*(.*)$")
+
+
+def _csv_url(raw: str) -> str:
+    # 接受一般的 /edit 分享連結，自動轉成 CSV 匯出網址；其他網址（例如
+    # Apps Script 唯讀出口 /macros/s/…/exec?token=…）原樣使用
+    m = re.search(r"docs\.google\.com/spreadsheets/d/([A-Za-z0-9_-]+)", raw)
+    if m:
+        return f"https://docs.google.com/spreadsheets/d/{m.group(1)}/export?format=csv"
+    return raw
+
 
 def sheet_csv_url() -> str:
     raw = (env("WORKLOG_SHEET_URL") or "").strip()
     if not raw:
         raise RuntimeError("未設定 WORKLOG_SHEET_URL")
-    # 接受一般的 /edit 分享連結，自動轉成 CSV 匯出網址
-    m = re.search(r"docs\.google\.com/spreadsheets/d/([A-Za-z0-9_-]+)", raw)
-    if m:
-        return f"https://docs.google.com/spreadsheets/d/{m.group(1)}/export?format=csv"
-    return raw
+    return _csv_url(raw)
+
+
+def worklog_sources() -> dict:
+    """出工資料庫要收的來源：{工地代碼: 網址}。
+
+    主場站（PRIMARY_SITE_CODE）沿用 WORKLOG_SHEET_URL——看板、地端牆面與工地
+    檢視器都只讀這一個；其他工地各設一個 WORKLOG_URL_<工地代碼>（例如
+    WORKLOG_URL_BD10）。只有出工資料庫（cloud-runner/push_worklog.py）讀多來源。
+    """
+    out = {}
+    primary = (env("PRIMARY_SITE_CODE") or "").strip()
+    main_url = (env("WORKLOG_SHEET_URL") or "").strip()
+    if main_url:
+        out[primary] = main_url
+    for key in sorted(os.environ):
+        m = re.fullmatch(r"WORKLOG_URL_([A-Za-z0-9_-]{1,32})", key)
+        if m and m.group(1) != primary and os.environ[key].strip():
+            out[m.group(1)] = os.environ[key].strip()
+    return out
 
 
 def building_labels() -> list:
@@ -277,15 +310,46 @@ def parse_message(content: str, labels: list, fallback_date: Optional[date]) -> 
             "trades": [{"trade": k, "headcount": v} for k, v in trades.items()]}
 
 
-def fetch_rows() -> list:
-    r = requests.get(sheet_csv_url(), timeout=TIMEOUT)
+def parse_daily_list(content: str, fallback_date: Optional[date]) -> list:
+    """「施工回報」一則 → 每個有出工的廠商一筆。抓不到任何一行就回空清單。
+
+    棟別一律留空：同一行常同時寫 A棟、B棟（「A棟4F、B棟2F…」），硬挑一個會讓
+    同一家廠商在更正版裡換鍵、變成兩筆。棟別資訊保留在施作項目原文裡。
+    """
+    report_date = parse_report_date(content, fallback_date)
+    if not report_date:
+        return []
+    items = {}
+    for ln in content.splitlines():
+        m = DAILY_LINE.match(ln)
+        if not m:
+            continue
+        name = m.group(1).strip()[:64]
+        n = int(m.group(2))
+        if not name or not HAS_CJK.search(name) or n <= 0 or n > MAX_COUNT:
+            continue
+        task = m.group(3).strip(" -－") or None
+        old = items.get(name)
+        if old:                          # 同一則裡同名重複列：人數相加
+            old["headcount"] += n
+            old["tasks"] = "、".join(t for t in (old["tasks"], task) if t)[:400] or None
+            continue
+        items[name] = {"report_date": report_date, "building": None, "vendor": name,
+                       "trade": None, "headcount": n, "supervisor": None,
+                       "tasks": task[:400] if task else None, "trades": []}
+    return list(items.values())
+
+
+def fetch_rows(url: Optional[str] = None) -> list:
+    r = requests.get(_csv_url(url) if url else sheet_csv_url(), timeout=TIMEOUT)
     r.raise_for_status()
     r.encoding = "utf-8"
     return list(csv.DictReader(io.StringIO(r.text)))
 
 
-def collect_reports(rows: Optional[list] = None):
-    """解析整張試算表的出工回報。
+def collect_reports(rows: Optional[list] = None, site_code: Optional[str] = None):
+    """解析整張試算表的出工回報（兩種寫法：每家廠商一則的「出工回報」、
+    一天一則清單的「施工回報」）。每筆回報帶上 site_code（呼叫端指定）。
 
     回傳 (讀到的列數, {(日期, 棟別, 廠商): 回報}, 解析失敗的訊息清單)。
     同一天同一棟同一廠商以最新一則為準（廠商常重發更正版）；被蓋過的訊息
@@ -302,7 +366,12 @@ def collect_reports(rows: Optional[list] = None):
     rejects = []
     for row in rows:
         content = (row.get("訊息內容") or "").strip()
-        if "出工回報" not in content[:16]:
+        head = content[:16]
+        if "出工回報" in head:
+            kind = "per_vendor"
+        elif "施工回報" in head:
+            kind = "daily_list"
+        else:
             continue
         reported_at = None
         try:
@@ -312,26 +381,33 @@ def collect_reports(rows: Optional[list] = None):
             pass
         reporter = (row.get("使用者名稱") or "")[:64] or None
         message_id = (row.get("LINE訊息ID") or "")[:64] or None
-        item = parse_message(content, labels,
-                             reported_at.date() if reported_at else None)
-        if not item:
-            rejects.append({"message_id": message_id, "reported_at": reported_at,
-                            "reporter": reporter, "raw": content[:2000]})
-            continue
-        item["reporter"] = reporter
-        item["reported_at"] = reported_at
-        item["message_id"] = message_id
-        item["raw"] = content[:2000]
-        key = (item["report_date"], item["building"] or "", item["vendor"])
-        old = parsed.get(key)
-        if old is None:
-            item["superseded_ids"] = []
-            parsed[key] = item
-        elif (item["reported_at"] or datetime.min) >= (old["reported_at"] or datetime.min):
-            item["superseded_ids"] = old["superseded_ids"] + [old["message_id"]]
-            parsed[key] = item
+        fallback = reported_at.date() if reported_at else None
+        if kind == "per_vendor":
+            one = parse_message(content, labels, fallback)
+            items = [one] if one else []
         else:
-            old["superseded_ids"].append(message_id)
+            items = parse_daily_list(content, fallback)
+        if not items:
+            rejects.append({"message_id": message_id, "reported_at": reported_at,
+                            "reporter": reporter, "raw": content[:2000],
+                            "site_code": site_code})
+            continue
+        for item in items:
+            item["reporter"] = reporter
+            item["reported_at"] = reported_at
+            item["message_id"] = message_id
+            item["raw"] = content[:2000]
+            item["site_code"] = site_code
+            key = (item["report_date"], item["building"] or "", item["vendor"])
+            old = parsed.get(key)
+            if old is None:
+                item["superseded_ids"] = []
+                parsed[key] = item
+            elif (item["reported_at"] or datetime.min) >= (old["reported_at"] or datetime.min):
+                item["superseded_ids"] = old["superseded_ids"] + [old["message_id"]]
+                parsed[key] = item
+            else:
+                old["superseded_ids"].append(message_id)
     for item in parsed.values():
         item["superseded_ids"] = [m for m in dict.fromkeys(item["superseded_ids"])
                                   if m and m != item["message_id"]]

@@ -434,6 +434,7 @@ class WorklogReport(Base):
     __tablename__ = "worklog_reports"
     id = Column(Integer, primary_key=True)
     cloud_id = Column(Integer, nullable=False, unique=True)   # 雲端 worklog_reports.id
+    site_code = Column(Unicode(32))          # 工地代碼（多工地；舊資料同步後補上）
     report_date = Column(Date, nullable=False)
     building = Column(Unicode(32), nullable=False, default="")
     vendor = Column(Unicode(64), nullable=False)
@@ -448,6 +449,7 @@ class WorklogReport(Base):
 
     __table_args__ = (
         Index("ix_worklog_reports_date", "report_date"),
+        Index("ix_worklog_reports_site_date", "site_code", "report_date"),
         Index("ix_worklog_reports_message", "message_id"),
     )
 
@@ -469,6 +471,7 @@ class WorklogTradeAlias(Base):
 class WorklogReject(Base):
     __tablename__ = "worklog_rejects"
     message_id = Column(_exact_key(64), primary_key=True)
+    site_code = Column(Unicode(32))
     reported_at = Column(DateTime)
 
 

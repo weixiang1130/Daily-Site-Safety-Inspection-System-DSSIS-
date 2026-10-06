@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import json
 import random
-import re
 import time
 from datetime import date, datetime, timedelta
 from typing import Dict, List
@@ -185,11 +184,6 @@ def archive_station(base: str, uid: str, mac: str, site_code, first: date,
     return written
 
 
-def _safe_code(v: str) -> str:
-    # 檢視表定義裡直接嵌入工地代碼，只允許代碼字元，避免設定檔內容變成 SQL
-    return v if re.fullmatch(r"[A-Za-z0-9_-]{1,32}", v or "") else ""
-
-
 def ensure_views() -> None:
     """建立（或更新）分析用檢視表。只支援 SQL Server；SQLite 的工地檢視器不歸檔。
 
@@ -204,7 +198,6 @@ def ensure_views() -> None:
         return
     breaks = THRESHOLDS["heat_index"].breaks
     lv2, lv3 = float(breaks[1]), float(breaks[2])
-    primary = _safe_code(env("PRIMARY_SITE_CODE"))
     daily = f"""
 CREATE OR ALTER VIEW v_weather_daily AS
 SELECT site_code, device_id,
@@ -226,16 +219,20 @@ SELECT site_code, device_id,
 FROM weather_readings
 GROUP BY site_code, device_id, CAST(reading_at AS date)
 """
-    # 出工對照：以主場站（PRIMARY_SITE_CODE）的天氣為準，每天一列。
-    # 以天氣的日期為底——沒有任何出工回報的日子（例如豪雨停工）也要留著，
-    # 那正是分析要看的；只取出工資料開始之後的日子。
-    joined = f"""
+    # 出工對照：每個「有氣象站、也有出工資料」的工地，每天一列，天氣與出工
+    # 以工地代碼對應（不能只看日期：多工地之後會把三個工地的人數加總、全配到
+    # 同一台測站的天氣）。以天氣的日期為底——沒有任何出工回報的日子（例如豪雨
+    # 停工）也要留著，那正是分析要看的；只取該工地出工資料開始之後的日子。
+    # 沒有氣象站的工地（WEATHER_SITE_MAP 沒列）不會出現在這張檢視表。
+    joined = """
 CREATE OR ALTER VIEW v_worklog_weather_daily AS
 WITH wl AS (
-    SELECT report_date, COUNT(*) AS reports, SUM(headcount) AS headcount
-    FROM worklog_reports GROUP BY report_date
+    SELECT site_code, report_date, COUNT(*) AS reports, SUM(headcount) AS headcount
+    FROM worklog_reports GROUP BY site_code, report_date
+), first_day AS (
+    SELECT site_code, MIN(report_date) AS d FROM worklog_reports GROUP BY site_code
 )
-SELECT wd.obs_date AS report_date,
+SELECT wd.site_code, wd.obs_date AS report_date,
        -- 1=週一 … 7=週日。不用 DATEPART(weekday)：它隨 SET DATEFIRST／語系改變
        DATEDIFF(day, '19000101', wd.obs_date) % 7 + 1 AS weekday_mon1,
        COALESCE(wl.reports, 0) AS reports,
@@ -244,14 +241,12 @@ SELECT wd.obs_date AS report_date,
        wd.heat_index_max_work, wd.hours_hi_lv2_work, wd.hours_hi_lv3_work,
        wd.pm25_avg, wd.pm10_avg, wd.noise_leq_work, wd.hazard_level_max
 FROM v_weather_daily wd
-LEFT JOIN wl ON wl.report_date = wd.obs_date
-WHERE wd.site_code = '{primary}'
-  AND wd.obs_date >= (SELECT MIN(report_date) FROM worklog_reports)
+JOIN first_day f ON f.site_code = wd.site_code AND wd.obs_date >= f.d
+LEFT JOIN wl ON wl.site_code = wd.site_code AND wl.report_date = wd.obs_date
 """
     with engine.begin() as conn:
         conn.execute(text(daily))
-        if primary:
-            conn.execute(text(joined))
+        conn.execute(text(joined))
 
 
 def run_once() -> str:

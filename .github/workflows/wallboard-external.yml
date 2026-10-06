@@ -67,18 +67,22 @@ jobs:
       - name: 遮蔽機密的衍生值
         env:
           WORKLOG_SHEET_URL: ${{ secrets.WORKLOG_SHEET_URL }}
+          WORKLOG_URL_BD08: ${{ secrets.WORKLOG_URL_BD08 }}
+          WORKLOG_URL_BD10: ${{ secrets.WORKLOG_URL_BD10 }}
         run: |
-          # GitHub 只遮蔽與 Secret 完全相同的字串，而程式實際請求的是轉換過的
-          # /export?format=csv 網址。把試算表 ID 本身登記為遮蔽字串，任何形式
-          # 的網址出現在日誌裡都會被遮掉（公開 repo 的日誌任何人可讀）。
-          id=$(printf '%s' "$WORKLOG_SHEET_URL" | grep -oE '/d/[A-Za-z0-9_-]{10,}' | cut -c4- | head -n1)
-          if [ -n "$id" ]; then echo "::add-mask::$id"; fi
-          # 2026-10-06 起來源改為 Apps Script 出口（/macros/s/<部署ID>/exec?token=…）：
-          # 部署 ID 與通行碼各自遮蔽——任一個單獨出現在日誌裡都足以拿到資料
-          dep=$(printf '%s' "$WORKLOG_SHEET_URL" | grep -oE '/s/[A-Za-z0-9_-]{20,}' | cut -c4- | head -n1)
-          if [ -n "$dep" ]; then echo "::add-mask::$dep"; fi
-          tok=$(printf '%s' "$WORKLOG_SHEET_URL" | grep -oE '[?&]token=[^&]+' | cut -d= -f2- | head -n1)
-          if [ -n "$tok" ]; then echo "::add-mask::$tok"; fi
+          # GitHub 只遮蔽與 Secret 完全相同的字串，而程式實際請求的常是轉換過的網址、
+          # 錯誤訊息也可能只印出其中一段。把每個來源的試算表 ID（/d/…）、Apps Script
+          # 部署 ID（/s/…）與通行碼（token=…）各自登記為遮蔽字串——任一段單獨出現
+          # 在日誌裡都足以拿到資料（公開 repo 的日誌任何人可讀）。每個來源都要遮，
+          # 不能只遮第一個。
+          for u in "$WORKLOG_SHEET_URL" "$WORKLOG_URL_BD08" "$WORKLOG_URL_BD10"; do
+            [ -n "$u" ] || continue
+            ids=$(printf '%s' "$u" | grep -oE '/d/[A-Za-z0-9_-]{10,}|/s/[A-Za-z0-9_-]{20,}' | cut -c4-)
+            toks=$(printf '%s' "$u" | grep -oE '[?&]token=[^&]+' | cut -d= -f2-)
+            for v in $ids $toks; do
+              echo "::add-mask::$v"
+            done
+          done
 
       - uses: actions/checkout@v4
 
@@ -112,7 +116,13 @@ jobs:
         # 某晚沒跑到由隔晚補上。00:22 的後備排程不寫，免得多喚醒一次。
         if: always()
         env:
+          # 主場站（PRIMARY_SITE_CODE）的來源是 WORKLOG_SHEET_URL；其他工地各一個
+          # WORKLOG_URL_<工地代碼>。新增工地時：加一個 secret，並在這裡與上面的
+          # 遮蔽步驟各加一行。
           WORKLOG_SHEET_URL: ${{ secrets.WORKLOG_SHEET_URL }}
+          WORKLOG_URL_BD08: ${{ secrets.WORKLOG_URL_BD08 }}
+          WORKLOG_URL_BD10: ${{ secrets.WORKLOG_URL_BD10 }}
+          PRIMARY_SITE_CODE: ${{ vars.PRIMARY_SITE_CODE }}
           BUILDING_LABELS: ${{ vars.BUILDING_LABELS }}
           CLOUD_INGEST_URL: ${{ vars.CLOUD_INGEST_URL }}
           CLOUD_INGEST_TOKEN: ${{ secrets.CLOUD_INGEST_TOKEN }}

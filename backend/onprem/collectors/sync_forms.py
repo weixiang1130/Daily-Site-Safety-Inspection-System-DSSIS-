@@ -356,6 +356,7 @@ def sync_worklog_once(full: bool = False) -> tuple:
                 obj = WorklogReport(cloud_id=row["id"])
                 db.add(obj)
                 added += 1
+            obj.site_code = _cut(row.get("site_code"), 32)
             obj.report_date = parse_date(row.get("report_date"))
             obj.building = (row.get("building") or "")[:32]
             obj.vendor = (row.get("vendor") or "")[:64]
@@ -408,9 +409,10 @@ def sync_worklog_once(full: bool = False) -> tuple:
                 db.add(WorklogTradeAlias(trade=trade, trade_group=group))
         if "rejects" in data:
             db.query(WorklogReject).delete(synchronize_session=False)
-            rejects = {x["message_id"][:64]: x.get("reported_at") for x in data["rejects"]}
-            for mid, at in rejects.items():
-                db.add(WorklogReject(message_id=mid, reported_at=parse_dt(at)))
+            rejects = {x["message_id"][:64]: x for x in data["rejects"]}
+            for mid, x in rejects.items():
+                db.add(WorklogReject(message_id=mid, site_code=_cut(x.get("site_code"), 32),
+                                     reported_at=parse_dt(x.get("reported_at"))))
         db.commit()
     except Exception:
         db.rollback()

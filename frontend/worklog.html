@@ -19,6 +19,9 @@
   /* 不可用底色：全站表格的滑鼠移入也是 --bg-sunken，會分不出哪列改過 */
   .alias-table tr.changed td:first-child { box-shadow:inset 3px 0 0 var(--accent); font-weight:600; }
   .table-scroll { overflow-x:auto; }
+  .site-table { width:100%; border-collapse:collapse; margin-top:var(--sp-3); }
+  .site-table th, .site-table td { text-align:left; padding:.4rem .5rem; border-bottom:1px solid var(--border); font-size:var(--fs-sm); }
+  .site-table td.num { text-align:right; font-variant-numeric:tabular-nums; }
 </style>
 </head>
 <body>
@@ -32,13 +35,16 @@
   <div class="page-head">
     <div class="eyebrow">Workforce Records</div>
     <h1>出工資料庫</h1>
-    <p class="lede">工務所 LINE 群組出工回報的歷史明細，每天凌晨自動更新（重算最近 14 天）。
+    <p class="lede">各工地 LINE 群組出工回報的歷史明細，每天凌晨自動更新（重算最近 14 天）。
       下載 CSV 可用 Excel、Power BI 分析。資料含廠商與人員姓名，請勿外流。</p>
   </div>
 
   <div class="card">
     <h2>資料概況</h2>
     <div class="stats" id="stats"><p class="muted">載入中…</p></div>
+    <div class="table-scroll"><table class="site-table" id="siteTable" hidden>
+      <thead><tr><th>工地</th><th>回報筆數</th><th>累計人日</th><th>資料期間</th></tr></thead>
+      <tbody></tbody></table></div>
     <p class="muted" id="statsNote" style="margin-top:var(--sp-3)"></p>
   </div>
 
@@ -47,6 +53,7 @@
     <p class="muted">「總人數」看出工回報；工種結構看工種明細——只有逐項寫人數的回報才有工種明細，
       且工種加總不一定等於總人數（總人數常含工程師，或只列部分工種）。</p>
     <div class="row">
+      <div><label>工地</label><select id="site"><option value="">全部工地</option></select></div>
       <div><label>起日（留空＝全部）</label><input type="date" id="from"></div>
       <div><label>迄日（留空＝至今）</label><input type="date" id="to"></div>
     </div>
@@ -111,6 +118,16 @@ async function loadStats() {
       ['解析失敗', s.rejects + ' 則'],
     ].map(([k, v]) => `<div><b>${v}</b><span>${k}</span></div>`).join('');
     document.getElementById('statsNote').textContent = `最後更新 ${s.updated_at}`;
+    const sites = s.sites || [];
+    if (sites.length) {
+      const t = document.getElementById('siteTable');
+      t.tBodies[0].innerHTML = sites.map(x => `<tr><td>${esc(x.name)}（${esc(x.code)}）</td>
+        <td class="num">${x.reports.toLocaleString()}</td><td class="num">${x.mandays.toLocaleString()}</td>
+        <td>${esc(x.first_date)} ～ ${esc(x.last_date)}</td></tr>`).join('');
+      t.hidden = sites.length < 2;           // 只有一個工地時與上方總計重複，不顯示
+      document.getElementById('site').insertAdjacentHTML('beforeend',
+        sites.map(x => `<option value="${esc(x.code)}">${esc(x.name)}</option>`).join(''));
+    }
   } catch (e) {
     document.getElementById('stats').innerHTML = `<p class="muted">讀取失敗：${esc(e.message)}</p>`;
   }
@@ -119,6 +136,8 @@ async function loadStats() {
 function download(kind) {
   const q = new URLSearchParams({ kind });
   const from = document.getElementById('from').value, to = document.getElementById('to').value;
+  const site = document.getElementById('site').value;
+  if (site) q.set('site', site);
   if (from) q.set('from', from);
   if (to) q.set('to', to);
   if (kind === 'reports' && document.getElementById('withRaw').checked) q.set('raw', '1');

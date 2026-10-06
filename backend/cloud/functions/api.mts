@@ -318,6 +318,8 @@ async function buildBoardData() {
 // 出工資料庫（worklog_*）：寫入由 GitHub 每晚推送，匯出供分析
 // ---------------------------------------------------------------------------
 const WORKLOG_MAX_REPORTS = 1000;   // 單次推送上限；runner 會分批
+const WORKLOG_MAX_OWNED = 50000;    // 「訊息→鍵」對照的上限（全部歷史回補時一次送完）
+const SITE_CODE_RE = /^[A-Za-z0-9_-]{1,32}$/;
 // 單一廠商一天的人數上限。解析器會把「聯絡電話：0912345678」這類行當成人數，
 // 超過 int 範圍時整批寫入失敗、之後每晚卡在同一批——寧可把離譜值存成 NULL。
 const WORKLOG_MAX_HEADCOUNT = 2000;
@@ -524,7 +526,8 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
     }
 
     // 出工資料庫：GitHub 每晚 00:07 推送最近 14 天解析結果（首次為全部歷史）。
-    // 以 (日期, 棟別, 廠商) upsert；來源消失的列不刪（來源被截斷不能丟歷史）。
+    // 以 (工地, 日期, 棟別, 廠商) upsert；來源消失的列不刪（來源被截斷不能丟歷史）。
+    // 每個工地一個來源，runner 逐工地推；site_code 未給時視為主場站（舊版 runner）。
     // 訊息因解析規則改進而改判到不同鍵時，刪掉舊鍵那筆——包括被同鍵較新訊息
     // 蓋過、沒有被送出的舊訊息（superseded_message_ids），否則舊鍵那筆會留著
     // 讓人數重複。每步都是冪等的：中途失敗時 runner 以非 0 結束，隔晚重送即可補齊。
@@ -533,12 +536,23 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
       const token = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
       if (!expected || token !== expected) return fail(401, "出工資料推送權杖驗證失敗");
 
-      let reports: any[], rejects: any[];
+      let reports: any[], rejects: any[], ownedIn: any;
+      const primarySite = BRANDING.primary_site_code;
+      const siteOf = (x: any) => (x?.site_code ? String(x.site_code) : primarySite);
       try {
         const b = JSON.parse(await req.text());
         reports = Array.isArray(b?.reports) ? b.reports : [];
         rejects = Array.isArray(b?.rejects) ? b.rejects : [];
+        ownedIn = b?.owned;
         if (reports.length > WORKLOG_MAX_REPORTS) throw Error(`單次最多 ${WORKLOG_MAX_REPORTS} 筆`);
+        if (ownedIn !== undefined && (!Array.isArray(ownedIn) || ownedIn.length > WORKLOG_MAX_OWNED)) {
+          throw Error("owned 格式錯誤");
+        }
+        for (const x of [...reports, ...rejects, ...(ownedIn || [])]) {
+          if (x?.site_code !== undefined && x.site_code !== null && !SITE_CODE_RE.test(String(x.site_code))) {
+            throw Error("工地代碼格式錯誤");
+          }
+        }
         for (const r of reports) {
           if (!isIsoDate(r?.report_date) || !String(r?.vendor || "").trim()) {
             throw Error("回報缺日期或廠商");
@@ -555,14 +569,15 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
       const seen = new Set<string>();
       const rows: any[] = [];
       for (const r of reports) {
+        const site_code = siteOf(r);
         const building = String(r.building || "").slice(0, 32);
         const vendor = String(r.vendor).trim().slice(0, 64);
         // 鍵用截斷後的值：兩筆只在第 64 字後不同時，同一個 INSERT 內會撞同一列
-        const key = `${r.report_date}|${building}|${vendor}`;
+        const key = `${site_code}|${r.report_date}|${building}|${vendor}`;
         if (seen.has(key)) continue;                  // 同鍵只取第一筆（runner 已去重）
         seen.add(key);
         rows.push({
-          report_date: r.report_date, building, vendor,
+          site_code, report_date: r.report_date, building, vendor,
           headcount: headcountOf(r.headcount),
           trade_summary: r.trade_summary ?? null, supervisor: r.supervisor ?? null,
           tasks: r.tasks ?? null, reporter: r.reporter ?? null,
@@ -574,42 +589,61 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
         });
       }
 
+      // 「訊息 → 它擁有的鍵」對照：每個回報鍵連同它蓋過的舊訊息。資料庫裡某則訊息
+      // 留在對照以外的鍵上，就是改判前的舊列（解析規則一改，同一批人會在兩個鍵各算
+      // 一次），要刪。一則「施工回報」會擁有十幾個鍵——所以要拿整組對照比，不能只看
+      // 單一列（只看單列的話，同一則訊息的其他列全會被當成舊列刪掉）。
+      //
+      // 分批推送時，同一則訊息的鍵可能分在不同批；只拿本批比就會誤刪別批的列。所以
+      // runner 在最後一批附上整個來源的完整對照（owned），前面幾批送空陣列＝不刪。
+      // 沒有 owned 欄位（舊版 runner）時退回用本批推出來的對照。
+      const owned: any[] = ownedIn !== undefined
+        ? ownedIn.filter((o: any) => o?.message_id && isIsoDate(o?.report_date)).map((o: any) => ({
+            site_code: siteOf(o), report_date: o.report_date,
+            building: String(o.building || "").slice(0, 32),
+            vendor: String(o.vendor || "").trim().slice(0, 64), message_id: String(o.message_id) }))
+        : rows.flatMap((r) => [r.message_id, ...r.superseded].filter(Boolean)
+            .map((m: string) => ({ site_code: r.site_code, report_date: r.report_date,
+                                   building: r.building, vendor: r.vendor, message_id: m })));
+
       let upserted: any[] = [];
+      if (owned.length) {
+        await db.sql`
+          WITH owned AS (
+            SELECT * FROM json_to_recordset(${JSON.stringify(owned)}::json)
+              AS x(site_code text, report_date date, building text, vendor text, message_id text)
+          )
+          DELETE FROM worklog_reports r
+          WHERE r.message_id IN (SELECT message_id FROM owned)
+            AND NOT EXISTS (SELECT 1 FROM owned o
+                            WHERE o.message_id = r.message_id AND o.site_code = r.site_code
+                              AND o.report_date = r.report_date AND o.building = r.building
+                              AND o.vendor = r.vendor)`;
+      }
       if (rows.length) {
         const rj = JSON.stringify(rows);
-        // 每個回報鍵連同它蓋過的舊訊息：那些訊息若還留在別的鍵，就是改判前的舊列
-        const owned = rows.flatMap((r) => [r.message_id, ...r.superseded].filter(Boolean)
-          .map((m: string) => ({ report_date: r.report_date, building: r.building,
-                                 vendor: r.vendor, message_id: m })));
-        const oj = JSON.stringify(owned);
-        await db.sql`
-          DELETE FROM worklog_reports r
-          USING json_to_recordset(${oj}::json)
-            AS x(report_date date, building text, vendor text, message_id text)
-          WHERE r.message_id = x.message_id
-            AND (r.report_date, r.building, r.vendor) IS DISTINCT FROM
-                (x.report_date, x.building, x.vendor)`;
         upserted = await db.sql`
           INSERT INTO worklog_reports
-            (report_date, building, vendor, headcount, trade_summary, supervisor,
+            (site_code, report_date, building, vendor, headcount, trade_summary, supervisor,
              tasks, reporter, reported_at, message_id, raw)
-          SELECT report_date, building, vendor, headcount, trade_summary, supervisor,
+          SELECT site_code, report_date, building, vendor, headcount, trade_summary, supervisor,
                  tasks, reporter, reported_at, message_id, raw
           FROM json_to_recordset(${rj}::json) AS x(
-            report_date date, building text, vendor text, headcount int,
+            site_code text, report_date date, building text, vendor text, headcount int,
             trade_summary text, supervisor text, tasks text, reporter text,
             reported_at timestamp, message_id text, raw text)
-          ON CONFLICT (report_date, building, vendor) DO UPDATE SET
+          ON CONFLICT (site_code, report_date, building, vendor) DO UPDATE SET
             headcount = EXCLUDED.headcount, trade_summary = EXCLUDED.trade_summary,
             supervisor = EXCLUDED.supervisor, tasks = EXCLUDED.tasks,
             reporter = EXCLUDED.reporter, reported_at = EXCLUDED.reported_at,
             message_id = EXCLUDED.message_id, raw = EXCLUDED.raw, updated_at = NOW()
-          RETURNING id, report_date::text AS report_date, building, vendor`;
+          RETURNING id, site_code, report_date::text AS report_date, building, vendor`;
 
-        const idOf = new Map(upserted.map((u: any) => [`${u.report_date}|${u.building}|${u.vendor}`, u.id]));
+        const idOf = new Map(upserted.map((u: any) =>
+          [`${u.site_code}|${u.report_date}|${u.building}|${u.vendor}`, u.id]));
         const trades: any[] = [];
         for (const r of rows) {
-          const id = idOf.get(`${r.report_date}|${r.building}|${r.vendor}`);
+          const id = idOf.get(`${r.site_code}|${r.report_date}|${r.building}|${r.vendor}`);
           if (id) for (const t of r.trades) trades.push({ report_id: id, trade: String(t.trade).trim().slice(0, 32), headcount: t.headcount });
         }
         const ids = JSON.stringify(upserted.map((u: any) => u.id));
@@ -632,6 +666,8 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
           INSERT INTO worklog_trades (report_id, trade, headcount)
           SELECT report_id, trade, headcount FROM fresh
           ON CONFLICT (report_id, trade) DO UPDATE SET headcount = EXCLUDED.headcount`;
+      }
+      if (owned.length) {
         // 這次解析成功的訊息（含被蓋過的舊訊息），從解析失敗清單移除
         const okIds = JSON.stringify(owned.map((o) => o.message_id));
         await db.sql`
@@ -642,15 +678,16 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
       const rejectRows = [...new Map(rejects
         .filter((x: any) => x?.message_id)
         .map((x: any) => [String(x.message_id), {
-          message_id: String(x.message_id), reported_at: x.reported_at ?? null,
+          message_id: String(x.message_id), site_code: siteOf(x), reported_at: x.reported_at ?? null,
           reporter: x.reporter ?? null, raw: x.raw ?? null }])).values()];
       if (rejectRows.length) {
         await db.sql`
-          INSERT INTO worklog_rejects (message_id, reported_at, reporter, raw)
-          SELECT message_id, reported_at, reporter, raw
+          INSERT INTO worklog_rejects (message_id, site_code, reported_at, reporter, raw)
+          SELECT message_id, site_code, reported_at, reporter, raw
           FROM json_to_recordset(${JSON.stringify(rejectRows)}::json)
-            AS x(message_id text, reported_at timestamp, reporter text, raw text)
-          ON CONFLICT (message_id) DO UPDATE SET reported_at = EXCLUDED.reported_at,
+            AS x(message_id text, site_code text, reported_at timestamp, reporter text, raw text)
+          ON CONFLICT (message_id) DO UPDATE SET site_code = EXCLUDED.site_code,
+            reported_at = EXCLUDED.reported_at,
             reporter = EXCLUDED.reporter, raw = EXCLUDED.raw, updated_at = NOW()`;
       }
       return json({ ok: true, reports: upserted.length, rejects: rejectRows.length });
@@ -825,7 +862,7 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
       const LIMIT = 1000;
 
       const reports = await db.sql`
-        SELECT r.id, r.report_date::text AS report_date, r.building, r.vendor, r.headcount,
+        SELECT r.id, r.site_code, r.report_date::text AS report_date, r.building, r.vendor, r.headcount,
                r.trade_summary, r.supervisor, r.tasks,
                to_char(r.reported_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS reported_at,
                r.message_id,
@@ -840,7 +877,7 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
       // 歸類與解析失敗清單筆數很少，每次全量給，地端整批覆蓋即可
       const aliases = await db.sql`SELECT trade, trade_group FROM worklog_trade_aliases ORDER BY trade`;
       const rejects = await db.sql`
-        SELECT message_id, to_char(reported_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS reported_at
+        SELECT message_id, site_code, to_char(reported_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS reported_at
         FROM worklog_rejects ORDER BY message_id`;
       const truncated = reports.length >= LIMIT;
       const liveIds = truncated ? undefined
@@ -882,69 +919,94 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
       const from = url.searchParams.get("from") || "2000-01-01";
       const to = url.searchParams.get("to") || "2999-12-31";
       if (!isIsoDate(from) || !isIsoDate(to)) return fail(400, "日期格式應為 YYYY-MM-DD");
-      const tag = `${from === "2000-01-01" ? "all" : from}_${to === "2999-12-31" ? "now" : to}`;
+      const site = url.searchParams.get("site") || "";    // 空白＝全部工地
+      if (site && !SITE_CODE_RE.test(site)) return fail(400, "工地代碼格式錯誤");
+      const tag = `${site ? site + "_" : ""}${from === "2000-01-01" ? "all" : from}_${to === "2999-12-31" ? "now" : to}`;
 
       if (kind === "reports") {
         const withRaw = url.searchParams.get("raw") === "1";
         const rows = await db.sql`
-          SELECT report_date::text AS d, building, vendor, headcount, trade_summary,
-                 supervisor, tasks, reporter,
-                 to_char(reported_at, 'YYYY-MM-DD HH24:MI') AS at, message_id, raw
-          FROM worklog_reports
-          WHERE report_date BETWEEN ${from}::date AND ${to}::date
-          ORDER BY report_date, building, vendor`;
-        const header = ["日期", "棟別", "廠商", "總人數", "工種摘要", "作業主管", "施作項目",
+          SELECT r.site_code, COALESCE(s.name, r.site_code) AS site_name,
+                 r.report_date::text AS d, r.building, r.vendor, r.headcount, r.trade_summary,
+                 r.supervisor, r.tasks, r.reporter,
+                 to_char(r.reported_at, 'YYYY-MM-DD HH24:MI') AS at, r.message_id, r.raw
+          FROM worklog_reports r LEFT JOIN sites s ON s.code = r.site_code
+          WHERE r.report_date BETWEEN ${from}::date AND ${to}::date
+            AND (${site} = '' OR r.site_code = ${site})
+          ORDER BY r.site_code, r.report_date, r.building, r.vendor`;
+        const header = ["工地代碼", "工地", "日期", "棟別", "廠商", "總人數", "工種摘要", "作業主管", "施作項目",
                         "回報人", "回報時間", "LINE訊息ID", ...(withRaw ? ["原文"] : [])];
         return csvResponse(`出工回報_${tag}.csv`, `worklog_reports_${tag}.csv`, header, rows.map((r: any) => [
-          r.d, r.building, r.vendor, r.headcount, r.trade_summary, r.supervisor, r.tasks,
+          r.site_code, r.site_name, r.d, r.building, r.vendor, r.headcount, r.trade_summary, r.supervisor, r.tasks,
           r.reporter, r.at, r.message_id, ...(withRaw ? [r.raw] : [])]));
       }
       if (kind === "trades") {
         const rows = await db.sql`
-          SELECT r.report_date::text AS d, r.building, r.vendor, t.trade,
+          SELECT r.site_code, COALESCE(s.name, r.site_code) AS site_name,
+                 r.report_date::text AS d, r.building, r.vendor, t.trade,
                  COALESCE(a.trade_group, t.trade) AS trade_group, t.headcount
           FROM worklog_trades t
           JOIN worklog_reports r ON r.id = t.report_id
+          LEFT JOIN sites s ON s.code = r.site_code
           LEFT JOIN worklog_trade_aliases a ON a.trade = t.trade
           WHERE r.report_date BETWEEN ${from}::date AND ${to}::date
-          ORDER BY r.report_date, r.building, r.vendor, t.trade`;
+            AND (${site} = '' OR r.site_code = ${site})
+          ORDER BY r.site_code, r.report_date, r.building, r.vendor, t.trade`;
         return csvResponse(`工種明細_${tag}.csv`, `worklog_trades_${tag}.csv`,
-          ["日期", "棟別", "廠商", "工種（原寫法）", "工種歸類", "人數"],
-          rows.map((r: any) => [r.d, r.building, r.vendor, r.trade, r.trade_group, r.headcount]));
+          ["工地代碼", "工地", "日期", "棟別", "廠商", "工種（原寫法）", "工種歸類", "人數"],
+          rows.map((r: any) => [r.site_code, r.site_name, r.d, r.building, r.vendor, r.trade, r.trade_group, r.headcount]));
       }
       if (kind === "rejects") {
         const rows = await db.sql`
-          SELECT message_id, to_char(reported_at, 'YYYY-MM-DD HH24:MI') AS at, reporter, raw
-          FROM worklog_rejects ORDER BY reported_at`;
-        return csvResponse("出工回報_解析失敗.csv", "worklog_rejects.csv", ["LINE訊息ID", "回報時間", "回報人", "原文"],
-          rows.map((r: any) => [r.message_id, r.at, r.reporter, r.raw]));
+          SELECT x.site_code, COALESCE(s.name, x.site_code) AS site_name, x.message_id,
+                 to_char(x.reported_at, 'YYYY-MM-DD HH24:MI') AS at, x.reporter, x.raw
+          FROM worklog_rejects x LEFT JOIN sites s ON s.code = x.site_code
+          WHERE (${site} = '' OR x.site_code = ${site})
+          ORDER BY x.site_code, x.reported_at`;
+        return csvResponse("出工回報_解析失敗.csv", "worklog_rejects.csv",
+          ["工地代碼", "工地", "LINE訊息ID", "回報時間", "回報人", "原文"],
+          rows.map((r: any) => [r.site_code, r.site_name, r.message_id, r.at, r.reporter, r.raw]));
       }
       return fail(400, "kind 應為 reports、trades 或 rejects");
     }
 
     if (p === "/api/worklog/trades" && method === "GET") {
       if (!["admin", "manager", "safety"].includes(me.role)) return fail(403, "無權檢視出工資料");
+      const site = url.searchParams.get("site") || "";
+      if (site && !SITE_CODE_RE.test(site)) return fail(400, "工地代碼格式錯誤");
       return json(await db.sql`
         SELECT t.trade, a.trade_group, COUNT(*)::int AS reports, SUM(t.headcount)::int AS mandays,
                MIN(r.report_date)::text AS first_date, MAX(r.report_date)::text AS last_date
         FROM worklog_trades t
         JOIN worklog_reports r ON r.id = t.report_id
         LEFT JOIN worklog_trade_aliases a ON a.trade = t.trade
+        WHERE (${site} = '' OR r.site_code = ${site})
         GROUP BY t.trade, a.trade_group
         ORDER BY mandays DESC`, { headers: { "cache-control": "no-store" } });
     }
 
     if (p === "/api/worklog/summary" && method === "GET") {
       if (!["admin", "manager", "safety"].includes(me.role)) return fail(403, "無權檢視出工資料");
+      const site = url.searchParams.get("site") || "";
+      if (site && !SITE_CODE_RE.test(site)) return fail(400, "工地代碼格式錯誤");
       const [r] = await db.sql`
         SELECT COUNT(*)::int AS reports, COALESCE(SUM(headcount), 0)::int AS mandays,
                MIN(report_date)::text AS first_date, MAX(report_date)::text AS last_date,
                -- updated_at 是 NOW() 以連線時區（雲端為 UTC）存的無時區時間，先還原再轉台北
                to_char((MAX(updated_at) AT TIME ZONE current_setting('TimeZone'))
                        AT TIME ZONE 'Asia/Taipei', 'YYYY-MM-DD HH24:MI') AS updated_at,
-               (SELECT COUNT(*)::int FROM worklog_rejects) AS rejects
-        FROM worklog_reports`;
-      return json(r, { headers: { "cache-control": "no-store" } });
+               (SELECT COUNT(*)::int FROM worklog_rejects x
+                WHERE ${site} = '' OR x.site_code = ${site}) AS rejects
+        FROM worklog_reports
+        WHERE ${site} = '' OR site_code = ${site}`;
+      // 各工地一列，供頁面的工地選單與概況表
+      const sites = await db.sql`
+        SELECT r.site_code AS code, COALESCE(s.name, r.site_code) AS name,
+               COUNT(*)::int AS reports, COALESCE(SUM(r.headcount), 0)::int AS mandays,
+               MIN(r.report_date)::text AS first_date, MAX(r.report_date)::text AS last_date
+        FROM worklog_reports r LEFT JOIN sites s ON s.code = r.site_code
+        GROUP BY r.site_code, s.name ORDER BY r.site_code`;
+      return json({ ...r, sites }, { headers: { "cache-control": "no-store" } });
     }
 
     // 工種歸類：[{trade, trade_group}]；trade_group 空白＝移除歸類（回到原寫法）
