@@ -59,11 +59,10 @@ jobs:
       # 全系統時間戳慣例是「台北時間、無時區註記」。runner 程式本身也會釘住，
       # 這裡再設一次讓 shell 步驟（例如下方判斷時段）一致。
       TZ: "Asia/Taipei"
-      # 2026-10-05：出工試算表被 Google 以「違反服務條款」封鎖（連擁有者的
-      # 公開連結也回 403），短期修不好。暫停出工這一塊：不抓、不寫資料庫、
-      # 不算失敗（否則每 2 小時寄一次信講同一件事）。氣象與職安新知照常。
-      # 換到新來源後把這裡改回 "false"（或整段刪掉）即可恢復。
-      WORKLOG_PAUSED: "true"
+      # 出工那一塊的暫停開關。2026-10-05 原試算表被 Google 以違反服務條款封鎖時
+      # 設為 "true"（不抓、不寫資料庫、不算失敗，避免每輪寄同一封信）；
+      # 2026-10-06 改走 Apps Script 出口後恢復。來源再出問題時可改回 "true"。
+      WORKLOG_PAUSED: "false"
     steps:
       - name: 遮蔽機密的衍生值
         env:
@@ -74,6 +73,12 @@ jobs:
           # 的網址出現在日誌裡都會被遮掉（公開 repo 的日誌任何人可讀）。
           id=$(printf '%s' "$WORKLOG_SHEET_URL" | grep -oE '/d/[A-Za-z0-9_-]{10,}' | cut -c4- | head -n1)
           if [ -n "$id" ]; then echo "::add-mask::$id"; fi
+          # 2026-10-06 起來源改為 Apps Script 出口（/macros/s/<部署ID>/exec?token=…）：
+          # 部署 ID 與通行碼各自遮蔽——任一個單獨出現在日誌裡都足以拿到資料
+          dep=$(printf '%s' "$WORKLOG_SHEET_URL" | grep -oE '/s/[A-Za-z0-9_-]{20,}' | cut -c4- | head -n1)
+          if [ -n "$dep" ]; then echo "::add-mask::$dep"; fi
+          tok=$(printf '%s' "$WORKLOG_SHEET_URL" | grep -oE '[?&]token=[^&]+' | cut -d= -f2- | head -n1)
+          if [ -n "$tok" ]; then echo "::add-mask::$tok"; fi
 
       - uses: actions/checkout@v4
 
