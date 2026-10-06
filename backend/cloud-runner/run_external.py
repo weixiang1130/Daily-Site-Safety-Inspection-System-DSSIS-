@@ -45,7 +45,7 @@
 - **暫時性**（連不上、逾時、對方 5xx）：30 秒後重試一次；仍失敗只留黃色
   註記、以 0 結束——不寄信。實測 2026-09-18 晚上連續 1.5 小時、9/20 凌晨
   各有一段抓不到，都自己恢復；每次都寄「All jobs have failed」只是噪音。
-  持續抓不到時由看板的過期警示（75 分）反映。
+  持續抓不到時由看板的過期警示反映（門檻見 api.mts 的 WALL_STALE_AFTER_MIN）。
 - **需要處理**（權杖錯、網址失效、試算表進垃圾桶、缺設定、程式錯）：紅色
   註記、以非 0 結束，Actions 轉紅寄信。
 
@@ -231,12 +231,9 @@ def main() -> int:
         if transient is None:
             bs.annotate("warning", f"工地看板：{LABELS[name]}已暫停",
                         f"{msg}；這塊沿用上一份資料，看板會照常亮過期警示")
-        elif transient:
-            bs.annotate("warning", f"工地看板：{LABELS[name]}暫時連不上",
-                        f"{msg}（已重試一次；這塊沿用上一份資料，下一輪再抓）")
-        else:
+        elif bs.report_failure(f"工地看板：{LABELS[name]}", msg, transient,
+                               "（已重試一次；這塊沿用上一份資料，下一輪再抓）"):
             needs_fix = True
-            bs.annotate("error", f"工地看板：{LABELS[name]}需要處理", msg)
 
     if not any(ok.values()):
         print("三支收集程式全部失敗，不推送（雲端保留上一份資料）", file=sys.stderr)

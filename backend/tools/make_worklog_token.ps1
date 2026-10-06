@@ -21,10 +21,17 @@ $bytes = New-Object byte[] 32
 $rng.GetBytes($bytes)
 $token = -join ($bytes | ForEach-Object { $chars[$_ % $chars.Length] })
 
-$key = if ($Primary) { 'WORKLOG_SHEET_URL' } else { "WORKLOG_URL_$Site" }
-$line = "$key=https://script.google.com/macros/s/$DeployId/exec?token=$token"
 $utf8 = New-Object System.Text.UTF8Encoding($false)
 $text = [System.IO.File]::ReadAllText((Resolve-Path $envPath), $utf8)
+# 主場站的來源是 WORKLOG_SHEET_URL；WORKLOG_URL_<主場站代碼> 會被程式忽略。
+# 忘了加 -Primary 時自動改寫正確的那一行，免得新通行碼寫到不會被讀的設定。
+$pm = [regex]::Match($text, '(?m)^PRIMARY_SITE_CODE=\s*([^\r\n#]+?)\s*$')
+if (-not $Primary -and $pm.Success -and $pm.Groups[1].Value -eq $Site) {
+  Write-Host "$Site 是主場站（PRIMARY_SITE_CODE），改寫 WORKLOG_SHEET_URL。"
+  $Primary = $true
+}
+$key = if ($Primary) { 'WORKLOG_SHEET_URL' } else { "WORKLOG_URL_$Site" }
+$line = "$key=https://script.google.com/macros/s/$DeployId/exec?token=$token"
 $pattern = "(?m)^$key=[^\r\n]*$"
 $hits = [regex]::Matches($text, $pattern).Count
 if ($hits -gt 1) { throw "在 .env.onprem 找到 $hits 行 $key，未修改任何東西" }

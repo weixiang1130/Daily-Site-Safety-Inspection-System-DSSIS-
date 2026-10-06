@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import os
 import re
 import sys
@@ -88,7 +89,17 @@ HAS_CJK = re.compile(r"[一-鿿]")
 #   2. 〇〇-0工-
 #   〇〇合計出工：88工
 # 每行「名稱-N工-施作內容」，名稱是廠商簡稱。0 工的行是當天沒出工，不計。
-DAILY_LINE = re.compile(r"^\s*\d+\s*[.、]\s*(.+?)\s*-\s*(\d+)\s*工\s*-?\s*(.*)$")
+# 分隔號容許半形、全形與長破折號（手機輸入法常混用）；人數容許小數（0.5 工＝
+# 半天，仍算一個人到場，見 parse_daily_list）。
+_DASH = "[-－—–]"
+DAILY_LINE = re.compile(r"^\s*\d+\s*[.、]\s*(.+?)\s*" + _DASH
+                        + r"\s*(\d+(?:\.\d+)?)\s*工\s*" + _DASH + r"?\s*(.*)$")
+NUMBERED_LINE = re.compile(r"^\s*\d+\s*[.、]")
+
+# 來源回應必須有的欄位。Apps Script 出口在通行碼不符時回 HTTP 200 的「forbidden」、
+# 存取權設錯時回 HTTP 200 的 Google 登入頁——不檢查的話會被當成「沒有任何回報的
+# 試算表」：出工資料庫靜默停更、看板的本日出工被蓋成 0 人。
+REQUIRED_COLUMNS = ("接收時間", "訊息內容")
 
 
 def _csv_url(raw: str) -> str:
@@ -111,14 +122,30 @@ def worklog_sources() -> dict:
     """出工資料庫要收的來源：{工地代碼: 網址}。
 
     主場站（PRIMARY_SITE_CODE）沿用 WORKLOG_SHEET_URL——看板、地端牆面與工地
-    檢視器都只讀這一個；其他工地各設一個 WORKLOG_URL_<工地代碼>（例如
-    WORKLOG_URL_BD10）。只有出工資料庫（cloud-runner/push_worklog.py）讀多來源。
+    檢視器都只讀這一個。其他工地兩種設法擇一（可並用）：
+      - 各設一個 WORKLOG_URL_<工地代碼>（例如 WORKLOG_URL_BD10）
+      - 一個 WORKLOG_SOURCES，內容是 JSON：{"BD10": "網址", "BD12": "網址"}——
+        GitHub 上只要改這一個 Secret，新增工地不必改 workflow
+    只有出工資料庫（cloud-runner/push_worklog.py）讀多來源。
     """
     out = {}
     primary = (env("PRIMARY_SITE_CODE") or "").strip()
     main_url = (env("WORKLOG_SHEET_URL") or "").strip()
     if main_url:
         out[primary] = main_url
+    raw = (env("WORKLOG_SOURCES") or "").strip()
+    if raw:
+        try:
+            extra = json.loads(raw)
+            if not isinstance(extra, dict):
+                raise ValueError
+        except ValueError:
+            # 不印內容：裡面是通行碼
+            raise RuntimeError("WORKLOG_SOURCES 格式錯誤，應為 JSON 物件 {\"工地代碼\": \"網址\"}")
+        for code, url in extra.items():
+            code, url = str(code).strip(), str(url or "").strip()
+            if re.fullmatch(r"[A-Za-z0-9_-]{1,32}", code) and url and code != primary:
+                out[code] = url
     for key in sorted(os.environ):
         m = re.fullmatch(r"WORKLOG_URL_([A-Za-z0-9_-]{1,32})", key)
         if m and m.group(1) != primary and os.environ[key].strip():
@@ -310,41 +337,60 @@ def parse_message(content: str, labels: list, fallback_date: Optional[date]) -> 
             "trades": [{"trade": k, "headcount": v} for k, v in trades.items()]}
 
 
-def parse_daily_list(content: str, fallback_date: Optional[date]) -> list:
-    """「施工回報」一則 → 每個有出工的廠商一筆。抓不到任何一行就回空清單。
+def parse_daily_list(content: str, fallback_date: Optional[date]) -> dict:
+    """「施工回報」一則 → {report_date, items, lines, unparsed}。
+
+    items：每個有出工的廠商一筆（0 工的行不成為一筆）。lines：認得的編號行數
+    （含 0 工的行）——lines > 0 而 items 為空，是「當天全部 0 工」（假日、停工），
+    不是解析失敗。unparsed：有編號、但格式認不得的行數——這些行的人數沒算進去。
 
     棟別一律留空：同一行常同時寫 A棟、B棟（「A棟4F、B棟2F…」），硬挑一個會讓
     同一家廠商在更正版裡換鍵、變成兩筆。棟別資訊保留在施作項目原文裡。
     """
-    report_date = parse_report_date(content, fallback_date)
-    if not report_date:
-        return []
+    out = {"report_date": parse_report_date(content, fallback_date),
+           "items": [], "lines": 0, "unparsed": 0}
+    if not out["report_date"]:
+        return out
     items = {}
     for ln in content.splitlines():
         m = DAILY_LINE.match(ln)
         if not m:
+            if NUMBERED_LINE.match(ln):
+                out["unparsed"] += 1
             continue
+        out["lines"] += 1
         name = m.group(1).strip()[:64]
-        n = int(m.group(2))
+        raw_n = float(m.group(2))
+        # 0.5 工＝半天，仍是一個人到場：有出工就至少算 1 人，其餘四捨五入
+        n = max(1, int(raw_n + 0.5)) if raw_n > 0 else 0
         if not name or not HAS_CJK.search(name) or n <= 0 or n > MAX_COUNT:
             continue
-        task = m.group(3).strip(" -－") or None
+        task = m.group(3).strip(" -－—–") or None
         old = items.get(name)
         if old:                          # 同一則裡同名重複列：人數相加
             old["headcount"] += n
             old["tasks"] = "、".join(t for t in (old["tasks"], task) if t)[:400] or None
             continue
-        items[name] = {"report_date": report_date, "building": None, "vendor": name,
+        items[name] = {"report_date": out["report_date"], "building": None, "vendor": name,
                        "trade": None, "headcount": n, "supervisor": None,
                        "tasks": task[:400] if task else None, "trades": []}
-    return list(items.values())
+    out["items"] = list(items.values())
+    return out
 
 
 def fetch_rows(url: Optional[str] = None) -> list:
     r = requests.get(_csv_url(url) if url else sheet_csv_url(), timeout=TIMEOUT)
     r.raise_for_status()
     r.encoding = "utf-8"
-    return list(csv.DictReader(io.StringIO(r.text)))
+    reader = csv.DictReader(io.StringIO(r.text))
+    missing = [c for c in REQUIRED_COLUMNS if c not in (reader.fieldnames or [])]
+    if missing:
+        # 只印回應的第一行（「forbidden」、HTML 開頭或欄位名稱），不印內容與網址
+        head = (r.text.strip().splitlines() or [""])[0][:40]
+        raise RuntimeError(
+            f"來源回應不是出工回報試算表（缺欄位 {'、'.join(missing)}；回應開頭 {head!r}）。"
+            "常見原因：Apps Script 通行碼與設定不一致、存取權不是「所有人」、部署已封存")
+    return list(reader)
 
 
 def collect_reports(rows: Optional[list] = None, site_code: Optional[str] = None):
@@ -355,6 +401,17 @@ def collect_reports(rows: Optional[list] = None, site_code: Optional[str] = None
     同一天同一棟同一廠商以最新一則為準（廠商常重發更正版）；被蓋過的訊息
     記在勝出回報的 superseded_ids——雲端要靠它刪掉這些訊息改判前留在別的
     鍵上的舊列，否則解析規則一改，同一批人會在兩個鍵各算一次。
+
+    施工回報是「整天的清單」：同一天發了第二則就是更正版（實例：「施工回報修正」），
+    以最新一則為準取代整天。舊版有、新版沒有或改成 0 工的廠商，產生一筆 0 人的回報
+    蓋掉舊數字——不這樣做，舊版的人數會因為「新版沒提到它」而一直留著。
+    只有「同一天內發的」或標題寫「修正」的才整天取代：實例中有週一早上發、日期卻
+    還是上週六的一則（多半是沿用範本忘了改日期），整天取代會把週六真實的出工刪掉。
+    這種隔天才發的維持逐家「最新一則為準」，並另列提醒。
+
+    解析失敗清單裡有 notice 欄位的不是失敗，呼叫端只拿來提醒、不要當成失敗：
+      notice="partial"：施工回報有幾行格式認不得，其餘照常計入，這幾行沒算到
+      notice="late_date"：施工回報在寫的日期之後才發，又跟那天已有的回報同日期
     本機看板收集（poll_once）與雲端出工資料庫（cloud-runner/push_worklog.py）
     共用這一份解析，兩邊的數字才會一致。
     """
@@ -364,7 +421,22 @@ def collect_reports(rows: Optional[list] = None, site_code: Optional[str] = None
 
     parsed = {}
     rejects = []
-    for row in rows:
+    daily = {}              # 施工回報：日期 → [(接收時間, 列序, 訊息ID, 該則的廠商名單)]
+    pending = []            # (item, 列序)：施工回報的回報，等整天替換算完再進 parsed
+
+    def take(item):
+        key = (item["report_date"], item["building"] or "", item["vendor"])
+        old = parsed.get(key)
+        if old is None:
+            item["superseded_ids"] = []
+            parsed[key] = item
+        elif (item["reported_at"] or datetime.min) >= (old["reported_at"] or datetime.min):
+            item["superseded_ids"] = old["superseded_ids"] + [old["message_id"]]
+            parsed[key] = item
+        else:
+            old["superseded_ids"].append(item["message_id"])
+
+    for idx, row in enumerate(rows):
         content = (row.get("訊息內容") or "").strip()
         head = content[:16]
         if "出工回報" in head:
@@ -382,32 +454,51 @@ def collect_reports(rows: Optional[list] = None, site_code: Optional[str] = None
         reporter = (row.get("使用者名稱") or "")[:64] or None
         message_id = (row.get("LINE訊息ID") or "")[:64] or None
         fallback = reported_at.date() if reported_at else None
+        reject = {"message_id": message_id, "reported_at": reported_at,
+                  "reporter": reporter, "raw": content[:2000], "site_code": site_code}
+        meta = {"reporter": reporter, "reported_at": reported_at,
+                "message_id": message_id, "raw": content[:2000], "site_code": site_code}
         if kind == "per_vendor":
             one = parse_message(content, labels, fallback)
-            items = [one] if one else []
-        else:
-            items = parse_daily_list(content, fallback)
-        if not items:
-            rejects.append({"message_id": message_id, "reported_at": reported_at,
-                            "reporter": reporter, "raw": content[:2000],
-                            "site_code": site_code})
+            if not one:
+                rejects.append(reject)
+                continue
+            one.update(meta)
+            take(one)
             continue
-        for item in items:
-            item["reporter"] = reporter
-            item["reported_at"] = reported_at
-            item["message_id"] = message_id
-            item["raw"] = content[:2000]
-            item["site_code"] = site_code
-            key = (item["report_date"], item["building"] or "", item["vendor"])
-            old = parsed.get(key)
-            if old is None:
-                item["superseded_ids"] = []
-                parsed[key] = item
-            elif (item["reported_at"] or datetime.min) >= (old["reported_at"] or datetime.min):
-                item["superseded_ids"] = old["superseded_ids"] + [old["message_id"]]
-                parsed[key] = item
-            else:
-                old["superseded_ids"].append(message_id)
+
+        res = parse_daily_list(content, fallback)
+        if not res["lines"]:
+            rejects.append(reject)          # 一行都認不得：整則失敗
+            continue
+        if res["unparsed"]:
+            rejects.append(dict(reject, notice="partial", unparsed=res["unparsed"]))
+        for item in res["items"]:
+            item.update(meta)
+            pending.append(item)
+        daily.setdefault(res["report_date"], []).append(
+            (reported_at or datetime.min, idx, message_id, {i["vendor"] for i in res["items"]}, meta,
+             "修正" in head, reject))
+
+    # 施工回報：同一天以最新一則為準。舊版有、最新版沒有（或改成 0 工）的廠商，
+    # 以最新那則的名義補一筆 0 人，讓它在「最新一則為準」的比較中勝出、蓋掉舊數字。
+    # 只拿「同一天內發的」舊版比（或最新一則標明修正）——隔天才發、日期卻是舊日子
+    # 的，多半是範本沒改日期，不整天取代，只提醒
+    for day, msgs in daily.items():
+        msgs.sort(key=lambda m: (m[0], m[1]))
+        latest = msgs[-1]
+        latest_vendors, latest_meta, corrected = latest[3], latest[4], latest[5]
+        same_day = [m for m in msgs[:-1]
+                    if corrected or m[0].date() == latest[0].date()]
+        if len(same_day) < len(msgs) - 1 and latest[0].date() > day:
+            rejects.append(dict(latest[6], notice="late_date", report_date=day))
+        dropped = set().union(*(m[3] for m in same_day)) - latest_vendors if same_day else set()
+        for vendor in sorted(dropped):
+            pending.append(dict(latest_meta, report_date=day, building=None, vendor=vendor,
+                                trade=None, headcount=0, supervisor=None, tasks=None, trades=[]))
+    for item in pending:
+        take(item)
+
     for item in parsed.values():
         item["superseded_ids"] = [m for m in dict.fromkeys(item["superseded_ids"])
                                   if m and m != item["message_id"]]
@@ -416,7 +507,7 @@ def collect_reports(rows: Optional[list] = None, site_code: Optional[str] = None
 
 def poll_once() -> str:
     row_count, parsed, rejects = collect_reports()
-    skipped = len(rejects)
+    skipped = sum(1 for x in rejects if not x.get("notice"))
 
     db = SessionLocal()
     created = updated = 0

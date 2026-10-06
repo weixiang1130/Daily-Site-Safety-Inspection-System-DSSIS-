@@ -31,11 +31,12 @@ name: 工地看板外部區塊
 
 on:
   # 主要時鐘是 Netlify 排程函式（backend/cloud/functions/wallboard-tick.mts）
-  # 每 30 分鐘以 API 觸發 workflow_dispatch——實測 GitHub 自己的「每 30 分鐘」
-  # 排程 20 小時只跑 6 次、間隔 2~5 小時，不能當主力。這裡的 schedule 只是
-  # Netlify 那邊失效（例如 token 到期）時的後備。
+  # 每 2 小時（UTC 偶數小時 :07）以 API 觸發 workflow_dispatch——實測 GitHub
+  # 自己的排程常延遲 2~5 小時，不能當主力。這裡的 schedule 只是 Netlify 那邊
+  # 失效（例如 token 到期）時的後備：每 6 小時、落在 UTC 奇數小時（主時鐘的
+  # 空檔），時鐘正常時不會緊跟在後面重跑一次。
   schedule:
-    - cron: "22 */2 * * *"
+    - cron: "22 1,7,13,19 * * *"
   workflow_dispatch:
     inputs:
       worklog_backfill:
@@ -69,16 +70,18 @@ jobs:
           WORKLOG_SHEET_URL: ${{ secrets.WORKLOG_SHEET_URL }}
           WORKLOG_URL_BD08: ${{ secrets.WORKLOG_URL_BD08 }}
           WORKLOG_URL_BD10: ${{ secrets.WORKLOG_URL_BD10 }}
+          WORKLOG_SOURCES: ${{ secrets.WORKLOG_SOURCES }}
         run: |
           # GitHub 只遮蔽與 Secret 完全相同的字串，而程式實際請求的常是轉換過的網址、
           # 錯誤訊息也可能只印出其中一段。把每個來源的試算表 ID（/d/…）、Apps Script
           # 部署 ID（/s/…）與通行碼（token=…）各自登記為遮蔽字串——任一段單獨出現
           # 在日誌裡都足以拿到資料（公開 repo 的日誌任何人可讀）。每個來源都要遮，
           # 不能只遮第一個。
-          for u in "$WORKLOG_SHEET_URL" "$WORKLOG_URL_BD08" "$WORKLOG_URL_BD10"; do
+          # WORKLOG_SOURCES 是 JSON（多個網址），grep -o 會把每一段都抓出來
+          for u in "$WORKLOG_SHEET_URL" "$WORKLOG_URL_BD08" "$WORKLOG_URL_BD10" "$WORKLOG_SOURCES"; do
             [ -n "$u" ] || continue
             ids=$(printf '%s' "$u" | grep -oE '/d/[A-Za-z0-9_-]{10,}|/s/[A-Za-z0-9_-]{20,}' | cut -c4-)
-            toks=$(printf '%s' "$u" | grep -oE '[?&]token=[^&]+' | cut -d= -f2-)
+            toks=$(printf '%s' "$u" | grep -oE '[?&]token=[^&"[:space:],}]+' | cut -d= -f2-)
             for v in $ids $toks; do
               echo "::add-mask::$v"
             done
@@ -106,22 +109,24 @@ jobs:
           CLOUD_INGEST_URL: ${{ vars.CLOUD_INGEST_URL }}
           CLOUD_INGEST_TOKEN: ${{ secrets.CLOUD_INGEST_TOKEN }}
           PYTHONUTF8: "1"
-        # 任一收集程式失敗時 runner 仍推送其餘區塊，然後以非 0 結束——這一步
-        # 轉紅、GitHub 寄通知；雲端保留失敗區塊的上一份資料與時間戳。
+        # 任一收集程式失敗時 runner 仍推送其餘區塊；暫時連不上只留黃色註記，
+        # 需要處理的（權杖錯、來源失效）才以非 0 結束轉紅寄信。雲端保留失敗區塊
+        # 的上一份資料與時間戳。
         run: python backend/cloud-runner/run_external.py --push
 
       - name: 出工明細寫入資料庫（每天 00:07 那一輪；手動可推全部歷史）
         # 與上一步無關，上一步失敗也要做。資料庫按醒著的時數計費，只在凌晨
         # 寫一次（這時段看板每日首次讀取本來就會喚醒資料庫）；重送最近 14 天，
-        # 某晚沒跑到由隔晚補上。00:22 的後備排程不寫，免得多喚醒一次。
+        # 某晚沒跑到由隔晚補上。後備排程（event=schedule）不寫，免得多喚醒一次。
         if: always()
         env:
           # 主場站（PRIMARY_SITE_CODE）的來源是 WORKLOG_SHEET_URL；其他工地各一個
-          # WORKLOG_URL_<工地代碼>。新增工地時：加一個 secret，並在這裡與上面的
-          # 遮蔽步驟各加一行。
+          # WORKLOG_URL_<工地代碼>，或全部放進一個 JSON Secret WORKLOG_SOURCES。
+          # 新增工地建議用 WORKLOG_SOURCES：只改 Secret，不必改這個檔。
           WORKLOG_SHEET_URL: ${{ secrets.WORKLOG_SHEET_URL }}
           WORKLOG_URL_BD08: ${{ secrets.WORKLOG_URL_BD08 }}
           WORKLOG_URL_BD10: ${{ secrets.WORKLOG_URL_BD10 }}
+          WORKLOG_SOURCES: ${{ secrets.WORKLOG_SOURCES }}
           PRIMARY_SITE_CODE: ${{ vars.PRIMARY_SITE_CODE }}
           BUILDING_LABELS: ${{ vars.BUILDING_LABELS }}
           CLOUD_INGEST_URL: ${{ vars.CLOUD_INGEST_URL }}
@@ -133,21 +138,23 @@ jobs:
             echo "出工資料庫已暫停（WORKLOG_PAUSED），本輪略過"
           elif [ "$BACKFILL" = "true" ]; then
             python backend/cloud-runner/push_worklog.py --all
-          elif [ "$(date +%H)" = "00" ] && [ "$(date +%-M)" -lt 45 ]; then
+          elif [ "$GITHUB_EVENT_NAME" != "schedule" ] && [ "$(date +%H)" = "00" ] \
+               && [ "$(date +%-M)" -lt 45 ]; then
             python backend/cloud-runner/push_worklog.py --days 14
           else
             echo "非凌晨那一輪，略過（出工資料庫每天寫一次）"
           fi
 
       - name: 保持排程啟用（公開 repo 60 天無活動會被停用）
-        # 每天台北 06 點那幾輪做（不論哪種觸發）；上一步失敗也要做。
+        # 每天台北 06 點那一輪做；後備排程每一輪也做（只有一個 API 呼叫）——主時鐘
+        # 失效、只剩後備在跑時，正是最需要它保持啟用的時候。上一步失敗也要做。
         # 停用後連 API 觸發都會被拒，所以時鐘改到 Netlify 後這步仍然需要。
         if: always()
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ "$(date +%H)" = "06" ]; then
+          if [ "$(date +%H)" = "06" ] || [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
             gh api -X PUT "repos/${{ github.repository }}/actions/workflows/wallboard-external.yml/enable"
             echo "已刷新排程啟用狀態"
           fi

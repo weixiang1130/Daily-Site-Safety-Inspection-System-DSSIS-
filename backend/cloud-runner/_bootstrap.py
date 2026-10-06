@@ -69,8 +69,13 @@ def is_transient(exc: BaseException) -> bool:
 
     權杖錯（401／403）、網址失效（404）、試算表進垃圾桶、解析錯、缺設定
     都不算：那些不會自己好，要人處理，照樣讓工作流程轉紅寄信。
+
+    SSL 錯誤（憑證過期、自簽憑證）雖然是 ConnectionError 的子類別，但不會自己好，
+    當成暫時性就永遠只留黃色註記、沒人知道——所以排除。
     """
     import requests
+    if isinstance(exc, requests.exceptions.SSLError):
+        return False
     if isinstance(exc, (requests.ConnectionError, requests.Timeout)):
         return True
     if isinstance(exc, requests.HTTPError) and exc.response is not None:
@@ -84,6 +89,17 @@ def annotate(level: str, title: str, msg: str) -> None:
     （完整日誌要登入）。level 為 warning 或 error；內容一律先隱去網址。"""
     clean = redact(msg).replace("%", "%25").replace("\r", "").replace("\n", " ")
     print(f"::{level} title={title}::{clean}", flush=True)
+
+
+def report_failure(scope: str, msg: str, transient: bool, hint: str = "") -> int:
+    """收集或推送失敗的統一回報。暫時性：黃色註記、回 0（不算失敗、不寄信）；
+    其餘：紅色註記、回 1（呼叫端據此以非 0 結束，Actions 轉紅寄信）。
+    scope 例：「工地看板：微型氣象站」「出工資料庫：BD10」。"""
+    if transient:
+        annotate("warning", f"{scope}暫時連不上", msg + hint)
+        return 0
+    annotate("error", f"{scope}需要處理", msg)
+    return 1
 
 
 def remove_tmp_db() -> None:

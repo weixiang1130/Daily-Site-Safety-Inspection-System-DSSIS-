@@ -37,7 +37,7 @@ import argparse
 import json
 import os
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 try:
     import requests
@@ -48,6 +48,10 @@ from app.envfile import load_env  # noqa: E402
 
 TIMEOUT = 60
 CHUNK = 300                 # 每批筆數（雲端單次上限 1000）
+# 來源超過幾天沒有任何新訊息就提醒（WORKLOG_STALE_DAYS 可調）。抓得到但一直沒有
+# 新資料，多半是 LINE webhook 沒有寫進這份試算表（換表、權限、Apps Script 停了）——
+# 不提醒的話會一直「成功」卻一筆也沒有，直到有人發現資料斷了好幾週。
+STALE_DAYS_DEFAULT = 4
 
 
 def _iso(v):
@@ -74,14 +78,18 @@ def _report(item: dict) -> dict:
     }
 
 
-def _fail(label: str, msg: str, transient: bool) -> int:
+def _fail(code: str, msg: str, transient: bool) -> int:
     """暫時連不上：黃色註記、不算失敗——每晚重送最近 14 天，隔晚自然補上。
     其餘（權杖錯、來源失效、手動回補時的任何失敗）：紅色註記、算失敗。"""
-    if transient:
-        bs.annotate("warning", f"出工資料庫：{label}暫時連不上", msg + "（明晚重送最近 14 天會補上）")
-        return 0
-    bs.annotate("error", f"出工資料庫：{label}需要處理", msg)
-    return 1
+    return bs.report_failure(f"出工資料庫：{code} " if code else "出工資料庫：", msg, transient,
+                             "（明晚重送最近 14 天會補上）")
+
+
+def _stale_days() -> int:
+    try:
+        return max(1, int(os.environ.get("WORKLOG_STALE_DAYS") or STALE_DAYS_DEFAULT))
+    except ValueError:
+        return STALE_DAYS_DEFAULT
 
 
 def _owned(reports: list) -> list:
@@ -99,12 +107,43 @@ def _owned(reports: list) -> list:
 def _push_site(code: str, url: str, args, since, endpoint: str, token: str) -> int:
     """抓一個工地、推上雲端。回傳 0（成功或暫時性失敗）或 1（需要處理）。"""
     from collectors.worklog import collect_reports, fetch_rows
-    label = f"{code} "
     try:
-        row_count, parsed, rejects = collect_reports(fetch_rows(url), site_code=code)
+        rows = fetch_rows(url)
+        row_count, parsed, rejects = collect_reports(rows, site_code=code)
     except Exception as e:                               # noqa: BLE001
-        return _fail(label, f"讀取出工回報失敗（{type(e).__name__}: {e}）",
+        return _fail(code, f"讀取出工回報失敗（{type(e).__name__}: {e}）",
                      bs.is_transient(e) and not args.all)
+
+    failed = 0
+    newest = None
+    for row in rows:
+        try:
+            t = datetime.strptime((row.get("接收時間") or "").strip(), "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            continue
+        newest = t if newest is None or t > newest else newest
+    days = _stale_days()
+    if newest is None or datetime.now() - newest > timedelta(days=days):
+        last = newest.strftime("%Y-%m-%d %H:%M") if newest else "無"
+        failed = _fail(code, f"來源超過 {days} 天沒有任何新訊息（最後一則 {last}）："
+                             "LINE webhook 可能沒有寫進這份試算表，或群組改了回報方式", False)
+
+    # 提醒（不算失敗、不進雲端的解析失敗清單）；只提醒落在這次範圍內的
+    def in_scope(x):
+        return since is None or x["reported_at"] is None or x["reported_at"].date() >= since
+    partial = [x for x in rejects if x.get("notice") == "partial" and in_scope(x)]
+    if partial:
+        dates = sorted({x["reported_at"].strftime("%m/%d") for x in partial if x["reported_at"]})
+        bs.annotate("warning", f"出工資料庫：{code} 部分行認不得",
+                    f"{len(partial)} 則施工回報共 {sum(x['unparsed'] for x in partial)} 行格式認不得、"
+                    f"人數沒算進去（{'、'.join(dates[-5:])}）")
+    late = [x for x in rejects if x.get("notice") == "late_date" and in_scope(x)]
+    if late:
+        pairs = "、".join(f"{x['reported_at']:%m/%d}發／寫{x['report_date']:%m/%d}" for x in late[-5:])
+        bs.annotate("warning", f"出工資料庫：{code} 施工回報日期可疑",
+                    f"{len(late)} 則是隔天以後才發、日期卻和已有的回報同一天（{pairs}），"
+                    "可能是沿用範本忘了改日期；已逐家以最新一則為準，請到群組確認")
+    rejects = [x for x in rejects if not x.get("notice")]
 
     # 出工日期或回報時間任一落在視窗內就送：廠商補報三週前的出工時，
     # 出工日期早已在視窗外，只看出工日期的話每晚都會漏掉它
@@ -121,7 +160,7 @@ def _push_site(code: str, url: str, args, since, endpoint: str, token: str) -> i
     print(f"[{code}] 來源 {row_count} 列｜{scope}：回報 {len(reports)} 筆（含工種明細 {with_trades}）"
           f"、解析失敗 {len(rejects)} 則")
     if args.dry_run or (not reports and not rejects):
-        return 0
+        return failed
 
     owned = _owned(reports)
     batches = [reports[i:i + CHUNK] for i in range(0, len(reports), CHUNK)] or [[]]
@@ -140,10 +179,10 @@ def _push_site(code: str, url: str, args, since, endpoint: str, token: str) -> i
             msg = f"推送失敗（{type(e).__name__}: {e}）"
             if isinstance(e, requests.HTTPError):
                 msg += f"：{e.response.text[:200]}"
-            return _fail(label, msg, bs.is_transient(e) and not args.all)
+            return _fail(code, msg, bs.is_transient(e) and not args.all) or failed
         done += r.json().get("reports", 0)
     print(f"[{code}] 已寫入出工資料庫：回報 {done} 筆（{len(batches)} 批）")
-    return 0
+    return failed
 
 
 def main() -> int:
@@ -160,7 +199,7 @@ def main() -> int:
         from collectors.worklog import worklog_sources
         sources = worklog_sources()
         if not sources:
-            return _fail("", "未設定任何出工來源（WORKLOG_SHEET_URL／WORKLOG_URL_*）", False)
+            return _fail("", "未設定任何出工來源（WORKLOG_SHEET_URL／WORKLOG_URL_*／WORKLOG_SOURCES）", False)
 
         endpoint = bs.cloud_endpoint("worklog")
         token = (os.environ.get("CLOUD_INGEST_TOKEN") or "").strip()
@@ -169,9 +208,14 @@ def main() -> int:
             return 1
 
         since = None if args.all else date.today() - timedelta(days=args.days)
-        # 逐工地處理，一個壞掉不影響其他工地；任一個「需要處理」整體就以非 0 結束
-        failed = sum(_push_site(code, url, args, since, endpoint, token)
-                     for code, url in sources.items())
+        # 逐工地處理，一個壞掉不影響其他工地；任一個「需要處理」整體就以非 0 結束。
+        # 非預期的例外（雲端回非 JSON、程式錯）也只算那個工地，不中斷後面的工地
+        failed = 0
+        for code, url in sources.items():
+            try:
+                failed += _push_site(code, url, args, since, endpoint, token)
+            except Exception as e:                       # noqa: BLE001
+                failed += _fail(code, f"未預期的錯誤（{type(e).__name__}: {e}）", False)
     finally:
         bs.remove_tmp_db()
     return 1 if failed else 0

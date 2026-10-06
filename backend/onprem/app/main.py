@@ -188,8 +188,11 @@ def save_site_board(site_id: int, request: Request, payload: dict = Body(...),
 # ---------------------------------------------------------------------------
 def worklog_section(db: Session, today: date):
     """本日出工。回傳 (WorkLog 物件清單, 看板用 dict)，物件清單供危害對應。"""
-    wl = (db.query(WorkLog).filter(WorkLog.report_date == today)
-          .order_by(WorkLog.building, WorkLog.vendor).all())
+    # 0 人＝施工回報更正版把這家改成沒出工（見 collectors/worklog.py），不上牆；
+    # 人數未知（None）的照常顯示
+    wl = [w for w in (db.query(WorkLog).filter(WorkLog.report_date == today)
+                      .order_by(WorkLog.building, WorkLog.vendor).all())
+          if w.headcount != 0]
     return wl, {
         "date": today.isoformat(),
         "total": sum(w.headcount or 0 for w in wl),

@@ -688,6 +688,30 @@ def init_db():
 def _create_schema():
     Base.metadata.create_all(engine)
     _add_missing_columns()
+    _add_missing_indexes()
+
+
+def _add_missing_indexes():
+    """替既有資料表補上模型有、資料庫還沒有的索引。
+
+    與 _add_missing_columns 同理：create_all 只替「新建的表」建索引，既有的表
+    後來在模型加的索引永遠不會出現（例如 worklog_reports 的工地＋日期索引）。
+    """
+    from sqlalchemy import inspect as sa_inspect
+
+    inspector = sa_inspect(engine)
+    existing_tables = set(inspector.get_table_names())
+    for table in Base.metadata.sorted_tables:
+        if table.name not in existing_tables:
+            continue
+        have = {ix["name"] for ix in inspector.get_indexes(table.name)}
+        for ix in table.indexes:
+            if ix.name in have:
+                continue
+            try:
+                ix.create(engine)
+            except Exception as e:                    # noqa: BLE001
+                print(f"[db] 無法補上索引 {table.name}.{ix.name}：{e}")
 
 
 def db_info() -> str:
