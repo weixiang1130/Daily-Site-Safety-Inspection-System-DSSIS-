@@ -78,8 +78,11 @@ def _now_iso() -> str:
 def board_data(scenario: str) -> dict:
     m = dict(SCENARIOS[scenario])
     levels = {k: level_of(k, v) for k, v in m.items() if k in ("pm25", "pm10", "noise", "heat_index")}
-    rows = [{"building": b, "vendor": v, "trade": t, "headcount": n, "supervisor": s, "tasks": task}
-            for b, v, t, n, s, task in WORKLOG]
+    # 每分鐘小幅變動（看板每分鐘輪詢一次），才看得到數字滾動與換頁效果
+    tick = datetime.now().minute
+    rows = [{"building": b, "vendor": v, "trade": t, "headcount": n + (tick % 3 if i == 0 else 0),
+             "supervisor": s, "tasks": task}
+            for i, (b, v, t, n, s, task) in enumerate(WORKLOG)]
     # 與 app.main.hazards_section 相同的對應方式（不 import main：那會連資料庫）
     hz = {}
     for r in rows:
@@ -95,7 +98,7 @@ def board_data(scenario: str) -> dict:
         "stale_after_min": 180,
         "station": {"site_code": "DEMO", "reading_at": _now_iso(), "metrics": m, "levels": levels,
                     "heat": heat_guidance(m["heat_index"]), "noise": noise_guidance(m["noise"])},
-        "stats": {"findings_today": 2, "open": 5, "overdue": 1},
+        "stats": {"findings_today": 2 + tick % 2, "open": 5 + (tick // 2) % 2, "overdue": 1},
         "worklog": {"date": date.today().isoformat(), "total": sum(r["headcount"] for r in rows), "rows": rows},
         "record": {"days": (date.today() - date(2024, 9, 12)).days, "since": "2024-09-12",
                    "last_month_mandays": 5277},

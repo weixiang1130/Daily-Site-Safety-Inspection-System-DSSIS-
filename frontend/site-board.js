@@ -14,6 +14,51 @@ const STALE_AFTER_MIN = 15;   // 失更門檻（分）；伺服器有下發 stal
 const RETRY_MS = 30000;       // 初始化失敗的重試間隔（冷開機防毒掃描要等）
 const fmt = (v, d = 1) => (v == null || isNaN(v) ? '—' : Number(v).toFixed(d));
 
+// ---------------------------------------------------------------------------
+// 動畫：快進慢停、時間短；「減少動態效果」開啟時一律直接換，不播動畫
+// ---------------------------------------------------------------------------
+const EASE_OUT = 'cubic-bezier(.22,1,.36,1)';
+const reduceMotion = () => !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+/** 換內容：內容真的變了才寫入並淡入（換頁時不再瞬間跳換）。回傳是否有變。
+ *  寫入是同步的——呼叫端接著量高度做自適應不受影響，動畫只是疊在上面。 */
+function swapHtml(el, html) {
+  if (el._html === html) return false;
+  const first = el._html === undefined;
+  el._html = html;
+  el.innerHTML = html;
+  if (!first && !reduceMotion() && el.animate) {
+    el.animate([{ opacity: 0, transform: 'translateY(.375rem)' }, { opacity: 1, transform: 'none' }],
+               { duration: 320, easing: EASE_OUT });
+  }
+  return true;
+}
+
+/** 滾動數字：逐字一格，變了的那一位舊字往上滑出、新字從下滑入；沒變的不動。
+ *  完整數字放 aria-label，讀螢幕的人聽到的是整個數字而不是一格一格。 */
+function rollText(el, text) {
+  text = String(text);
+  if (el._roll === text) return;
+  const prev = el._roll;
+  el._roll = text;
+  el.setAttribute('aria-label', text);
+  const chars = [...text];
+  if (prev === undefined || [...prev].length !== chars.length || reduceMotion()) {
+    el.innerHTML = chars.map(c => `<span class="rd" aria-hidden="true"><i>${esc(c)}</i></span>`).join('');
+    return;
+  }
+  const old = [...prev];
+  [...el.children].forEach((cell, k) => {
+    if (old[k] === chars[k]) return;
+    cell.innerHTML = `<i class="rd-out">${esc(old[k])}</i><i>${esc(chars[k])}</i>`;
+    const [out, inn] = cell.children;
+    const t = { duration: 380, easing: EASE_OUT, delay: (chars.length - 1 - k) * 40 };
+    out.animate([{ transform: 'translateY(0)', opacity: 1 }, { transform: 'translateY(-100%)', opacity: 0 }],
+                { ...t, fill: 'forwards' }).onfinish = () => out.remove();
+    inn.animate([{ transform: 'translateY(100%)', opacity: 0 }, { transform: 'none', opacity: 1 }], { ...t, fill: 'backwards' });
+  });
+}
+
 let DATA = null;              // 最近一次 /api/board-data 的回應
 let SITE_ID = null;
 let contactPage = 0, wfPage = 0, hzPage = 0;
@@ -92,15 +137,17 @@ let WALL = false, WALL_KEY = '', POLL = POLL_MS;
     } catch (e) { /* 不支援全螢幕 */ }
   };
 
-  // 今日作業危害手動翻頁：翻完停留 30 秒再恢復自動換頁，讓人看得完
-  const flipHazard = step => {
-    const n = (hzLayout && hzLayout.pages.length) || 1;
-    hzPage = ((hzPage % n) + step + n) % n;     // 第 1 頁按「上一頁」回到最後一頁
+  // 今日作業危害：點分類籤條直接跳到那一類所在的頁，停留 30 秒再恢復自動換頁
+  document.getElementById('hzChips').addEventListener('click', e => {
+    const chip = e.target.closest('[data-i]');
+    if (!chip || !hzLayout) return;
+    const i = +chip.dataset.i;
+    const pg = hzLayout.pages.findIndex(p => p.includes(i));
+    if (pg < 0) return;
+    hzPage = pg;
     hzHoldUntil = Date.now() + HZ_HOLD_MS;
-    if (DATA) renderHazards();
-  };
-  document.getElementById('hzPrev').onclick = () => flipHazard(-1);
-  document.getElementById('hzNext').onclick = () => flipHazard(1);
+    renderHazards();
+  });
 
   initSites(brand);
 })();
@@ -209,6 +256,9 @@ function tick() {
     const at = DATA && DATA.generated_at;
     const stale = !!DATA && (!at || now - new Date(at) > limit * 60000);
     banner.hidden = !stale;
+    // 版頭的點：資料新鮮時緩慢呼吸（看板是活的），過期就停下來變灰
+    const dot = document.querySelector('.live-dot');
+    if (dot) { dot.classList.toggle('fresh', !!DATA && !stale); dot.classList.toggle('stale', stale); }
     if (stale) {
       banner.textContent = (at ? `資料已停止更新（最後更新 ${at.replace('T', ' ')}）`
                                : '尚未收到外部資料（氣象／出工）')
@@ -400,8 +450,7 @@ function noticeItems() {
 function renderRecords() {
   const r = DATA.record || {};
   // days 為 null＝尚未設定起算日：顯示「—」並提示設定，不用湊出來的數字
-  document.getElementById('recordDays').textContent =
-    r.days == null ? '—' : r.days.toLocaleString();
+  rollText(document.getElementById('recordDays'), r.days == null ? '—' : r.days.toLocaleString());
   const note = document.getElementById('recordNote');
   note.textContent = '尚未設定起算日，請至「看板管理」設定';
   note.hidden = r.days != null;
@@ -413,18 +462,28 @@ function renderRecords() {
   renderFindings();
 }
 
-/** 缺失改善提醒：三個數字，>0 才上色，另附文字狀態（不只靠顏色辨識） */
+/** 缺失改善提醒：三個數字，>0 才上色，另附文字狀態（不只靠顏色辨識）。
+ *  格子只建一次、之後只換數字，數字變動才看得到滾動。 */
+const FINDING_TILES = [
+  ['findings_today', '今日新增', 'warn', '今日新開缺失'],
+  ['open', '未結案', 'warn', '待改善或待複驗'],
+  ['overdue', '逾期未改善', 'bad', '已逾期限，請優先處理'],
+];
 function renderFindings() {
   const el = document.getElementById('stats');
   const s = DATA.stats;
   if (!s) { el.innerHTML = '<p class="empty">缺失統計暫無資料</p>'; return; }
-  el.innerHTML = [
-    ['今日新增', s.findings_today, 'warn', '今日新開缺失'],
-    ['未結案', s.open, 'warn', '待改善或待複驗'],
-    ['逾期未改善', s.overdue, 'bad', '已逾期限，請優先處理'],
-  ].map(([label, v, tone, hint]) => `<div class="tile stat${v > 0 ? ' ' + tone : ''}">
-    <div><span class="tile-label">${label}</span><span class="state">${v > 0 ? hint : '無'}</span></div>
-    <b>${v}</b></div>`).join('');
+  if (!el.querySelector('.stat')) {
+    el.innerHTML = FINDING_TILES.map(([key, label]) => `<div class="tile stat" data-k="${key}">
+      <div><span class="tile-label">${label}</span><span class="state"></span></div><b></b></div>`).join('');
+  }
+  for (const [key, , tone, hint] of FINDING_TILES) {
+    const tile = el.querySelector(`[data-k="${key}"]`);
+    const v = Number(s[key]) || 0;
+    tile.className = 'tile stat' + (v > 0 ? ' ' + tone : '');
+    tile.querySelector('.state').textContent = v > 0 ? hint : '無';
+    rollText(tile.querySelector('b'), v);
+  }
 }
 
 /**
@@ -462,16 +521,16 @@ function renderContacts() {
   const body = document.getElementById('contacts');
   const PER = contactPer;
   if (!rows.length) {
-    body.innerHTML = '<p class="empty">尚未設定聯絡人，請由「看板管理」維護。</p>';
+    swapHtml(body, '<p class="empty">尚未設定聯絡人，請由「看板管理」維護。</p>');
     document.getElementById('contactPage').textContent = '';
     return;
   }
   const pages = Math.ceil(rows.length / PER);
   const pg = contactPage % pages;
   // 窄卡：一筆兩行（項目在上，姓名＋電話在下）
-  body.innerHTML = rows.slice(pg * PER, pg * PER + PER).map(c => `<div class="contact">
+  swapHtml(body, rows.slice(pg * PER, pg * PER + PER).map(c => `<div class="contact">
     <span class="role">${esc(c.role)}</span>
-    <div class="line"><span class="who">${esc(c.name)}</span><span class="tel">${esc(c.phone)}</span></div></div>`).join('');
+    <div class="line"><span class="who">${esc(c.name)}</span><span class="tel">${esc(c.phone)}</span></div></div>`).join(''));
   document.getElementById('contactPage').textContent =
     pages > 1 ? `第 ${pg + 1}／${pages} 頁` : '';
   // 牆面 overflow:hidden：放不下就少放一筆重畫（同出工表）；手機版卡片高度
@@ -612,17 +671,43 @@ function renderHazards() {
   if (!hz.length) {
     list.innerHTML = '<p class="empty">今日出工回報尚無可對應的作業危害</p>';
     pageEl.textContent = '';
-    document.getElementById('hzPager').hidden = true;
+    document.getElementById('hzChips').hidden = true;
     hzLayout = null;
     return;
   }
+  // 籤條先畫：它占掉的高度要算進分頁量測
+  const chips = document.getElementById('hzChips');
+  chips.hidden = hz.length <= 1;
+  const chipHtml = hz.map((h, i) => `<button type="button" role="tab" data-i="${i}">${esc(h.label)}</button>`).join('');
+  if (chips._html !== chipHtml) { chips._html = chipHtml; chips.innerHTML = chipHtml; hzLayout = null; }
+  const before = hzLayout;
   const pages = hazardPages(hz, list);
+  const measured = hzLayout !== before;     // 剛量測過：清單內容被整份重畫，一定要寫回
   const pg = hzPage % pages.length;
   const page = pages[pg];
   list.classList.toggle('single', page.length === 1);   // 一頁一類：卡片撐滿、字放大
-  list.innerHTML = page.map(i => hazardHtml(hz[i])).join('');
-  pageEl.textContent = `${hz.length} 類危害` + (pages.length > 1 ? `・第 ${pg + 1}／${pages.length} 頁` : '');
-  document.getElementById('hzPager').hidden = pages.length <= 1;
+  const html = page.map(i => hazardHtml(hz[i])).join('');
+  if (html !== list._page || measured) {
+    const turned = list._page !== undefined && html !== list._page;
+    list._page = html;
+    list.innerHTML = html;
+    if (turned && !reduceMotion() && list.animate) {     // 換頁才淡入
+      list.animate([{ opacity: 0, transform: 'translateY(.375rem)' }, { opacity: 1, transform: 'none' }],
+                   { duration: 320, easing: EASE_OUT });
+    }
+  }
+  pageEl.textContent = `${hz.length} 類危害`;
+  // 目前這頁的分類反白；籤條放不下時捲到看得到的位置
+  let first = null;
+  chips.querySelectorAll('[data-i]').forEach(b => {
+    const on = page.includes(+b.dataset.i);
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-selected', on ? 'true' : 'false');
+    if (on && !first) first = b;
+  });
+  if (first && chips.scrollWidth > chips.clientWidth) {
+    chips.scrollTo({ left: first.offsetLeft - chips.offsetLeft - 8, behavior: reduceMotion() ? 'auto' : 'smooth' });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -666,17 +751,17 @@ function renderHeadcountCard(w) {
   const sig = JSON.stringify([w.date, w.total, w.rows.map(r => [r.building, r.headcount])]);
   if (sig === lastKpiSig) return;
   lastKpiSig = sig;
-  const total = document.getElementById('wfKpiTotal');
+  const total = document.getElementById('wfKpiNum');
   const vendors = document.getElementById('wfKpiVendors');
   const bars = document.getElementById('wfBuildings');
   if (!total || !vendors || !bars) return;
   if (!w.rows.length) {
-    total.innerHTML = '— <small>人</small>';
+    rollText(total, '—');
     vendors.textContent = '等待今日出工回報';
     bars.innerHTML = '';
     return;
   }
-  total.innerHTML = `${w.total.toLocaleString()} <small>人</small>`;
+  rollText(total, w.total.toLocaleString());
   vendors.textContent = `${w.rows.length} 家廠商回報`;
   const groups = workforcePages(w.rows, w.rows.length);   // 每棟一頁＝每棟一組
   const sum = groups.reduce((a, g) => a + g.headcount, 0) || 1;
@@ -691,6 +776,7 @@ function renderWorkforce() {
   const body = document.getElementById('wfRows');
   renderHeadcountCard(w);
   if (!w.rows.length) {
+    body._html = undefined;
     body.innerHTML = `<tr><td colspan="5"><div class="workforce-empty">
       <span class="empty-mark">／</span><h3>等待今日出工回報</h3>
       <p>各廠商於工務所群組回報後，依當日日期彙整顯示。</p></div></td></tr>`;
@@ -707,13 +793,13 @@ function renderWorkforce() {
   // 每頁只放同一棟（棟別在卡片右上），所以不列棟別欄；整頁都沒有作業主管
   // 就收掉那一欄，把寬度讓給施作項目
   body.closest('table').classList.toggle('no-sup', !page.rows.some(r => r.supervisor));
-  body.innerHTML = page.rows.map(r => `<tr>
+  swapHtml(body, page.rows.map(r => `<tr>
     <td>${esc(r.vendor)}</td>
     <td title="${esc(r.trade || '')}"><div class="clamp2">${esc(r.trade || '—')}</div></td>
     <td>${r.headcount == null ? '—'
       : `<span class="hc"><b>${r.headcount}</b><i style="--w:${(r.headcount / maxHc * 100).toFixed(0)}%"></i></span>`}</td>
     <td>${esc(r.supervisor || '—')}</td>
-    <td title="${esc(r.tasks || '')}"><div class="clamp2">${esc(r.tasks || '—')}</div></td></tr>`).join('');
+    <td title="${esc(r.tasks || '')}"><div class="clamp2">${esc(r.tasks || '—')}</div></td></tr>`).join(''));
   document.getElementById('wfMeta').textContent =
     page.total > 1
       ? `${page.building} ${page.headcount.toLocaleString()} 人・${page.vendors} 家・第 ${page.pg}／${page.total} 頁`

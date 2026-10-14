@@ -73,8 +73,8 @@
     </div>
   </section>
   <section class="board-panel hazards" style="--i:1">
-    <header class="card-head"><span class="ico warn" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3.5 21.5 20h-19z"/><path d="M12 10v4.5M12 17.2v.1"/></svg></span><h2 title="依本日出工回報與列控表工項自動對應，提示用；實際管制依各作業自主檢查表與作業許可">今日作業危害</h2><small id="hzPage"></small><span class="pager" id="hzPager" hidden><button type="button" id="hzPrev" aria-label="上一頁危害">‹</button><button type="button" id="hzNext" aria-label="下一頁危害">›</button></span></header>
-    <div class="card-body"><div class="hz-list" id="hazardList"><p class="empty">今日出工回報尚無可對應的作業危害</p></div></div>
+    <header class="card-head"><span class="ico warn" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3.5 21.5 20h-19z"/><path d="M12 10v4.5M12 17.2v.1"/></svg></span><h2 title="依本日出工回報與列控表工項自動對應，提示用；實際管制依各作業自主檢查表與作業許可">今日作業危害</h2><small id="hzPage"></small></header>
+    <div class="card-body"><div class="hz-chips" id="hzChips" role="tablist" aria-label="今日危害分類" hidden></div><div class="hz-list" id="hazardList"><p class="empty">今日出工回報尚無可對應的作業危害</p></div></div>
   </section>
   <section class="board-panel env" style="--i:2">
     <header class="card-head"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M10 14.5V5a2 2 0 1 1 4 0v9.5a4 4 0 1 1-4 0z"/><path d="M12 9v7"/></svg></span><h2>環境監測與法定作為</h2><small id="envUpdated"></small></header>
@@ -86,7 +86,7 @@
     <header class="card-head"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20c.6-3.4 2.8-5.5 5.5-5.5s4.9 2.1 5.5 5.5"/><circle cx="17" cy="9" r="2.4"/><path d="M15.5 14.6c2.6-.3 4.5 1.6 5 4.9"/></svg></span><h2 title="來源：工務所群組出工回報；門禁人數不代替出工回報">本日出工</h2><small id="wfMeta">工種 / 人數 / 施作項目</small></header>
     <div class="wf-body">
       <aside class="wf-side">
-        <div class="tile hero"><span class="tile-label">本日回報出工</span><strong id="wfKpiTotal" class="hero-num ok">— <small>人</small></strong><p id="wfKpiVendors" class="tile-note">等待今日出工回報</p></div>
+        <div class="tile hero"><span class="tile-label">本日回報出工</span><strong id="wfKpiTotal" class="hero-num ok"><span id="wfKpiNum">—</span> <small>人</small></strong><p id="wfKpiVendors" class="tile-note">等待今日出工回報</p></div>
         <div class="bars" id="wfBuildings"></div>
         <div class="kv"><span>上月總出工</span><b id="lastMonth">—</b></div>
       </aside>

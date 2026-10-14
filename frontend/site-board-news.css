@@ -110,8 +110,12 @@ html.theme-news .tl-now::before{background:var(--red)}
 html.theme-news .tl-axis span{font-family:var(--mono);color:var(--n600)}
 
 /* ---- 今日作業危害：專欄式，危害名為大標，條號以等寬字標示 ---- */
-html.theme-news .pager button{background:transparent;box-shadow:none;border:1px solid var(--ink);color:var(--ink);font-family:var(--serif);min-width:2.5rem;min-height:2.25rem}
-html.theme-news .pager button:hover{background:var(--ink);color:var(--paper)}
+html.theme-news .hz-chips{gap:0;border:1px solid var(--ink)}
+html.theme-news .hz-chips button{background:transparent;box-shadow:none;border-left:1px solid var(--ink);color:var(--ink);
+  font:700 .9375rem var(--serif);padding:.35rem .85rem;transition:background .2s ease-out,color .2s ease-out}
+html.theme-news .hz-chips button:first-child{border-left:0}
+html.theme-news .hz-chips button:hover{background:var(--n100)}
+html.theme-news .hz-chips button.on{background:var(--ink);color:var(--paper)}
 html.theme-news .hz{background:transparent;box-shadow:none;border-top:4px solid var(--ink);border-bottom:1px solid var(--ink);padding:.75rem 0}
 html.theme-news .hz-name,html.theme-news .hz-list.single .hz-name{font:900 2.25rem/1.05 var(--serif);color:var(--ink)}
 html.theme-news .hz-count{font:700 .75rem var(--mono);text-transform:uppercase;letter-spacing:.12em;color:var(--paper);background:var(--red);padding:.2rem .5rem}
