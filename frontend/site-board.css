@@ -58,8 +58,10 @@ html.board-scale{background:#050506}
 @keyframes ambient{0%,100%{transform:translate3d(0,0,0)}50%{transform:translate3d(0,-1.25rem,0) rotate(.6deg)}}
 
 /* ---- 版頭：公司標誌｜工安標誌＋戰情室名稱｜參考讀數｜無災害｜時鐘｜入口 ---- */
-.board-header{display:flex;align-items:center;gap:1.25rem;padding:.125rem .25rem .875rem;border-bottom:1px solid var(--line)}
-.brand{display:flex;align-items:center;gap:.875rem;min-width:0;flex:1}
+/* 三欄：左 身分、中 氣象讀數（以整頁置中）、右 無災害／時鐘／入口靠右 */
+.board-header{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:1.25rem;padding:.125rem .25rem .875rem;border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:.875rem;min-width:0;justify-self:start}
+.header-right{display:flex;align-items:center;gap:1.25rem;justify-self:end;min-width:0}
 .brand-logo{display:flex;align-items:center;gap:.625rem;flex-shrink:0}
 .brand-logo img{display:block;height:3.25rem;width:auto}
 .brand-logo .brand-word{height:2.5rem}
@@ -82,8 +84,11 @@ html.board-scale{background:#050506}
 #dateLine{font-variant-numeric:tabular-nums}
 #connection{font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;min-width:0}
 #connection.error{color:var(--bad);font-weight:600}
+#connection[hidden],.crumbs .sep[hidden]{display:none}
 .wx-strip{display:flex;align-items:center;gap:1.125rem;padding:.4rem 1rem;border-radius:999px;background:var(--tile);box-shadow:inset 0 0 0 1px var(--line);font-size:.8125rem;color:var(--fg-muted);white-space:nowrap}
 .wx-strip b{font-weight:600;color:var(--fg);font-variant-numeric:tabular-nums;margin-left:.3rem}
+.wx-strip .wx{display:inline-flex;align-items:baseline;gap:.3rem}
+.wx-strip .wx b small{font-weight:400;margin-left:.15rem;color:var(--fg-muted)}
 .wx-strip .wx-epa em{font-style:normal;font-size:.625rem;margin-left:.3rem;padding:0 .3rem;border-radius:.25rem;color:var(--fg-muted);box-shadow:inset 0 0 0 1px var(--line-strong)}
 .clock{font:600 1.375rem var(--font-ui);letter-spacing:-.01em;font-variant-numeric:tabular-nums;color:var(--fg);min-width:6.5rem;text-align:right}
 .board-nav{display:flex;gap:.375rem;align-items:center;flex-shrink:0}
@@ -320,7 +325,8 @@ button:focus-visible,a:focus-visible,select:focus-visible{outline:3px solid var(
 /* 堆疊退路：窄視窗或極矮視窗（root 回到固定 16px，rem 值即基準像素） */
 @media(max-height:600px),(max-width:1100px){
   .site-board{height:auto;min-height:100vh;overflow:auto}
-  .board-header{flex-wrap:wrap;gap:.75rem}
+  .board-header{display:flex;flex-wrap:wrap;gap:.75rem}
+  .header-right{flex-wrap:wrap;gap:.75rem}
   .board-grid{flex:none;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:none;grid-auto-rows:minmax(300px,auto)}
   .cycle,.hazards,.env,.workforce{grid-column:1/-1}
   .findings{grid-column:1/2}.contacts{grid-column:2/3}

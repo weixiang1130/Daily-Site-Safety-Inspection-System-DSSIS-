@@ -40,6 +40,14 @@ html.theme-news .crumbs .sep{color:var(--n400)}
 html.theme-news .live-dot{background:var(--red);box-shadow:none;width:.5rem;height:.5rem}
 html.theme-news .wx-strip{background:var(--paper);box-shadow:none;border:1px solid var(--ink);font:.75rem var(--mono);color:var(--n600);gap:.625rem;padding:.35rem .6rem}
 html.theme-news .wx-strip b{color:var(--ink)}
+/* 參考讀數放大：撐滿報頭中段的空位，一格一項、格間細直線（報紙欄位） */
+html.theme-news .wx-strip{width:36rem;justify-content:space-around;gap:0;padding:.25rem 0;border:0;background:transparent}
+html.theme-news .wx-strip .wx{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.3rem;padding:.15rem .75rem;border-left:1px solid var(--n400)}
+html.theme-news .wx-strip .wx:first-child{border-left:0}
+html.theme-news .wx-strip .wx-k{display:flex;align-items:center;gap:.3rem;font:600 .6875rem var(--mono);letter-spacing:.08em;color:var(--n600)}
+html.theme-news .wx-strip .wx b{margin:0;font:900 1.4375rem/1 var(--serif);color:var(--ink)}
+html.theme-news .wx-strip .wx b small{font:500 .75rem var(--mono);color:var(--n500);margin-left:.15rem}
+html.theme-news .wx-strip .wx-epa b{color:var(--n700)}
 html.theme-news .wx-strip .wx-epa em{box-shadow:none;border:1px solid var(--n400);color:var(--n500)}
 html.theme-news .record-badge{background:var(--ink);box-shadow:none;color:var(--paper);padding:.35rem .75rem}
 html.theme-news .record-badge b{font:900 1.875rem var(--serif);color:var(--paper)}
@@ -176,6 +184,7 @@ html.theme-news .site-board button:focus-visible,html.theme-news .site-board a:f
 
 /* 堆疊版面：欄線改回各卡自己的框 */
 @media(max-height:600px),(max-width:1100px){
+  html.theme-news .wx-strip{width:auto;flex:1 1 100%}
   html.theme-news .board-grid{border:0}
   html.theme-news .board-panel{border:1px solid var(--ink);margin:-1px 0 0 -1px}
   html.theme-news .wf-side{border-right:0;padding-right:0;border-bottom:1px solid var(--ink);padding-bottom:1rem}

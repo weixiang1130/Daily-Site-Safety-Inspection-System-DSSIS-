@@ -172,10 +172,17 @@ async function renderBrandLite() {
 function recallPref(k) { try { return localStorage.getItem('pref:' + k) || ''; } catch (e) { return ''; } }
 function rememberPref(k, v) { try { localStorage.setItem('pref:' + k, v); } catch (e) { /* 無痕模式 */ } }
 
+/**
+ * 版頭狀態：只在出問題時顯示（讀取失敗、尚未收到資料）。正常時版頭已有時鐘、
+ * 資料過期另有紅色警示條，「更新 HH:MM」只會讓版頭擁擠——改放時鐘的滑鼠提示。
+ */
 function setStatus(text, isError) {
   const el = document.getElementById('connection');
   el.textContent = text;
   el.className = isError ? 'error' : '';
+  el.hidden = !isError;
+  const sep = el.previousElementSibling;          // 前面的「·」分隔符一起收
+  if (sep && sep.classList.contains('sep')) sep.hidden = !isError;
 }
 
 // ---------------------------------------------------------------------------
@@ -334,11 +341,9 @@ async function load() {
       `<option>${esc(d.board.site_name)}</option>`;
   }
   // 版頭只放短字；完整時間放滑鼠提示。資料過期另有紅色警示條
-  const conn = document.getElementById('connection');
-  setStatus(d.generated_at
-    ? `更新 ${d.generated_at.slice(11, 16)}` + (WALL ? '・每 2 小時' : '')
-    : '尚未收到外部資料（氣象／出工）', !d.generated_at);
-  conn.title = d.generated_at ? `資料更新於 ${d.generated_at.replace('T', ' ')}` : '';
+  setStatus(d.generated_at ? '' : '尚未收到外部資料（氣象／出工）', !d.generated_at);
+  document.getElementById('clockText').title = d.generated_at
+    ? `資料更新於 ${d.generated_at.replace('T', ' ')}` + (WALL ? '（雲端每 2 小時更新）' : '') : '';
   renderTicker();
   renderContacts();
   renderRecords();
@@ -537,11 +542,16 @@ function renderWeatherStrip(st) {
   if (!el) return;
   if (!st) { el.innerHTML = '<span class="wx-empty">氣象站離線</span>'; return; }
   const m = st.metrics || {};
-  el.innerHTML = `<span>溫度<b>${fmt(m.temperature, 1)}°C</b></span>
-    <span>濕度<b>${fmt(m.humidity, 0)}%</b></span>
-    <span>風速<b>${fmt(m.wind_speed, 1)} m/s</b></span>
-    <span class="wx-epa" title="環境部空氣品質指標，非職安法定暴露值">PM2.5<b>${fmt(m.pm25, 0)}</b><em>環保</em></span>
-    <span class="wx-epa" title="環境部空氣品質指標，非職安法定暴露值">PM10<b>${fmt(m.pm10, 0)}</b><em>環保</em></span>`;
+  // 一格一項：小標籤在上、大數字在下。沒有讀數只顯示「—」，不掛單位
+  const cell = (label, v, d, unit, epa) => {
+    const val = fmt(v, d);
+    return `<span class="wx${epa ? ' wx-epa' : ''}"${epa ? ' title="環境部空氣品質指標，非職安法定暴露值"' : ''}>`
+      + `<span class="wx-k">${label}${epa ? '<em>環保</em>' : ''}</span>`
+      + `<b>${val}${val === '—' ? '' : `<small>${unit}</small>`}</b></span>`;
+  };
+  el.innerHTML = cell('溫度', m.temperature, 1, '°C') + cell('濕度', m.humidity, 0, '%')
+    + cell('風速', m.wind_speed, 1, 'm/s')
+    + cell('PM2.5', m.pm25, 0, 'μg/m³', true) + cell('PM10', m.pm10, 0, 'μg/m³', true);
 }
 
 // ---------------------------------------------------------------------------
