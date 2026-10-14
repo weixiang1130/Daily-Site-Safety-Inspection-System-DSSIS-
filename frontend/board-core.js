@@ -42,8 +42,9 @@ const SLOT_COLORS = {
 
 function slotType(label) {
   const s = label || '';
-  if (/午休/.test(s)) return 'lunch';
+  // 先判「休息」：「上午休息」字面上含「午休」，先判午休會把它誤歸午休
   if (/休息/.test(s)) return 'rest';
+  if (/午休/.test(s)) return 'lunch';
   if (/早會|會議|預知|檢討|宣導|教育|訓練/.test(s)) return 'meeting';
   if (/檢點|檢查|整理|整頓|清掃|清潔|確認|結束|收尾/.test(s)) return 'check';
   if (/作業/.test(s)) return 'work';

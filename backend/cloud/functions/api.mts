@@ -462,6 +462,31 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
     // 工地電腦上的天數／工地下拉因此不會作用，前端在看板模式會隱藏它們。
     const WALL_KEY = "wallboard/snapshot.json";
 
+    // 公司標誌（看板版頭）。真實 LOGO 不進公開版控，由地端主機以代理權杖
+    // 上傳到 Blob（backend/tools/upload_brand_logo.py）；沒上傳就 404，
+    // 看板改顯示文字公司名。讀取不需登入：牆上大螢幕沒有 session。
+    const brandAsset = /^\/api\/(v1\/ingest\/)?brand\/(mark|wordmark)$/.exec(p);
+    if (brandAsset && !brandAsset[1] && method === "GET") {
+      const img = await files().get(`brand/${brandAsset[2]}`, { type: "arrayBuffer" });
+      if (!img) return fail(404, "未設定公司標誌");
+      return new Response(img, {
+        headers: { "content-type": "image/png", "cache-control": "public, max-age=86400" },
+      });
+    }
+    if (brandAsset && brandAsset[1] && method === "POST") {
+      const expected = Netlify.env.get("SITE_AGENT_TOKEN") || "";
+      const token = req.headers.get("x-agent-token") || "";
+      if (!expected || token !== expected) return fail(401, "代理權杖驗證失敗");
+      const buf = await req.arrayBuffer();
+      const head = new Uint8Array(buf.slice(0, 8));
+      const PNG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+      if (buf.byteLength > 512 * 1024 || !PNG.every((b, i) => head[i] === b)) {
+        return fail(400, "標誌須為 512 KB 以內的 PNG");
+      }
+      await files().set(`brand/${brandAsset[2]}`, buf);
+      return json({ ok: true, bytes: buf.byteLength });
+    }
+
     if (p === "/api/v1/ingest/wallboard" && method === "POST") {
       const expected = Netlify.env.get("SITE_AGENT_TOKEN") || "";
       const token = req.headers.get("x-agent-token") || "";

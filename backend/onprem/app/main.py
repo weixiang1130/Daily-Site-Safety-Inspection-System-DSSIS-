@@ -29,7 +29,7 @@ from .hazard import (LEVEL_LABEL, level_of, station_level,  # noqa: E402
                      heat_index_c, thresholds_payload)
 from .heat_guidance import heat_guidance
 from .noise_guidance import noise_guidance, period_alarms
-from .work_hazards import hazards_of
+from .work_hazards import guide_of, hazards_of
 from . import cctv
 from .db import (
     BASE_DIR, Coordination, CoordinationAttendee, DeviceReading, Finding, FormItem,
@@ -224,7 +224,9 @@ def hazards_section(worklogs, tasks=()) -> list:
     for t in tasks:
         bld = BUILDING_LABELS.get(t.site_code)
         note(t.name, t.name[:16] + (f"（{bld}）" if bld else ""))
-    return sorted([{"label": k, "sources": v} for k, v in hazard_map.items()],
+    # measures：該危害的法定應辦事項（含條號），牆上的危害面板逐項列出
+    return sorted([{"label": k, "sources": v, "measures": guide_of(k)}
+                   for k, v in hazard_map.items()],
                   key=lambda x: -len(x["sources"]))
 
 
@@ -1409,6 +1411,23 @@ class RevalidatingStatic(StaticFiles):
 app.mount("/static", RevalidatingStatic(
     directory=os.path.join(os.path.dirname(os.path.dirname(BASE_DIR)), "frontend"),
     html=True), name="static")
+
+
+# 公司標誌。真實 LOGO 不進公開版控：放 backend/data/brand-*.local.png
+# （.gitignore 的 backend/data/*.local.* 排除），執行時由這裡提供。
+# 沒有檔案就回 404，看板改顯示文字公司名。
+BRAND_DIR = os.path.join(os.path.dirname(BASE_DIR), "data")
+BRAND_FILES = {"mark": "brand-mark.local.png", "wordmark": "brand-wordmark.local.png"}
+
+
+@app.get("/api/brand/{name}")
+def brand_asset(name: str):
+    fname = BRAND_FILES.get(name)
+    full = os.path.join(BRAND_DIR, fname) if fname else ""
+    if not full or not os.path.isfile(full):
+        raise HTTPException(404, "未設定公司標誌")
+    return FileResponse(full, media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=86400"})
 
 
 @app.get("/api/branding")

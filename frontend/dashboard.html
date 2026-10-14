@@ -1,15 +1,30 @@
 <!doctype html>
 <!-- board-scale 掛在 html：字級縮放的基準是 rem，必須從根元素縮放 -->
-<html lang="zh-Hant" class="board-scale"><head>
+<html lang="zh-Hant" class="board-scale theme-news"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="no-referrer">
-<title>工地安全戰情室</title><link rel="stylesheet" href="/static/brand.css"><link rel="stylesheet" href="/static/site-board.css">
+<meta name="color-scheme" content="light">
+<!-- 看板採報紙風格（site-board-news.css 疊在 site-board.css 的版面之上）。
+     字型：連不上網路時退回系統襯線字（新細明體），版面不受影響。字型表用
+     media="print"＋onload 非阻塞載入——一般 <link> 在連不上 Google 的內網電腦上
+     會讓整頁空白到逾時才出現。 -->
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;700;900&family=Lora:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;600&family=Inter:wght@500;600;700&display=swap" media="print" onload="this.media='all'">
+<title>工地安全戰情室</title><link rel="stylesheet" href="/static/brand.css"><link rel="stylesheet" href="/static/site-board.css"><link rel="stylesheet" href="/static/site-board-news.css">
 </head><body class="site-board">
+<!-- 版面：版頭（公司標誌｜工安標誌＋戰情室名稱、工地／日期／更新狀態｜參考讀數｜
+     無災害天數｜時鐘｜入口），6 欄卡片格——上排「現在做什麼／今日危害／環境與
+     法定作為」各 2 欄，下排出工 4 欄＋缺失改善提醒＋聯絡人，最下方安全佈告跑馬燈。
+     所有 id 都被 site-board.js 直接取用，改版時不可少任何一個。 -->
 <header class="board-header">
-  <div class="identity"><span class="eyebrow">SITE SAFETY / DAILY OPERATIONS</span><strong id="org">職安戰情室</strong></div>
-  <div class="safety-motto">安全<span class="safety-cross" aria-hidden="true"><!--
-    工安標誌（齒輪綠十字＋桂冠）。手繪 SVG 而非圖檔：任何螢幕縮放都乾淨，
-    也不用多一個資產檔。顏色是標誌本身的固定用色，不隨主題變。
-    --><svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+  <div class="brand">
+    <!-- 公司標誌由伺服器提供（不進版控）；載入失敗就顯示文字公司名 -->
+    <span class="brand-logo" id="brandLogo" hidden><img id="brandMark" alt="" src="/api/brand/mark"><img class="brand-word" id="brandWord" alt="" src="/api/brand/wordmark"></span>
+    <strong class="brand-text" id="orgShort"></strong>
+    <span class="brand-sep" aria-hidden="true"></span>
+    <span class="osh-emblem" aria-hidden="true" title="職業安全衛生"><!--
+      工安標誌（齒輪綠十字＋桂冠）。手繪 SVG 而非圖檔：任何螢幕縮放都乾淨。
+      顏色是標誌本身的固定用色，不隨主題變；深底上墊淡色圓盤。
+      --><svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
     <circle cx="60" cy="50" r="25" fill="none" stroke="#2B62B4" stroke-width="7" stroke-dasharray="4.4 4.33" transform="rotate(-4 60 50)"/>
     <circle cx="60" cy="50" r="20" fill="none" stroke="#2B62B4" stroke-width="4.6"/>
     <path fill="#3B8C3F" d="M56 34h8v12h12v8H64v12h-8V54H44v-8h12z"/>
@@ -28,36 +43,68 @@
         <path transform="rotate(-66)" d="M0 0 C4.4 -6.3 4.0 -13.5 0 -18.0 C-2.4 -13.0 -3.1 -5.4 0 0 Z"/>
       </g>
     </g>
-  </svg></span>第一</div>
-  <div class="site-heading"><label for="site">工地</label><select id="site"><option>載入中…</option></select><div id="dateLine">—</div></div>
+  </svg></span>
+    <div class="brand-title"><h1 id="org">職安戰情室</h1>
+      <div class="crumbs"><span class="live-dot" aria-hidden="true"></span><select id="site" aria-label="工地"><option>載入中…</option></select><span class="sep" aria-hidden="true">·</span><span id="dateLine">—</span><span class="sep" aria-hidden="true">·</span><span id="connection" role="status">正在讀取工地資料…</span></div>
+    </div>
+  </div>
+  <div class="wx-strip" id="wxStrip" aria-label="即時氣象"><span class="wx-empty">氣象站 —</span></div>
+  <div class="record-badge" title="無災害紀錄"><span class="rb-label">無災害</span><b id="recordDays">—</b><span class="rb-unit">天</span><span class="rb-note" id="recordNote" hidden></span></div>
+  <div class="clock" id="clockText">—</div>
+  <nav class="board-nav"><a id="settingsLink" href="/static/board-settings.html">看板管理</a><!-- 詳細戰情（舊戰情室 dashboard-detail）入口暫時隱藏：頁面與路由都保留，未來要回歸只需拿掉 class="hidden" --><a id="detailLink" href="/static/dashboard-detail.html" class="hidden">詳細戰情</a><a id="homeLink" href="/static/home.html">首頁</a><button id="fullscreen" type="button">全螢幕</button></nav>
 </header>
-<div class="board-status"><span id="connection" role="status">正在讀取工地資料…</span><nav><a id="settingsLink" href="/static/board-settings.html">看板管理</a><!-- 詳細戰情（舊戰情室 dashboard-detail）入口暫時隱藏：頁面與路由都保留，未來要回歸只需拿掉 class="hidden" --><a id="detailLink" href="/static/dashboard-detail.html" class="hidden">詳細戰情</a><a id="homeLink" href="/static/home.html">首頁</a><button id="fullscreen" type="button">全螢幕</button></nav></div>
 <!-- 失更警示：時鐘照走、面板卻是舊資料時牆面看起來完全健康，必須大聲說 -->
 <div id="staleBanner" class="stale-banner" hidden></div>
 <main class="board-grid">
-  <section class="board-panel announcements"><h2><span>01</span>安全佈告 / 宣導 <small id="noticePage"></small></h2>
-    <div class="notice-stage" id="notice" aria-live="polite"><p class="empty">正在讀取公告…</p></div>
-    <div class="notice-controls"><span id="noticeSource">工地安全資訊</span><button id="prevNotice" aria-label="上一則公告">←</button><button id="pauseNotice">暫停輪播</button><button id="nextNotice" aria-label="下一則公告">→</button></div>
+  <section class="board-panel cycle" style="--i:0">
+    <header class="card-head"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg></span><h2>安全作業循環</h2><small id="cycleRange"></small></header>
+    <div class="card-body">
+      <div class="now-card" id="nowCard">
+        <span class="now-label">現在應做事項</span>
+        <strong id="currentTask">尚未設定時程</strong>
+        <div class="now-meta"><span id="nowRemain"></span><span id="nowSpan"></span></div>
+        <div class="now-progress"><i id="nowBar"></i></div>
+      </div>
+      <p class="next-line" id="nextTask">請由工地設定每日安全作業循環</p>
+      <ul class="later" id="laterList"></ul>
+      <div class="timeline" id="timeline"></div>
+    </div>
   </section>
-  <section class="board-panel records"><h2><span>02</span>無災害紀錄</h2><div class="record-content">
-    <div class="hours"><span>無災害累計天數</span><strong id="recordDays">— <small>天</small></strong><p id="recordNote">自無災害起算日累計</p></div>
-    <div class="last-month"><span>上月總出工</span><b id="lastMonth">—</b></div>
-    <h3>填報與改善追蹤</h3><div class="record-stats" id="stats"><p class="empty">尚無統計資料</p></div>
-    <p class="footnote">缺失統計不等同災害紀錄。</p>
-  </div></section>
-  <section class="board-panel contacts"><h2><span>03</span>緊急連絡人 <small id="contactPage"></small></h2>
-    <div class="table-area"><table><thead><tr><th>項目</th><th>名稱</th><th>電話</th></tr></thead><tbody id="contacts"></tbody></table></div>
-    <p class="panel-footer" id="contactUpdated">由工地維護聯絡資訊</p>
+  <section class="board-panel hazards" style="--i:1">
+    <header class="card-head"><span class="ico warn" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3.5 21.5 20h-19z"/><path d="M12 10v4.5M12 17.2v.1"/></svg></span><h2 title="依本日出工回報與列控表工項自動對應，提示用；實際管制依各作業自主檢查表與作業許可">今日作業危害</h2><small id="hzPage"></small><span class="pager" id="hzPager" hidden><button type="button" id="hzPrev" aria-label="上一頁危害">‹</button><button type="button" id="hzNext" aria-label="下一頁危害">›</button></span></header>
+    <div class="card-body"><div class="hz-list" id="hazardList"><p class="empty">今日出工回報尚無可對應的作業危害</p></div></div>
   </section>
-  <section class="board-panel cycle"><h2><span>04</span>安全作業循環與環境 <small id="envUpdated"></small></h2>
-    <div class="cycle-content"><div class="cycle-clock"><div id="dial"></div><div class="now-label">現在應做事項</div><strong id="currentTask">尚未設定時程</strong><p id="nextTask">請由工地設定每日安全作業循環</p></div>
-    <div class="environment"><table><thead><tr><th>項目</th><th>數值</th><th>單位</th><th>現場提醒</th></tr></thead><tbody id="environment"></tbody></table><p class="footnote">噪音、懸浮微粒為即時參考值，非作業環境監測或法規符合性判定。</p></div></div>
+  <section class="board-panel env" style="--i:2">
+    <header class="card-head"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M10 14.5V5a2 2 0 1 1 4 0v9.5a4 4 0 1 1-4 0z"/><path d="M12 9v7"/></svg></span><h2>環境監測與法定作為</h2><small id="envUpdated"></small></header>
+    <div class="card-body">
+      <div class="env-actions" id="envActions"></div>
+    </div>
   </section>
-  <section class="board-panel workforce"><h2><span>05</span>本日出工一覽表 <small id="wfMeta">工種 / 人數 / 施作項目</small></h2>
-    <div class="workforce-summary"><div><span id="wfScope">本日回報出工</span><strong id="wfTotal">— <small>人</small></strong></div><p id="wfNote">來源：工務所群組出工回報</p></div>
-    <div class="table-area"><table><thead><tr><th>棟別</th><th>廠商名稱</th><th>工種</th><th>出工人數</th><th>作業主管</th><th>施作項目</th></tr></thead><tbody id="wfRows"><tr><td colspan="6"><div class="workforce-empty"><span class="empty-mark">／</span><h3>等待今日出工回報</h3><p>各廠商於工務所群組回報後，依當日日期彙整顯示。</p><p>門禁人數不代替出工回報。</p></div></td></tr></tbody></table></div>
+  <section class="board-panel workforce" style="--i:3">
+    <header class="card-head"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20c.6-3.4 2.8-5.5 5.5-5.5s4.9 2.1 5.5 5.5"/><circle cx="17" cy="9" r="2.4"/><path d="M15.5 14.6c2.6-.3 4.5 1.6 5 4.9"/></svg></span><h2 title="來源：工務所群組出工回報；門禁人數不代替出工回報">本日出工</h2><small id="wfMeta">工種 / 人數 / 施作項目</small></header>
+    <div class="wf-body">
+      <aside class="wf-side">
+        <div class="tile hero"><span class="tile-label">本日回報出工</span><strong id="wfKpiTotal" class="hero-num ok">— <small>人</small></strong><p id="wfKpiVendors" class="tile-note">等待今日出工回報</p></div>
+        <div class="bars" id="wfBuildings"></div>
+        <div class="kv"><span>上月總出工</span><b id="lastMonth">—</b></div>
+      </aside>
+      <div class="table-area"><table><thead><tr><th>廠商名稱</th><th>工種</th><th>出工人數</th><th>作業主管</th><th>施作項目</th></tr></thead><tbody id="wfRows"><tr><td colspan="6"><div class="workforce-empty"><span class="empty-mark">／</span><h3>等待今日出工回報</h3><p>各廠商於工務所群組回報後，依當日日期彙整顯示。</p></div></td></tr></tbody></table></div>
+    </div>
+  </section>
+  <section class="board-panel findings" style="--i:4">
+    <header class="card-head"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 4h6l1 2h3v15H5V6h3z"/><path d="M9 12h6M9 16h4"/></svg></span><h2 title="缺失統計不等同災害紀錄">缺失改善提醒</h2></header>
+    <div class="card-body"><div class="stat-tiles" id="stats"><p class="empty">尚無統計資料</p></div></div>
+  </section>
+  <section class="board-panel contacts" style="--i:5">
+    <header class="card-head"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6.6 3.5h3l1.4 4-2 1.3a11 11 0 0 0 6.2 6.2l1.3-2 4 1.4v3a2 2 0 0 1-2.2 2A16.5 16.5 0 0 1 4.6 5.7a2 2 0 0 1 2-2.2z"/></svg></span><h2>緊急連絡人</h2><small id="contactPage"></small></header>
+    <div class="card-body"><div class="contact-list" id="contacts"></div></div>
   </section>
 </main>
-<footer class="board-footer"><span>每日作業・即時環境・安全管理</span><span id="clockText">—</span></footer>
+<!-- 安全佈告跑馬燈（危險級環境警示、工地公告、職安新知）：內容變了才重建，
+     避免每次輪詢讓捲動從頭開始 -->
+<div class="ticker" role="status" aria-label="安全佈告">
+  <span class="ticker-label"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h3l6 4V6L7 10z"/><path d="M16.5 9a4 4 0 0 1 0 6M19 6.5a7.5 7.5 0 0 1 0 11"/></svg>安全佈告</span>
+  <div class="ticker-viewport"><div class="ticker-track" id="tickerTrack"></div></div>
+</div>
 <script src="/static/common.js"></script><script src="/static/board-core.js"></script><script src="/static/site-board.js"></script>
 </body></html>
