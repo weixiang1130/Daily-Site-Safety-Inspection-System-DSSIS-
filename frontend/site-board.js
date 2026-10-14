@@ -17,11 +17,12 @@ const fmt = (v, d = 1) => (v == null || isNaN(v) ? '—' : Number(v).toFixed(d))
 let DATA = null;              // 最近一次 /api/board-data 的回應
 let SITE_ID = null;
 let contactPage = 0, wfPage = 0, hzPage = 0;
-let hzPer = null;
 let contactPer = 6;           // 聯絡人每頁筆數；畫完被裁切會自動縮
+let lastContactSig = '';      // 聯絡人資料指紋；資料變了才把筆數放回上限
+let hzLayout = null;          // 危害分頁結果 {key, pages:[[索引…]…]}；資料或卡片尺寸變了才重算
 let hzHoldUntil = 0;          // 手動翻頁後暫停自動換頁到這個時間（毫秒）
-const HZ_HOLD_MS = 30000;             // 危害每頁類數；null＝依內容預設，畫完被裁切會自動縮
-let lastHzSig = '';
+const HZ_HOLD_MS = 30000;     // 手動翻頁後停留多久才恢復自動換頁
+let lastLaterHtml = null;     // 「之後」兩個時段的上次內容；沒變就不動 DOM
 let lastTickerSig = null;     // 跑馬燈內容指紋：沒變就不重建（重建會讓捲動從頭開始）
 let cycleSig = null;          // 作業循環時程指紋：沒變就不重畫時間軸
 let wfPer = 6;                // 出工每頁列數；畫完被裁切會自動縮（renderWorkforce）
@@ -68,13 +69,17 @@ let WALL = false, WALL_KEY = '', POLL = POLL_MS;
     if (Date.now() >= hzHoldUntil) hzPage++;   // 剛手動翻過就先停在那一頁
     if (DATA) { renderContacts(); renderWorkforce(); renderHazards(); }
   }, PAGE_MS);
-  // 視窗尺寸變了（含進出全螢幕）就把每頁列數放回上限重估，
-  // 螢幕變大時列數才長得回來，變小時 renderWorkforce 會自己縮
-  window.addEventListener('resize', () => {
-    wfPer = 6; hzPer = null; contactPer = 6;
-    lastTickerSig = null;           // 跑馬燈依視窗寬度決定重複次數
-    if (DATA) { renderWorkforce(); renderTicker(); renderHazards(); }
-  });
+  // 視窗尺寸變了（含進出全螢幕）或網頁字型載入完成（字寬、行高會變）就把
+  // 每頁筆數放回上限、跑馬燈與危害分頁重新量測——螢幕變大時才長得回來，
+  // 字型晚到時跑馬燈也不會因為寬度量錯而在接縫露出空白
+  const refit = () => {
+    wfPer = 6; contactPer = 6; hzLayout = null; lastTickerSig = null;
+    if (DATA) { renderWorkforce(); renderContacts(); renderTicker(); renderHazards(); }
+  };
+  window.addEventListener('resize', refit);
+  if (document.fonts && document.fonts.addEventListener) {
+    document.fonts.addEventListener('loadingdone', refit);
+  }
 
   document.getElementById('fullscreen').onclick = () => {
     // 電視棒／老 WebKit 只有帶前綴的 API；失敗就安靜作罷，牆上沒人看錯誤
@@ -89,7 +94,8 @@ let WALL = false, WALL_KEY = '', POLL = POLL_MS;
 
   // 今日作業危害手動翻頁：翻完停留 30 秒再恢復自動換頁，讓人看得完
   const flipHazard = step => {
-    hzPage = Math.max(0, hzPage + step + 1000) % 1000;
+    const n = (hzLayout && hzLayout.pages.length) || 1;
+    hzPage = ((hzPage % n) + step + n) % n;     // 第 1 頁按「上一頁」回到最後一頁
     hzHoldUntil = Date.now() + HZ_HOLD_MS;
     if (DATA) renderHazards();
   };
@@ -257,8 +263,10 @@ function renderCycle(now) {
   const ni = next ? rows.indexOf(next) : -1;
   const later = ni >= 0 ? rows.slice(ni + 1, ni + 3) : [];
   const laterHtml = later.map(r => `<li><span>${esc(r.start)}</span>${esc(r.label)}</li>`).join('');
-  const laterEl = document.getElementById('laterList');
-  if (laterEl.innerHTML !== laterHtml) laterEl.innerHTML = laterHtml;
+  if (laterHtml !== lastLaterHtml) {
+    lastLaterHtml = laterHtml;
+    document.getElementById('laterList').innerHTML = laterHtml;
+  }
 
   // 時間軸：時程變了才重畫，每秒只移動「現在」指標與亮起目前時段
   const tl = document.getElementById('timeline');
@@ -335,6 +343,8 @@ async function load() {
   // 施作項目會讓之後每一天、每一棟都被切得過細
   const wfSig = JSON.stringify((d.worklog && d.worklog.rows) || []);
   if (wfSig !== lastWfSig) { lastWfSig = wfSig; wfPer = 6; }
+  const ctSig = JSON.stringify((d.board && d.board.config.contacts) || []);
+  if (ctSig !== lastContactSig) { lastContactSig = ctSig; contactPer = 6; }
   // 雲端固定視圖：工地名由快照帶出，填進（已停用的）下拉當標題
   if (WALL && d.board && d.board.site_name) {
     document.getElementById('site').innerHTML =
@@ -464,10 +474,10 @@ function renderContacts() {
     <div class="line"><span class="who">${esc(c.name)}</span><span class="tel">${esc(c.phone)}</span></div></div>`).join('');
   document.getElementById('contactPage').textContent =
     pages > 1 ? `第 ${pg + 1}／${pages} 頁` : '';
-  // 牆面 overflow:hidden：放不下就少放一筆重畫（同出工表）；手機版不縮
+  // 牆面 overflow:hidden：放不下就少放一筆重畫（同出工表）；手機版卡片高度
+  // 跟著內容長，不會溢出，也就不會縮
   const panel = body.closest('.board-panel');
-  if (contactPer > 2 && panel && getComputedStyle(panel).height !== 'auto'
-      && panel.scrollHeight > panel.clientHeight + 1 && window.innerWidth > 800) {
+  if (contactPer > 2 && panel && panel.scrollHeight > panel.clientHeight + 1) {
     contactPer--;
     renderContacts();
   }
@@ -556,8 +566,44 @@ function renderWeatherStrip(st) {
 
 // ---------------------------------------------------------------------------
 // 今日作業危害：危害類別、觸發的作業、法定應辦事項（附條號）。
-// 舊快照沒有 measures 時只列類別與作業，一頁可放多一點。
+// 分頁依實際高度裝箱：每一類先畫一次量高度，依序塞進卡片，放不下才換頁。
+// 一類特別長（三條措施）不會拖累其他頁也只放一類。
 // ---------------------------------------------------------------------------
+function hazardHtml(h) {
+  const src = h.sources || [];
+  // 後端每類最多收 6 處來源，剛好 6 處時實際可能更多
+  const count = `${src.length}${src.length >= 6 ? '+' : ''} 處作業`;
+  const ms = (h.measures || []).map(x => `<li>${esc(x.text)}<cite>${esc(x.basis)}</cite></li>`).join('');
+  return `<article class="hz"><header><span class="hz-name">${esc(h.label)}</span><span class="hz-count">${count}</span></header>
+    <p class="hz-src" title="${esc(src.join('、'))}">${esc(src.join('、'))}</p>${ms ? `<ul class="hz-measures">${ms}</ul>` : ''}</article>`;
+}
+
+/** 危害分頁：[[索引…]…]。結果依「資料＋卡片尺寸」快取，換頁時不重量。 */
+function hazardPages(hz, list) {
+  const key = JSON.stringify(hz) + '|' + list.clientWidth + 'x' + list.clientHeight;
+  if (hzLayout && hzLayout.key === key) return hzLayout.pages;
+  let pages = [];
+  if (getComputedStyle(list).overflowY === 'auto') {
+    // 手機版可捲動：固定一頁兩類
+    for (let i = 0; i < hz.length; i += 2) pages.push(hz.slice(i, i + 2).map((_, k) => i + k));
+  } else {
+    list.classList.remove('single');
+    list.innerHTML = hz.map(hazardHtml).join('');
+    const room = list.clientHeight;
+    const gap = parseFloat(getComputedStyle(list).rowGap) || 0;
+    let cur = [], used = 0;
+    [...list.children].forEach((el, i) => {
+      const h = el.offsetHeight;
+      const need = cur.length ? used + gap + h : h;
+      if (cur.length && need > room) { pages.push(cur); cur = [i]; used = h; }
+      else { cur.push(i); used = need; }
+    });
+    if (cur.length) pages.push(cur);
+  }
+  hzLayout = { key, pages };
+  return pages;
+}
+
 function renderHazards() {
   const list = document.getElementById('hazardList');
   const pageEl = document.getElementById('hzPage');
@@ -567,32 +613,16 @@ function renderHazards() {
     list.innerHTML = '<p class="empty">今日出工回報尚無可對應的作業危害</p>';
     pageEl.textContent = '';
     document.getElementById('hzPager').hidden = true;
+    hzLayout = null;
     return;
   }
-  const sig = JSON.stringify(hz);
-  if (sig !== lastHzSig) { lastHzSig = sig; hzPer = null; }
-  const per = hzPer || (hz.some(h => h.measures && h.measures.length) ? 2 : 4);
-  const pages = Math.ceil(hz.length / per);
-  const pg = hzPage % pages;
-  list.innerHTML = hz.slice(pg * per, pg * per + per).map(h => {
-    const src = h.sources || [];
-    // 後端每類最多收 6 處來源，剛好 6 處時實際可能更多
-    const count = `${src.length}${src.length >= 6 ? '+' : ''} 處作業`;
-    const ms = (h.measures || []).map(x => `<li>${esc(x.text)}<cite>${esc(x.basis)}</cite></li>`).join('');
-    return `<article class="hz"><header><span class="hz-name">${esc(h.label)}</span><span class="hz-count">${count}</span></header>
-      <p class="hz-src" title="${esc(src.join('、'))}">${esc(src.join('、'))}</p>${ms ? `<ul class="hz-measures">${ms}</ul>` : ''}</article>`;
-  }).join('');
-  pageEl.textContent = `${hz.length} 類危害` + (pages > 1 ? `・第 ${pg + 1}／${pages} 頁` : '');
-  document.getElementById('hzPager').hidden = pages <= 1;
-  list.classList.toggle('single', per === 1);   // 一頁一類：卡片撐滿、字放大
-  // 牆面 overflow:hidden：放不下就少放一類重畫（同出工表的自適應）；
-  // 手機版可捲動不縮
-  if (per > 1 && getComputedStyle(list).overflowY !== 'auto'
-      && list.scrollHeight > list.clientHeight + 1) {
-    hzPer = per - 1;
-    hzPage = Math.floor(pg * per / hzPer);   // 讓本頁第一類仍在畫面上
-    renderHazards();
-  }
+  const pages = hazardPages(hz, list);
+  const pg = hzPage % pages.length;
+  const page = pages[pg];
+  list.classList.toggle('single', page.length === 1);   // 一頁一類：卡片撐滿、字放大
+  list.innerHTML = page.map(i => hazardHtml(hz[i])).join('');
+  pageEl.textContent = `${hz.length} 類危害` + (pages.length > 1 ? `・第 ${pg + 1}／${pages.length} 頁` : '');
+  document.getElementById('hzPager').hidden = pages.length <= 1;
 }
 
 // ---------------------------------------------------------------------------

@@ -92,14 +92,14 @@ html.board-scale{background:#050506}
 .wx-strip .wx-epa em{font-style:normal;font-size:.625rem;margin-left:.3rem;padding:0 .3rem;border-radius:.25rem;color:var(--fg-muted);box-shadow:inset 0 0 0 1px var(--line-strong)}
 .clock{font:600 1.375rem var(--font-ui);letter-spacing:-.01em;font-variant-numeric:tabular-nums;color:var(--fg);min-width:6.5rem;text-align:right}
 .board-nav{display:flex;gap:.375rem;align-items:center;flex-shrink:0}
-.board-nav a,.board-nav button,.notice-controls button{
+.board-nav a,.board-nav button{
   font:500 .8125rem var(--font-ui);color:var(--fg-muted);text-decoration:none;cursor:pointer;
   padding:.375rem .75rem;border:0;border-radius:.5rem;background:rgba(255,255,255,.04);
   box-shadow:inset 0 0 0 1px var(--line),inset 0 1px 0 rgba(255,255,255,.06);
   transition:background .2s var(--ease),color .2s var(--ease),transform .2s var(--ease);
 }
-.board-nav a:hover,.board-nav button:hover,.notice-controls button:hover{background:rgba(255,255,255,.08);color:var(--fg)}
-.board-nav button:active,.notice-controls button:active{transform:scale(.98)}
+.board-nav a:hover,.board-nav button:hover{background:rgba(255,255,255,.08);color:var(--fg)}
+.board-nav button:active{transform:scale(.98)}
 
 /* 無災害天數：不是牆上最重要的資訊，收成版頭一枚徽章 */
 .record-badge{flex-shrink:0;display:grid;grid-template-columns:auto auto auto;grid-template-rows:auto auto;align-items:baseline;column-gap:.4rem;
@@ -350,4 +350,6 @@ button:focus-visible,a:focus-visible,select:focus-visible{outline:3px solid var(
 
 /* ---- 看板管理（board-settings.html）---- */
 .board-editor .editor-card{margin:20px 0}.editor-toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.editor-rows{display:grid;gap:12px}.editor-row{border:1px solid var(--border);background:var(--bg-canvas);padding:14px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) auto;gap:12px;align-items:end}.editor-row label{display:block;font-size:13px}.editor-row input,.editor-row textarea{width:100%;font:inherit}.editor-row .full{grid-column:1/-1}.editor-row textarea{min-height:100px}.editor-row button{align-self:end}.editor-actions{position:sticky;bottom:0;padding:16px;background:var(--bg-sunken);border-top:1px solid var(--border);display:flex;align-items:center;gap:20px}.editor-actions span{font-size:14px}.board-editor .lede{max-width:100%}.board-editor fieldset{border:0;margin:0;padding:0}.board-editor fieldset:disabled{opacity:.65}@media(max-width:700px){.editor-row{grid-template-columns:1fr 1fr}.editor-row .contact-phone{grid-column:1}.editor-actions{flex-wrap:wrap}}
+.board-editor .missing{border-color:var(--critical-600)!important;box-shadow:0 0 0 2px var(--critical-100)}
+.board-editor .save-error{color:var(--critical-600);font-weight:600}
 .board-editor .eyebrow{font:.6875rem var(--font-mono);letter-spacing:.16em;color:var(--text-muted)}

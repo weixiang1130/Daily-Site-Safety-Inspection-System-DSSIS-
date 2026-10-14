@@ -93,6 +93,10 @@ let seq = 0;   // 列的流水 id，只在本頁內有意義
   document.getElementById('addSchedule').onclick = () => addRow('schedule', {});
   document.getElementById('addAnnouncement').onclick = () => addRow('announcements', {});
   document.getElementById('form').onsubmit = save;
+  // 補上缺的欄位就把紅框拿掉
+  document.getElementById('form').addEventListener('input', e => {
+    if (e.target.classList && e.target.value.trim()) e.target.classList.remove('missing');
+  });
   load();
 })();
 
@@ -160,6 +164,37 @@ function addRow(key, row) {
   document.getElementById(key).appendChild(div);
 }
 
+// 必填欄位：與雲端 lib/site-board.ts 的 validateBoard 同一套規則。先在本機
+// 檢查，才能指出「哪一筆、缺哪一欄」——雲端只回一句「必填」，看不出是哪列
+const REQUIRED = { contacts: ['role', 'name', 'phone'], schedule: ['start', 'end', 'label'],
+                   announcements: ['title', 'body'] };
+const SECTION = { contacts: '緊急連絡人', schedule: '作業循環', announcements: '公告' };
+
+/** 第一個缺必填欄的列：標紅、回傳 {el, msg}；都齊了回 null。整列空白視同已刪除。 */
+function firstMissing() {
+  document.querySelectorAll('.editor-row .missing').forEach(el => el.classList.remove('missing'));
+  for (const key of Object.keys(REQUIRED)) {
+    const rows = [...document.querySelectorAll(`.editor-row[data-kind="${key}"]`)];
+    for (let n = 0; n < rows.length; n++) {
+      const fields = [...rows[n].querySelectorAll('[data-f]')];
+      if (!fields.some(el => el.value.trim())) continue;
+      const miss = fields.filter(el => REQUIRED[key].includes(el.dataset.f) && !el.value.trim());
+      if (!miss.length) continue;
+      miss.forEach(el => el.classList.add('missing'));
+      const names = miss.map(el => ROW_FIELDS[key].find(f => f[0] === el.dataset.f)[1].replace(/（.*?）/g, ''));
+      return { el: miss[0], msg: `${SECTION[key]}第 ${n + 1} 筆缺「${names.join('、')}」` };
+    }
+  }
+  return null;
+}
+
+/** 存檔結果常駐在按鈕旁（提示泡泡幾秒就消失，容易以為存好了） */
+function showSaveState(text, isError) {
+  const state = document.getElementById('saveState');
+  state.textContent = text;
+  state.className = isError ? 'save-error' : 'muted';
+}
+
 function collect(key) {
   return [...document.querySelectorAll(`.editor-row[data-kind="${key}"]`)].map(div => {
     const out = {};
@@ -171,9 +206,15 @@ function collect(key) {
 async function save(ev) {
   ev.preventDefault();
   const btn = document.getElementById('save');
-  const state = document.getElementById('saveState');
+  const missing = firstMissing();
+  if (missing) {
+    showSaveState('未儲存：' + missing.msg, true);
+    missing.el.scrollIntoView({ block: 'center' });
+    missing.el.focus();
+    return;
+  }
   btn.disabled = true;
-  state.textContent = '儲存中…';
+  showSaveState('儲存中…', false);
   try {
     const d = await API.post('/api/site-board/' + SITE_ID, {
       revision: REVISION,
@@ -188,10 +229,10 @@ async function save(ev) {
       },
     });
     REVISION = d.revision;
-    state.textContent = '已儲存，看板一分鐘內更新。';
+    showSaveState('已儲存，看板一分鐘內更新。', false);
     toast('已儲存');
   } catch (e) {
-    state.textContent = '';
+    showSaveState('儲存失敗：' + e.message, true);
     toast('儲存失敗：' + e.message, 4200);
   } finally {
     btn.disabled = false;
