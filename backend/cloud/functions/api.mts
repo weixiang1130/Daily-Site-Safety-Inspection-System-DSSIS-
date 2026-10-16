@@ -297,7 +297,11 @@ function faceRefreshMin(): number {
 async function faceHeadcount(): Promise<any> {
   const base = (Netlify.env.get("FACE_URL") || "").trim().replace(/\/+$/, "");
   const code = primaryCode();
-  if (!base || !code) return null;
+  if (!base || !code) {
+    // 改了 Netlify 環境變數要重新部署才生效——沒設好時在函式日誌留一句，免得盲查
+    console.warn(`[face] 未設定${base ? "" : " FACE_URL"}${code ? "" : " PRIMARY_SITE_CODE"}，略過門禁人數`);
+    return null;
+  }
   const now = Date.now();
   const refreshMin = faceRefreshMin();
   const FACE_TTL_MS = refreshMin * 60000;
@@ -331,7 +335,9 @@ async function faceHeadcount(): Promise<any> {
                            reading_at: minuteISO(new Date(now).toISOString()) } : null;
     await save({ code, fetched_ms: now, ok_ms: now, data });
     return withAge(data);
-  } catch {
+  } catch (e: any) {
+    // 日誌只記錯誤類型與訊息，不記設備位址
+    console.warn(`[face] 讀取門禁人數失敗：${e?.name || "Error"} ${String(e?.message || "").slice(0, 120)}`);
     // 連不上：記下這次嘗試（一個間隔內不再重試、不拖慢看板），上一筆在期限內照用
     const keep = mine && mine.data && now - Number(mine.ok_ms || 0) < FACE_MAX_AGE_MS ? mine.data : null;
     await save({ code, fetched_ms: now, ok_ms: mine?.ok_ms || 0, data: keep });
