@@ -10,6 +10,7 @@ import os
 import re
 import uuid
 from datetime import date, datetime, timedelta
+from typing import Optional
 
 from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import (FileResponse, JSONResponse, RedirectResponse,
@@ -230,6 +231,31 @@ def hazards_section(worklogs, tasks=()) -> list:
                   key=lambda x: -len(x["sources"]))
 
 
+def gate_headcount(db: Session, primary_code: str) -> Optional[dict]:
+    """門禁（人臉辨識／門禁資料庫）的在場、進場、出場人數，取一小時內最新一筆。
+
+    固定以主場站為準，解析不到就回 None（不顯示）——退回全公司加總會把總和
+    放在單一工地名稱底下，疏散時會照著錯的數字點名。舊戰情室與工地看板共用，
+    兩個螢幕的在場人數才會是同一個數字。
+    """
+    head_since = datetime.now() - timedelta(hours=1)
+    rows = (db.query(DeviceReading)
+            .filter(DeviceReading.device_type == "people",
+                    DeviceReading.reading_at >= head_since)
+            .order_by(DeviceReading.reading_at.desc()).all())
+    out: dict = {}
+    seen = set()
+    for r in rows:
+        if primary_code and r.site_code != primary_code:
+            continue
+        if r.metric in seen:
+            continue
+        seen.add(r.metric)
+        out[r.metric] = float(r.value_num) if r.value_num is not None else None
+        out["reading_at"] = r.reading_at.isoformat(timespec="minutes")
+    return out or None
+
+
 def news_section(db: Session, limit: int = 8) -> list:
     return [{"title": n.title, "url": n.url,
              "published": n.published.isoformat() if n.published else None}
@@ -304,7 +330,9 @@ def board_data(site_id: int, request: Request, db: Session = Depends(get_db)):
 
     return {"generated_at": datetime.now().isoformat(timespec="seconds"),
             "station": station, "stats": stats, "worklog": worklog,
-            "record": record, "hazards": hazards, "news": news, "board": board}
+            "record": record, "hazards": hazards, "news": news, "board": board,
+            # 門禁在場人數（地端才有：設備在公司內網）；沒有讀數就是 None
+            "headcount": gate_headcount(db, primary_code)}
 
 
 def clean_building(payload: dict):
@@ -1038,24 +1066,7 @@ def dashboard(request: Request, site_id: int = None, days: int = 30,
 
     environment = environment_snapshot(db, site_by_id, site_by_code)
 
-    # 人數：一小時內最新一筆。固定以主場站為準，解析不到就不顯示——
-    # 退回全公司加總會把總和放在單一工地名稱底下，疏散時會照著錯的數字點名。
-    head_since = datetime.now() - timedelta(hours=1)
-    head_rows = (db.query(DeviceReading)
-                 .filter(DeviceReading.device_type == "people",
-                         DeviceReading.reading_at >= head_since)
-                 .order_by(DeviceReading.reading_at.desc()).all())
-
-    headcount = {}
-    seen_metrics = set()
-    for r in head_rows:
-        if primary_code and r.site_code != primary_code:
-            continue
-        if r.metric in seen_metrics:
-            continue
-        seen_metrics.add(r.metric)
-        headcount[r.metric] = float(r.value_num) if r.value_num is not None else None
-        headcount["reading_at"] = r.reading_at.isoformat(timespec="minutes")
+    headcount = gate_headcount(db, primary_code)
 
     # 最新交出來的表單：工地填完後要在牆上馬上看得到結果
     recent_insp = (db.query(Inspection)
@@ -1209,7 +1220,7 @@ def dashboard(request: Request, site_id: int = None, days: int = 30,
         "range_days": days,
         "environment": environment,
         "environment_spec": thresholds_payload(),
-        "headcount": headcount or None,
+        "headcount": headcount,
         "recent_forms": recent_forms,
         "today_tasks": today_tasks,
         "progress": progress,

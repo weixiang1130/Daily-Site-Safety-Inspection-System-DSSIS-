@@ -409,7 +409,32 @@ async function load() {
   renderRecords();
   renderEnvironment();
   renderWorkforce();
+  renderGate();
   renderHazards();
+}
+
+/** 門禁在場人數（地端：人臉辨識／門禁資料庫，一小時內最新一筆）。沒有讀數就整格隱藏 */
+function renderGate() {
+  const box = document.getElementById('wfGate');
+  if (!box) return;
+  const hc = DATA.headcount;
+  const present = hc && hc.headcount_present;
+  box.hidden = present == null;
+  if (present == null) return;
+  rollText(document.getElementById('gateNum'), Math.round(present).toLocaleString());
+  const parts = [];
+  if (hc.headcount_in != null) parts.push(`進 ${Math.round(hc.headcount_in)}`);
+  if (hc.headcount_out != null) parts.push(`出 ${Math.round(hc.headcount_out)}`);
+  // 讀數超過 15 分鐘（設備暫時連不上、沿用上一筆）就直接標出是幾點的數字，
+  // 疏散點名時才不會把舊數字當現況
+  const age = hc.reading_at ? Date.now() - new Date(hc.reading_at).getTime() : 0;
+  const old = age > 15 * 60000;
+  box.classList.toggle('old', old);
+  document.getElementById('gateSub').textContent =
+    old ? `${hc.reading_at.slice(11, 16)} 的讀數` : parts.join('・');
+  // 讀數時間放滑鼠提示：單行放不下，而且超過一小時的讀數後端本來就不回
+  box.title = '門禁人臉辨識設備的即時在場人數；門禁人數不代替出工回報'
+    + (hc.reading_at ? `（讀數 ${hc.reading_at.slice(11, 16)}）` : '');
 }
 
 // ---------------------------------------------------------------------------

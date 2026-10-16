@@ -86,9 +86,13 @@
     <header class="card-head"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20c.6-3.4 2.8-5.5 5.5-5.5s4.9 2.1 5.5 5.5"/><circle cx="17" cy="9" r="2.4"/><path d="M15.5 14.6c2.6-.3 4.5 1.6 5 4.9"/></svg></span><h2 title="來源：工務所群組出工回報；門禁人數不代替出工回報">本日出工</h2><small id="wfMeta">工種 / 人數 / 施作項目</small></header>
     <div class="wf-body">
       <aside class="wf-side">
-        <div class="tile hero"><span class="tile-label">本日回報出工</span><strong id="wfKpiTotal" class="hero-num ok"><span id="wfKpiNum">—</span> <small>人</small></strong><p id="wfKpiVendors" class="tile-note">等待今日出工回報</p></div>
+        <div class="tile hero"><span class="tile-label">本日回報出工</span><strong id="wfKpiTotal" class="hero-num ok"><span id="wfKpiNum">—</span> <small>人</small></strong><p class="tile-note"><span id="wfKpiVendors">等待今日出工回報</span><span class="lm">上月 <b id="lastMonth">—</b></span></p></div>
+        <!-- 門禁在場人數（人臉辨識）：與出工回報並列，看得出有回報沒刷卡、或刷卡沒回報；
+             地端才有讀數，沒有讀數整格不顯示 -->
+        <div class="gate" id="wfGate" hidden title="門禁人臉辨識設備的即時在場人數；門禁人數不代替出工回報">
+          <span class="gate-k">門禁在場</span><b id="gateNum">—</b><small>人</small><span class="gate-sub" id="gateSub"></span>
+        </div>
         <div class="bars" id="wfBuildings"></div>
-        <div class="kv"><span>上月總出工</span><b id="lastMonth">—</b></div>
       </aside>
       <div class="table-area"><table><thead><tr><th>廠商名稱</th><th>工種</th><th>出工人數</th><th>作業主管</th><th>施作項目</th></tr></thead><tbody id="wfRows"><tr><td colspan="6"><div class="workforce-empty"><span class="empty-mark">／</span><h3>等待今日出工回報</h3><p>各廠商於工務所群組回報後，依當日日期彙整顯示。</p></div></td></tr></tbody></table></div>
     </div>

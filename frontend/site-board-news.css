@@ -74,7 +74,7 @@ html.theme-news .ico svg,html.theme-news .ico.warn svg{stroke:var(--ink);stroke-
 html.theme-news .tile{background:transparent;box-shadow:none;border:1px solid var(--ink)}
 html.theme-news .tile-label{font:600 .75rem var(--mono);text-transform:uppercase;letter-spacing:.12em;color:var(--n600)}
 html.theme-news .tile-note{font-family:var(--body-serif);color:var(--n600)}
-html.theme-news .hero-num,html.theme-news .hero-num.ok{font:900 3.75rem/1 var(--serif);letter-spacing:-.02em;color:var(--ink);background:none;-webkit-background-clip:border-box;background-clip:border-box}
+html.theme-news .hero-num,html.theme-news .hero-num.ok{font:900 3.375rem/1 var(--serif);letter-spacing:-.02em;color:var(--ink);background:none;-webkit-background-clip:border-box;background-clip:border-box}
 html.theme-news .hero-num small{font-family:var(--body-serif)}
 html.theme-news .kv{border-top:1px solid var(--ink);font-family:var(--body-serif)}
 html.theme-news .empty{font-family:var(--body-serif);font-style:italic;color:var(--n500)}
@@ -146,6 +146,11 @@ html.theme-news .board-panel tbody tr:hover{background:var(--n100)}
 html.theme-news .hc b{font:700 1.125rem var(--serif);color:var(--ink)}
 html.theme-news .hc i{background:var(--muted-rule)}
 html.theme-news .hc i::before{background:var(--ink);opacity:1}
+html.theme-news .gate{background:transparent;box-shadow:none;border:1px solid var(--ink);border-left:6px solid var(--ink)}
+html.theme-news .gate-k{font:600 .75rem var(--mono);text-transform:uppercase;letter-spacing:.12em;color:var(--n600)}
+html.theme-news .gate b{font:900 1.75rem/1 var(--serif);color:var(--ink)}
+html.theme-news .gate small{font-family:var(--body-serif);color:var(--ink)}
+html.theme-news .gate-sub{font:.6875rem var(--mono);letter-spacing:.06em;color:var(--n500)}
 html.theme-news .bar-row .name{font-family:var(--body-serif);color:var(--ink)}
 html.theme-news .bar-row .val{font-family:var(--serif)}
 html.theme-news .bar-track{background:var(--muted-rule)}

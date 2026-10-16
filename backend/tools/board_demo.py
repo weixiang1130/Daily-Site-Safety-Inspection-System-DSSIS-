@@ -103,6 +103,9 @@ def board_data(scenario: str) -> dict:
         "record": {"days": (date.today() - date(2024, 9, 12)).days, "since": "2024-09-12",
                    "last_month_mandays": 5277},
         "hazards": hazards,
+        # 門禁在場人數（人臉辨識）：在場人數隨分鐘小幅變動
+        "headcount": {"headcount_present": 92.0 + tick % 4, "headcount_in": 150.0 + tick % 3,
+                      "headcount_out": 58.0, "reading_at": _now_iso()[:16]},
         "news": [{"title": "（示範）職安署提醒高氣溫戶外作業熱危害預防",
                   "published": (date.today() - timedelta(days=1)).isoformat()}],
         "board": {"site_id": 1, "site_code": "DEMO", "site_name": "示範工地 A", "revision": 1, "config": {

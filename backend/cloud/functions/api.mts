@@ -276,8 +276,63 @@ function lastMonthMandays(ext: any): number {
   return sum;
 }
 
+// ---------------------------------------------------------------------------
+// 門禁在場人數：雲端直接向人臉辨識設備讀（設備在公網；/admin/list 只回各門的
+// 彙總人次 inCount／outCount／presenceCount，不碰任何個人資料）。
+// 看板每次讀取都會經過這裡，所以結果存 Blob 5 分鐘，多面螢幕共用一次讀取；
+// 設備連不上時沿用一小時內的上一筆（附讀數時間），再舊就不顯示——在場人數
+// 是疏散點名用的，過時的數字比沒有更糟。
+// 設定（Netlify 環境變數，不進版控）：FACE_URL＝設備位址；FACE_SITE_MAP＝
+// 門名關鍵字→工地代碼的 JSON，例 {"*":"BD04"}（"*" 表示所有門加總到該工地）。
+// 規則與地端 collectors/face.py 相同，改一邊要跟著改另一邊。
+// ---------------------------------------------------------------------------
+const FACE_KEY = "face/headcount.json";
+const FACE_TTL_MS = 5 * 60 * 1000;
+const FACE_MAX_AGE_MS = 60 * 60 * 1000;
+
+async function faceHeadcount(): Promise<any> {
+  const base = (Netlify.env.get("FACE_URL") || "").trim().replace(/\/+$/, "");
+  const code = primaryCode();
+  if (!base || !code) return null;
+  const now = Date.now();
+  const cached = await readJsonBlob(FACE_KEY);
+  const mine = cached && cached.code === code ? cached : null;
+  if (mine && now - Number(mine.fetched_ms || 0) < FACE_TTL_MS) return mine.data ?? null;
+  const save = (rec: any) => files().set(FACE_KEY, JSON.stringify(rec)).catch(() => {});
+  let map: Record<string, string> = {};
+  try { map = JSON.parse(Netlify.env.get("FACE_SITE_MAP") || "{}") || {}; } catch { map = {}; }
+  try {
+    const r = await fetch(`${base}/admin/list`, { signal: AbortSignal.timeout(4000) });
+    if (!r.ok) throw Error(`HTTP ${r.status}`);
+    const body: any = await r.json();
+    if (![0, 200, undefined, null].includes(body?.code)) throw Error("裝置回應非正常");
+    const gates: any[] = Array.isArray(body?.data) ? body.data : [];
+    const n = (v: any) => { const x = Math.trunc(Number(v)); return Number.isFinite(x) ? x : 0; };
+    const sum = { in: 0, out: 0, present: 0 };
+    let found = false;
+    for (const g of gates) {
+      const pname = String(g?.pname ?? "");
+      const gc = map["*"] || Object.entries(map).find(([kw]) => kw !== "*" && pname.includes(kw))?.[1];
+      if (gc !== code) continue;
+      found = true;
+      sum.in += n(g.inCount); sum.out += n(g.outCount); sum.present += n(g.presenceCount);
+    }
+    // 對不到主場站的門就不顯示——不把別處的人次掛到這個工地
+    const data = found ? { headcount_present: sum.present, headcount_in: sum.in, headcount_out: sum.out,
+                           reading_at: minuteISO(new Date(now).toISOString()) } : null;
+    await save({ code, fetched_ms: now, ok_ms: now, data });
+    return data;
+  } catch {
+    // 連不上：記下這次嘗試（5 分鐘內不再重試、不拖慢看板），一小時內的上一筆照用
+    const keep = mine && mine.data && now - Number(mine.ok_ms || 0) < FACE_MAX_AGE_MS ? mine.data : null;
+    await save({ code, fetched_ms: now, ok_ms: mine?.ok_ms || 0, data: keep });
+    return keep;
+  }
+}
+
 /** 合併外部 Blob 與 DB 快取成看板整頁。 */
 async function buildBoardData() {
+  const headcountP = faceHeadcount();      // 與其他讀取同時進行
   const ext = (await readJsonBlob(EXTERNAL_KEY)) || {};
   let sec = await readJsonBlob(DBSECTIONS_KEY);
   // 快取失效：不存在、換日（今日缺失／逾期數依日期而變，不能沿用昨天
@@ -308,6 +363,7 @@ async function buildBoardData() {
     hazards: ext.hazards ?? [],
     news: ext.news ?? [],
     board: sec.board,
+    headcount: await headcountP,
   };
 }
 

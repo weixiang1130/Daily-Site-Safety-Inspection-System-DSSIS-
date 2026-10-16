@@ -242,6 +242,16 @@ html.board-scale{background:#050506}
 /* ---- 本日出工：左欄摘要（總數、各棟、上月）＋右欄明細表 ---- */
 .wf-body{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,.3fr) minmax(0,1fr);grid-template-rows:minmax(0,1fr);gap:1rem;padding:.25rem 1rem 1rem}
 .wf-side{display:flex;flex-direction:column;gap:.75rem;min-height:0}
+.gate{display:flex;align-items:baseline;gap:.4rem;white-space:nowrap;padding:.4rem .875rem;
+  border-radius:.75rem;background:var(--tile);box-shadow:inset 0 0 0 1px rgba(255,255,255,.05)}
+.gate[hidden]{display:none}
+.gate-k{font-size:.8125rem;color:var(--fg-muted)}
+.gate b{font:600 1.75rem var(--font-ui);font-variant-numeric:tabular-nums;color:var(--fg)}
+.gate small{font-size:.8125rem;color:var(--fg-muted)}
+.gate-sub{margin-left:auto;font-size:.6875rem;color:var(--fg-muted)}
+.gate.old .gate-sub{color:var(--bad);font-weight:600}
+.tile-note .lm{float:right}
+.tile-note .lm b{font-weight:600;color:var(--fg)}
 .bars{display:flex;flex-direction:column;gap:.625rem}
 .bar-row{display:grid;grid-template-columns:auto 1fr;gap:.25rem .75rem;align-items:center;font-size:.8125rem}
 .bar-row .name{color:var(--fg-subtle)}
