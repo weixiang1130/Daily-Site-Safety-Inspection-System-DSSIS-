@@ -425,13 +425,15 @@ function renderGate() {
   const parts = [];
   if (hc.headcount_in != null) parts.push(`進 ${Math.round(hc.headcount_in)}`);
   if (hc.headcount_out != null) parts.push(`出 ${Math.round(hc.headcount_out)}`);
-  // 讀數超過 15 分鐘（設備暫時連不上、沿用上一筆）就直接標出是幾點的數字，
-  // 疏散點名時才不會把舊數字當現況
+  // 讀數超過 15 分鐘就改標「幾點的讀數」，疏散點名時才不會把舊數字當現況；
+  // 超過預期的更新間隔仍沒有新讀數（設備連不上）才轉紅字。雲端依
+  // FACE_REFRESH_MIN 下發 expect_within_min；地端每 5 分鐘收集，用 15 分鐘
   const age = hc.reading_at ? Date.now() - new Date(hc.reading_at).getTime() : 0;
-  const old = age > 15 * 60000;
-  box.classList.toggle('old', old);
+  const dated = age > 15 * 60000;
+  const late = age > (hc.expect_within_min || 15) * 60000;
+  box.classList.toggle('old', late);
   document.getElementById('gateSub').textContent =
-    old ? `${hc.reading_at.slice(11, 16)} 的讀數` : parts.join('・');
+    dated ? `${hc.reading_at.slice(11, 16)} 讀數` : parts.join('・');
   // 讀數時間放滑鼠提示：單行放不下，而且超過一小時的讀數後端本來就不回
   box.title = '門禁人臉辨識設備的即時在場人數；門禁人數不代替出工回報'
     + (hc.reading_at ? `（讀數 ${hc.reading_at.slice(11, 16)}）` : '');

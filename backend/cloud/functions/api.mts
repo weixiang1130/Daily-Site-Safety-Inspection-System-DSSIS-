@@ -279,25 +279,34 @@ function lastMonthMandays(ext: any): number {
 // ---------------------------------------------------------------------------
 // 門禁在場人數：雲端直接向人臉辨識設備讀（設備在公網；/admin/list 只回各門的
 // 彙總人次 inCount／outCount／presenceCount，不碰任何個人資料）。
-// 看板每次讀取都會經過這裡，所以結果存 Blob 5 分鐘，多面螢幕共用一次讀取；
-// 設備連不上時沿用一小時內的上一筆（附讀數時間），再舊就不顯示——在場人數
-// 是疏散點名用的，過時的數字比沒有更糟。
+// 看板每次讀取都會經過這裡，結果存 Blob、隔 FACE_REFRESH_MIN 分鐘才重讀一次
+// （多面螢幕共用一次讀取）。設備連不上時沿用上一筆（附讀數時間），超過
+// 「間隔＋1 小時」就不顯示——在場人數是疏散點名用的，過時的數字比沒有更糟。
 // 設定（Netlify 環境變數，不進版控）：FACE_URL＝設備位址；FACE_SITE_MAP＝
-// 門名關鍵字→工地代碼的 JSON，例 {"*":"BD04"}（"*" 表示所有門加總到該工地）。
+// 門名關鍵字→工地代碼的 JSON，例 {"*":"BD04"}（"*" 表示所有門加總到該工地）；
+// FACE_REFRESH_MIN＝重讀間隔（分），預設 120（試辦期與其他資料一樣兩小時），
+// 正式啟用改 5。改環境變數後要重新部署才生效。
 // 規則與地端 collectors/face.py 相同，改一邊要跟著改另一邊。
 // ---------------------------------------------------------------------------
 const FACE_KEY = "face/headcount.json";
-const FACE_TTL_MS = 5 * 60 * 1000;
-const FACE_MAX_AGE_MS = 60 * 60 * 1000;
+function faceRefreshMin(): number {
+  const v = parseInt(Netlify.env.get("FACE_REFRESH_MIN") || "", 10);
+  return Number.isFinite(v) && v >= 1 ? Math.min(v, 24 * 60) : 120;
+}
 
 async function faceHeadcount(): Promise<any> {
   const base = (Netlify.env.get("FACE_URL") || "").trim().replace(/\/+$/, "");
   const code = primaryCode();
   if (!base || !code) return null;
   const now = Date.now();
+  const refreshMin = faceRefreshMin();
+  const FACE_TTL_MS = refreshMin * 60000;
+  const FACE_MAX_AGE_MS = FACE_TTL_MS + 60 * 60000;
+  // 前端據此判斷讀數「該到了還沒到」（設備連不上）才轉紅字
+  const withAge = (d: any) => (d ? { ...d, expect_within_min: refreshMin + 15 } : null);
   const cached = await readJsonBlob(FACE_KEY);
   const mine = cached && cached.code === code ? cached : null;
-  if (mine && now - Number(mine.fetched_ms || 0) < FACE_TTL_MS) return mine.data ?? null;
+  if (mine && now - Number(mine.fetched_ms || 0) < FACE_TTL_MS) return withAge(mine.data);
   const save = (rec: any) => files().set(FACE_KEY, JSON.stringify(rec)).catch(() => {});
   let map: Record<string, string> = {};
   try { map = JSON.parse(Netlify.env.get("FACE_SITE_MAP") || "{}") || {}; } catch { map = {}; }
@@ -321,12 +330,12 @@ async function faceHeadcount(): Promise<any> {
     const data = found ? { headcount_present: sum.present, headcount_in: sum.in, headcount_out: sum.out,
                            reading_at: minuteISO(new Date(now).toISOString()) } : null;
     await save({ code, fetched_ms: now, ok_ms: now, data });
-    return data;
+    return withAge(data);
   } catch {
-    // 連不上：記下這次嘗試（5 分鐘內不再重試、不拖慢看板），一小時內的上一筆照用
+    // 連不上：記下這次嘗試（一個間隔內不再重試、不拖慢看板），上一筆在期限內照用
     const keep = mine && mine.data && now - Number(mine.ok_ms || 0) < FACE_MAX_AGE_MS ? mine.data : null;
     await save({ code, fetched_ms: now, ok_ms: mine?.ok_ms || 0, data: keep });
-    return keep;
+    return withAge(keep);
   }
 }
 
