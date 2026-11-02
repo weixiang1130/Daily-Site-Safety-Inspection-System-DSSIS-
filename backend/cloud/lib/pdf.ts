@@ -67,7 +67,9 @@ const missingChars = new Set<string>();
 
 function printable(s: string): string {
   let out = "";
-  for (const ch of String(s ?? "")) {
+  // 各種 Unicode 空白換成一般空格：新版 Node 的日期字串用 U+2009 分隔日期與時間，
+  // 字型沒收錄，時間會印成「2026/10/30□17:51」
+  for (const ch of String(s ?? "").replace(/[  -   ]/g, " ")) {
     const cp = ch.codePointAt(0)!;
     if (cp === 0x0A || covered(cp)) { out += ch; continue; }
     out += "□";
@@ -247,22 +249,25 @@ class Doc {
     this.y -= 6;
   }
 
-  async signatures(sigs: Array<{
-    role: string; signer_name: string; signed_at: string; image?: Uint8Array | null;
-  }>) {
+  async signatures(sigs: SigInput[]) {
     this.heading("簽核");
     if (!sigs.length) {
       this.text("（尚未簽核）", { color: MUTED });
       return;
     }
-    const boxW = CONTENT_W / sigs.length;
+    // 每列最多 4 格：協議表廠商一多，全擠一列會窄到簽名看不見
+    const perRow = Math.min(sigs.length, 4);
+    const boxW = CONTENT_W / perRow;
     const boxH = 76;
-    this.need(boxH + 10);
-    const top = this.y;
 
     for (let i = 0; i < sigs.length; i++) {
+      if (i % perRow === 0) {
+        if (i) this.y -= boxH;
+        this.need(boxH + 10);
+      }
+      const top = this.y;
       const s = sigs[i];
-      const x = M.left + i * boxW;
+      const x = M.left + (i % perRow) * boxW;
       this.page.drawRectangle({
         x, y: top - boxH, width: boxW, height: boxH,
         borderColor: LINE, borderWidth: 0.5,
@@ -270,12 +275,22 @@ class Doc {
       this.page.drawText(printable(s.role), {
         x: x + 6, y: top - 14, size: 8, font: this.font, color: MUTED,
       });
+      if (s.printed_name) {
+        this.page.drawText(printable(s.printed_name), {
+          x: x + 6, y: top - boxH + 18, size: 8, font: this.font, color: MUTED,
+        });
+      }
+      if (s.unsigned) {
+        this.page.drawText(printable("未簽"), {
+          x: x + 8, y: top - 40, size: 10, font: this.font, color: MUTED,
+        });
+      }
       if (s.image) {
         try {
           const png = await this.doc.embedPng(s.image);
-          const scale = Math.min((boxW - 16) / png.width, 34 / png.height, 1);
+          const scale = Math.min((boxW - 16) / png.width, 28 / png.height, 1);
           this.page.drawImage(png, {
-            x: x + 8, y: top - 56,
+            x: x + 8, y: top - 47,
             width: png.width * scale, height: png.height * scale,
           });
         } catch {
@@ -288,7 +303,7 @@ class Doc {
         x: x + 6, y: top - boxH + 8, size: 7, font: this.font, color: MUTED,
       });
     }
-    this.y = top - boxH - 8;
+    this.y -= boxH + 8;
   }
 
   finish(): void {
@@ -320,8 +335,21 @@ const STATUS_LABEL: Record<string, string> = {
   open: "改善中", fixed: "待複驗", verified: "已複驗", closed: "已結案",
 };
 
+/** 缺失處置（可複選）：立即改善／限期改善（期限）／代工／扣款（金額）。
+ *  舊資料沒有處置清單時依 action_type。 */
+function actionText(x: any): string {
+  const d = String(x.dispositions || x.action_type || "onsite").split(",");
+  const out: string[] = [];
+  if (d.includes("onsite")) out.push("立即改善");
+  if (d.includes("scheduled")) out.push(x.due_date ? `限期改善（${fmtDate(x.due_date)}前）` : "限期改善");
+  if (d.includes("proxy")) out.push(x.due_date && !d.includes("scheduled") ? `代工（${fmtDate(x.due_date)}前）` : "代工");
+  if (d.includes("deduct")) out.push(x.penalty ? `扣款 ${Number(x.penalty).toLocaleString()} 元` : "扣款");
+  return out.join("、") || "立即改善";
+}
+
 export interface SigInput {
   role: string; signer_name: string; signed_at: string; image?: Uint8Array | null;
+  printed_name?: string; unsigned?: boolean;
 }
 
 /** 自主檢查表 PDF。 */
@@ -331,7 +359,8 @@ export async function buildInspectionPdf(
   const d = await Doc.create(insp.form_title);
 
   d.text(insp.form_title, { size: 15 });
-  d.text(`單號 INSP-${String(insp.id).padStart(6, "0")}`, { size: 8, color: MUTED, gap: 6 });
+  d.text(`單號 INSP-${String(insp.id).padStart(6, "0")}${insp.revision ? `（修改第 ${insp.revision} 次）` : ""}`,
+         { size: 8, color: MUTED, gap: 6 });
   d.hr();
 
   d.table([70, 200, 60, CONTENT_W - 330], [
@@ -341,6 +370,7 @@ export async function buildInspectionPdf(
       "檢查日期", fmtDate(insp.inspect_date)],
     ["檢查地點", insp.location || "－", "天氣", insp.weather || "－"],
     ["檢查人員", insp.inspector_name, "提交時間", fmtTime(insp.submitted_at)],
+    ...(insp.vendor_name ? [["受檢廠商", insp.vendor_name, "", ""]] : []),
   ]);
 
   d.heading("檢查結果");
@@ -362,9 +392,7 @@ export async function buildInspectionPdf(
     d.heading("本次開立缺失");
     const f = [["缺失單號", "災害類別", "缺失內容", "責任廠商／人", "改善方式", "狀態"]];
     for (const x of findings) {
-      const action = x.action_type === "onsite"
-        ? "當場改善"
-        : (x.due_date ? `限期改善（${fmtDate(x.due_date)}前）` : "限期改善");
+      const action = actionText(x);
       f.push([
         `F${String(x.id).padStart(6, "0")}`,
         x.hazard_label || "",
@@ -389,7 +417,8 @@ export async function buildCoordinationPdf(
   const d = await Doc.create("每日協議、巡視及處理紀錄表");
 
   d.text("每日協議、巡視及處理紀錄表", { size: 15 });
-  d.text(`單號 COORD-${String(co.id).padStart(6, "0")}`, { size: 8, color: MUTED, gap: 6 });
+  d.text(`單號 COORD-${String(co.id).padStart(6, "0")}${co.revision ? `（修改第 ${co.revision} 次）` : ""}`,
+         { size: 8, color: MUTED, gap: 6 });
   d.hr();
 
   // 紀錄人員必須進 PDF：現場共用同一組帳號，這份簽核後存查的文件是稽核
@@ -420,9 +449,7 @@ export async function buildCoordinationPdf(
   if (findings.length) {
     const f = [["項次", "災害類別", "缺失內容", "責任廠商／人", "改善方式"]];
     findings.forEach((x, i) => {
-      const action = x.action_type === "onsite"
-        ? "當場改善"
-        : (x.due_date ? `限期改善（${fmtDate(x.due_date)}前）` : "限期改善");
+      const action = actionText(x);
       f.push([
         String(i + 1), x.hazard_label || "", x.description,
         `${x.vendor_name || ""}／${x.responsible_person || ""}`, action,

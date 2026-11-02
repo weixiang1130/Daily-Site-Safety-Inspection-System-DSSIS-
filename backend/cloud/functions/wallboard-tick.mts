@@ -1,6 +1,7 @@
-// 工地看板外部區塊的「時鐘」：每 2 小時觸發一次 GitHub Actions 收集流程。
-// （2026-09-29 由 30 分鐘放寬：看板實際使用率低，30 分鐘的新鮮度沒有人在用，
-//  每輪都要花函式呼叫與 GitHub Actions 時間。）
+// 工地看板外部區塊的「時鐘」：定時觸發 GitHub Actions 收集流程。
+// 台北時間上午（08～12 點）每 30 分鐘、下午（13～18 點）每小時、其餘每 2 小時。
+// 頻率跟著出工回報走：2026-10 主場站 367 筆回報有 94% 在 08～12 點進來，下午零星。
+// （2026-09-29 曾全天放寬成每 2 小時，但早上的本日出工要等太久才看得到。）
 //
 // 為什麼不直接用 GitHub 的 schedule：實測設定「每 30 分鐘」，GitHub 20 小時
 // 只跑了 6 次、間隔 2~5 小時（公開 repo 的免費排程會延遲甚至整輪略過），
@@ -8,7 +9,7 @@
 // 不受排程壅塞影響——所以由準時的 Netlify 排程函式當時鐘，GitHub 只負責
 // 跑收集程式。GitHub 自己的 schedule 仍保留，當這裡失效時的後備。
 //
-// 成本：每天 12 次、每次一個 HTTP 請求，不碰資料庫，遠低於 1 credit／月。
+// 成本：每天觸發 21 次、每次一個 HTTP 請求，不碰資料庫，遠低於 1 credit／月。
 //
 // 需要的環境變數（Netlify）：
 //   GH_DISPATCH_TOKEN  GitHub fine-grained token，只授權本 repo 的
@@ -21,7 +22,17 @@ import type { Config } from "@netlify/functions";
 
 const WORKFLOW = "wallboard-external.yml";
 
+/** 這一輪要不要跑（排程每 30 分鐘叫醒一次，由這裡決定）。 */
+export function isDue(now: Date): boolean {
+  const taipei = new Date(now.getTime() + 8 * 3600000);
+  const hour = taipei.getUTCHours();
+  if (hour >= 8 && hour < 12) return true;
+  if (taipei.getUTCMinutes() >= 30) return false;
+  return hour % 2 === 0 || (hour >= 13 && hour < 18);
+}
+
 export default async (_req: Request) => {
+  if (!isDue(new Date())) return new Response("not due");
   const token = Netlify.env.get("GH_DISPATCH_TOKEN") || "";
   const repo = (Netlify.env.get("GH_REPO") || "").trim();
   if (!token || !repo) {
@@ -48,9 +59,8 @@ export default async (_req: Request) => {
 };
 
 export const config: Config = {
-  // UTC；每 30 分鐘，錯開整點與半點
-  // UTC。每 2 小時的偶數小時 + 7 分：台北時間因為 +8（偶數）同樣落在偶數小時，
-  // 所以 workflow 裡「台北 00 點那一輪才寫出工資料庫」與 06 點的 keepalive 都還在。
-  // 改成奇數間隔（*/3 之類）會讓那兩件事靜悄悄停掉。
-  schedule: "7 */2 * * *",
+  // 錯開整點與半點。cron 無法表達「不同時段不同頻率」，所以每 30 分鐘叫醒、由 isDue 篩。
+  // isDue 一定要留台北偶數小時的 :07：workflow 裡「00 點那一輪才寫出工資料庫」與
+  // 06 點的 keepalive 靠它，少了會靜悄悄停掉。
+  schedule: "7,37 * * * *",
 };

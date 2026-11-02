@@ -57,40 +57,44 @@
 </header>
 <!-- 失更警示：時鐘照走、面板卻是舊資料時牆面看起來完全健康，必須大聲說 -->
 <div id="staleBanner" class="stale-banner" hidden></div>
+<!-- 安全作業循環（2026-10-30 檢討會：縮小成一條，只留作息與安全流程提醒；
+     時段由工地在看板管理自行調整，不做成逐項施工排程） -->
+<section class="cycle-strip" aria-label="安全作業循環" title="安全作業循環：時段由工地於看板管理調整">
+  <div class="now-card" id="nowCard">
+    <span class="now-label">現在</span>
+    <strong id="currentTask">尚未設定時程</strong>
+    <span class="now-meta"><span id="nowRemain"></span><span id="nowSpan"></span></span>
+    <div class="now-progress"><i id="nowBar"></i></div>
+  </div>
+  <div class="next-box"><p class="next-line" id="nextTask">請由工地設定每日安全作業循環</p><ul class="later" id="laterList"></ul></div>
+  <div class="timeline" id="timeline"></div>
+  <small id="cycleRange" hidden></small>
+</section>
 <main class="board-grid">
-  <section class="board-panel cycle" style="--i:0">
-    <header class="card-head"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg></span><h2>安全作業循環</h2><small id="cycleRange"></small></header>
-    <div class="card-body">
-      <div class="now-card" id="nowCard">
-        <span class="now-label">現在應做事項</span>
-        <strong id="currentTask">尚未設定時程</strong>
-        <div class="now-meta"><span id="nowRemain"></span><span id="nowSpan"></span></div>
-        <div class="now-progress"><i id="nowBar"></i></div>
-      </div>
-      <p class="next-line" id="nextTask">請由工地設定每日安全作業循環</p>
-      <ul class="later" id="laterList"></ul>
-      <div class="timeline" id="timeline"></div>
-    </div>
-  </section>
-  <section class="board-panel hazards" style="--i:1">
+  <section class="board-panel hazards" style="--i:0">
     <header class="card-head"><span class="ico warn" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3.5 21.5 20h-19z"/><path d="M12 10v4.5M12 17.2v.1"/></svg></span><h2 title="依本日出工回報與列控表工項自動對應，提示用；實際管制依各作業自主檢查表與作業許可">今日作業危害</h2><small id="hzPage"></small></header>
     <div class="card-body"><div class="hz-chips" id="hzChips" role="tablist" aria-label="今日危害分類" hidden></div><div class="hz-list" id="hazardList"><p class="empty">今日出工回報尚無可對應的作業危害</p></div></div>
   </section>
-  <section class="board-panel env" style="--i:2">
+  <section class="board-panel env" style="--i:1">
     <header class="card-head"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M10 14.5V5a2 2 0 1 1 4 0v9.5a4 4 0 1 1-4 0z"/><path d="M12 9v7"/></svg></span><h2>環境監測與法定作為</h2><small id="envUpdated"></small></header>
     <div class="card-body">
       <div class="env-actions" id="envActions"></div>
     </div>
   </section>
+  <!-- 現場監視輪播（地端直連監視器主機；雲端連不到時整格隱藏、危害與環境各撐 3 欄） -->
+  <section class="board-panel cctv" id="cctvPanel" style="--i:2" hidden>
+    <header class="card-head"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="7" width="13" height="10" rx="1"/><path d="M16 10.5 21 8v8l-5-2.5"/></svg></span><h2>現場監視</h2><small id="cctvMeta"></small></header>
+    <div class="cctv-stage"><img id="cctvImg" alt="現場監視畫面"><p class="cctv-msg" id="cctvMsg" hidden></p></div>
+  </section>
   <section class="board-panel workforce" style="--i:3">
     <header class="card-head"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20c.6-3.4 2.8-5.5 5.5-5.5s4.9 2.1 5.5 5.5"/><circle cx="17" cy="9" r="2.4"/><path d="M15.5 14.6c2.6-.3 4.5 1.6 5 4.9"/></svg></span><h2 title="來源：工務所群組出工回報；門禁人數不代替出工回報">本日出工</h2><small id="wfMeta">工種 / 人數 / 施作項目</small></header>
     <div class="wf-body">
       <aside class="wf-side">
-        <div class="tile hero"><span class="tile-label">本日回報出工</span><strong id="wfKpiTotal" class="hero-num ok"><span id="wfKpiNum">—</span> <small>人</small></strong><p class="tile-note"><span id="wfKpiVendors">等待今日出工回報</span><span class="lm">上月 <b id="lastMonth">—</b></span></p></div>
+        <div class="tile hero"><span class="tile-label" title="工程師於 LINE 群組回報的當日投入人力">今日出工・LINE 回報</span><strong id="wfKpiTotal" class="hero-num ok"><span id="wfKpiNum">—</span> <small>人</small></strong><p class="tile-note"><span id="wfKpiVendors">等待今日出工回報</span><span class="lm">上月 <b id="lastMonth">—</b></span></p></div>
         <!-- 門禁在場人數（人臉辨識）：與出工回報並列，看得出有回報沒刷卡、或刷卡沒回報；
              地端才有讀數，沒有讀數整格不顯示 -->
-        <div class="gate" id="wfGate" hidden title="門禁人臉辨識設備的即時在場人數；門禁人數不代替出工回報">
-          <span class="gate-k">門禁在場</span><b id="gateNum">—</b><small>人</small><span class="gate-sub" id="gateSub"></span>
+        <div class="gate" id="wfGate" hidden title="門禁人臉辨識的即時在場人數，含訪客與工務所人員；與出工回報是不同指標，不能直接比較">
+          <span class="gate-k">此刻在場・門禁</span><b id="gateNum">—</b><small>人</small><span class="gate-sub" id="gateSub"></span>
         </div>
         <div class="bars" id="wfBuildings"></div>
       </aside>

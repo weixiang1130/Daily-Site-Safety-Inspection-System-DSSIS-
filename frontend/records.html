@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>已填單據查詢</title>
+<link rel="stylesheet" href="/static/brand.css">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="topbar">
+  <div class="brand" id="brand"></div>
+  <div class="spacer"></div>
+  <a href="/static/home.html"><button class="ghost">首頁</button></a>
+</div>
+
+<div class="wrap wide">
+  <div class="page-head">
+    <div class="eyebrow">Submitted Records</div>
+    <h1>已填單據查詢</h1>
+    <p class="lede">自主檢查表與協議巡視表都在這裡。關鍵字會比對填表人、地點、表單名稱、
+      廠商、參加人員、缺失內容與協議事項。</p>
+  </div>
+
+  <div class="card">
+    <div class="item-search">
+      <input type="text" id="q" placeholder="關鍵字，例：施工架、B2、某廠商、某人名" autocomplete="off">
+      <button type="button" id="go">搜尋</button>
+    </div>
+    <div class="row">
+      <div><label>起日</label><input type="date" id="from"></div>
+      <div><label>迄日</label><input type="date" id="to"></div>
+      <div><label>單別</label>
+        <select id="kind">
+          <option value="">全部</option>
+          <option value="inspection">自主檢查表</option>
+          <option value="coordination">每日協議巡視表</option>
+        </select></div>
+      <div><label>表單</label><select id="form"><option value="">全部表單</option></select></div>
+      <div><label>棟別</label><select id="building"></select></div>
+    </div>
+    <div class="row" style="margin-top:var(--sp-3)">
+      <button type="button" class="ghost" data-days="7">近 7 日</button>
+      <button type="button" class="ghost" data-days="30">近 30 日</button>
+      <button type="button" class="ghost" data-days="90">近 90 日</button>
+      <button type="button" class="ghost" data-days="365">近一年</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div id="list" class="muted">載入中…</div>
+  </div>
+</div>
+
+<script src="/static/common.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const FIELDS = ['q', 'from', 'to', 'kind', 'form', 'building'];
+
+const daysAgo = n => {
+  const d = new Date(); d.setDate(d.getDate() - n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+(async () => {
+  const brand = (await renderBrand('system_name')) || {};
+  const r = await API.get('/api/me');
+  if (!r.user) { location.href = '/static/index.html'; return; }
+
+  const forms = await API.get('/api/forms');
+  $('form').innerHTML += forms.map(f => `<option value="${esc(f.form_code)}">${esc(f.title)}</option>`).join('');
+  $('building').innerHTML = '<option value="">全部棟別</option>'
+    + buildingList(brand).map(b => `<option value="${esc(b)}">${esc(b)}</option>`).join('');
+
+  // 條件放在網址上：從 PDF 回上一頁、或把查詢結果傳給同事，條件都還在
+  const sp = new URLSearchParams(location.search);
+  $('from').value = sp.get('from') || daysAgo(30);
+  $('to').value = sp.get('to') || today();
+  ['q', 'kind', 'form', 'building'].forEach(k => { if (sp.get(k)) $(k).value = sp.get(k); });
+  syncKind();
+  search();
+})();
+
+/** 協議巡視表沒有「表單」可選。 */
+function syncKind() {
+  const coord = $('kind').value === 'coordination';
+  $('form').disabled = coord;
+  if (coord) $('form').value = '';
+}
+
+let searchSeq = 0;
+
+async function search() {
+  const mine = ++searchSeq;   // 連續改條件時，較慢回來的舊結果不能蓋掉新的
+  const sp = new URLSearchParams();
+  FIELDS.forEach(k => { if ($(k).value) sp.set(k === 'form' ? 'form_code' : k, $(k).value); });
+  const shown = new URLSearchParams();
+  FIELDS.forEach(k => { if ($(k).value) shown.set(k, $(k).value); });
+  history.replaceState(null, '', '?' + shown.toString());
+
+  $('list').innerHTML = '搜尋中…';
+  let d;
+  try { d = await API.get('/api/records?' + sp.toString()); }
+  catch (e) {
+    if (mine === searchSeq) $('list').innerHTML = `<p class="muted">查詢失敗：${esc(e.message)}</p>`;
+    return;
+  }
+  if (mine !== searchSeq) return;
+
+  const summary = r => r.kind === 'inspection'
+    ? `不合格 ${r.fail_count} 項${r.finding_count ? `・缺失 ${r.finding_count} 筆` : ''}`
+    : `參加 ${r.attendee_count} 筆${r.finding_count ? `・缺失 ${r.finding_count} 筆` : ''}`;
+  const q = $('q').value.trim();
+  $('list').innerHTML = d.rows.length ? `
+    <p class="muted" style="margin-top:0">${esc(d.from)} ～ ${esc(d.to)}${q ? `，關鍵字「${esc(q)}」` : ''}：
+      共 ${d.rows.length} 張${d.truncated ? '（只列最近 200 張，請縮小日期或加關鍵字）' : ''}</p>
+    <div class="table-scroll"><table class="grid-fixed">
+    <colgroup><col style="width:104px"><col style="width:118px"><col><col style="width:76px"><col style="width:88px">
+      <col style="width:170px"><col style="width:168px"><col style="width:96px"></colgroup>
+    <thead><tr><th>日期</th><th>單號</th><th>單別／表單</th><th>棟別</th><th>填表人</th>
+      <th>地點</th><th>結果</th><th></th></tr></thead>
+    <tbody>${d.rows.map(r => `<tr>
+      <td class="num">${esc(r.date)}</td>
+      <td class="num">${esc(r.no)}</td>
+      <td>${esc(r.title)}</td>
+      <td title="${esc(r.site)}">${esc(r.building || r.site)}</td>
+      <td>${esc(r.person || '')}</td>
+      <td>${esc(r.location || '')}</td>
+      <td class="muted">${esc(summary(r))}</td>
+      <td>${r.status === 'signing'
+            ? `<a href="/static/sign.html?kind=${esc(r.kind)}&id=${r.id}">簽核中</a>`
+            : (r.pdf_url ? `<a href="${esc(r.pdf_url)}" target="_blank">PDF</a>
+                 <a href="/static/sign.html?kind=${esc(r.kind)}&id=${r.id}">修改</a>` : '')}</td>
+    </tr>`).join('')}</tbody></table></div>`
+    : `<p class="muted">${esc(d.from)} ～ ${esc(d.to)} 查無符合的單據。可放寬日期區間或換個關鍵字。</p>`;
+}
+
+$('go').onclick = search;
+$('q').addEventListener('keydown', e => { if (e.key === 'Enter') search(); });
+['from', 'to', 'form', 'building'].forEach(k => $(k).addEventListener('change', search));
+$('kind').addEventListener('change', () => { syncKind(); search(); });
+document.querySelectorAll('[data-days]').forEach(b => b.onclick = () => {
+  $('from').value = daysAgo(parseInt(b.dataset.days, 10));
+  $('to').value = today();
+  search();
+});
+</script>
+</body>
+</html>

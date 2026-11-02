@@ -87,7 +87,7 @@ let WALL = false, WALL_KEY = '', POLL = POLL_MS;
   const brand = (await renderBrandLite()) || {};
   BUILDING_ORDER = buildingList(brand);
   WALL = !!brand.wallboard;
-  // 雲端 15 分鐘（資料每 2 小時才更新一次，輪詢再勤也是對同一份快照付費；
+  // 雲端 15 分鐘（資料最快 30 分鐘更新一次，輪詢再勤也是對同一份快照付費；
   // 失更門檻 180 分容得下這個輪詢間隔）、地端 1 分鐘
   POLL = WALL ? 900000 : POLL_MS;
   document.getElementById('org').textContent = brand.war_room_name || '工地職安戰情室';
@@ -150,7 +150,56 @@ let WALL = false, WALL_KEY = '', POLL = POLL_MS;
   });
 
   initSites(brand);
+  initCctv();
 })();
+
+// ---------------------------------------------------------------------------
+// 現場監視輪播：地端直連監視器主機（/api/cctv/*）。雲端沒有這組端點、或未設定
+// 監視器時整格隱藏，危害與環境各撐 3 欄。一次只顯示一個頻道，每 CCTV_MS 換下一個；
+// 新畫面先在背景載好再換上，取像要好幾秒，不能讓那一格空白。
+// ---------------------------------------------------------------------------
+const CCTV_MS = 20000;
+async function initCctv() {
+  const panel = document.getElementById('cctvPanel');
+  if (!panel) return;
+  let chs = [];
+  try {
+    const r = await fetch('/api/cctv/channels', { credentials: 'same-origin' });
+    const d = r.ok ? await r.json() : null;
+    chs = d && d.enabled ? (d.channels || []) : [];
+  } catch (e) { chs = []; }
+  document.body.classList.toggle('no-cctv', !chs.length);
+  document.body.classList.toggle('has-cctv', !!chs.length);   // 危害、環境變窄，字級收小
+  panel.hidden = !chs.length;
+  if (!chs.length) return;
+  hzLayout = null;                                  // 危害卡變窄，重新分頁
+  if (DATA) renderHazards();
+  const img = document.getElementById('cctvImg');
+  const msg = document.getElementById('cctvMsg');
+  const meta = document.getElementById('cctvMeta');
+  let i = 0;
+  const show = () => {
+    const ch = chs[i % chs.length];
+    i++;
+    const next = new Image();
+    next.onload = () => {
+      img.src = next.src;
+      msg.hidden = true;
+      meta.textContent = `頻道 ${ch}` + (chs.length > 1 ? `・${(i - 1) % chs.length + 1}／${chs.length}` : '')
+        + `・${new Date().toTimeString().slice(0, 5)}`;
+      if (!reduceMotion() && img.animate) {
+        img.animate([{ opacity: 0.4 }, { opacity: 1 }], { duration: 400, easing: EASE_OUT });
+      }
+    };
+    next.onerror = () => {
+      msg.textContent = `頻道 ${ch} 暫時無法取得畫面`;
+      msg.hidden = false;
+    };
+    next.src = `/api/cctv/snapshot?channel=${ch}&t=${Date.now()}`;
+  };
+  show();
+  setInterval(show, CCTV_MS);
+}
 
 /**
  * 版頭公司標誌：圖由伺服器提供（不進版控），兩張都載入成功才顯示；
@@ -403,7 +452,7 @@ async function load() {
   // 版頭只放短字；完整時間放滑鼠提示。資料過期另有紅色警示條
   setStatus(d.generated_at ? '' : '尚未收到外部資料（氣象／出工）', !d.generated_at);
   document.getElementById('clockText').title = d.generated_at
-    ? `資料更新於 ${d.generated_at.replace('T', ' ')}` + (WALL ? '（雲端每 2 小時更新）' : '') : '';
+    ? `資料更新於 ${d.generated_at.replace('T', ' ')}` + (WALL ? '（上午每 30 分、下午每小時更新）' : '') : '';
   renderTicker();
   renderContacts();
   renderRecords();
@@ -435,7 +484,7 @@ function renderGate() {
   document.getElementById('gateSub').textContent =
     dated ? `${hc.reading_at.slice(11, 16)} 讀數` : parts.join('・');
   // 讀數時間放滑鼠提示：單行放不下，而且超過一小時的讀數後端本來就不回
-  box.title = '門禁人臉辨識設備的即時在場人數；門禁人數不代替出工回報'
+  box.title = '門禁人臉辨識的即時在場人數，含訪客與工務所人員；與出工回報是不同指標'
     + (hc.reading_at ? `（讀數 ${hc.reading_at.slice(11, 16)}）` : '');
 }
 
@@ -664,6 +713,23 @@ function hazardHtml(h) {
     <p class="hz-src" title="${esc(src.join('、'))}">${esc(src.join('、'))}</p>${ms ? `<ul class="hz-measures">${ms}</ul>` : ''}</article>`;
 }
 
+/** 一頁只放一類仍超出卡片（三條措施、或有監視格時卡片變窄）：從最後一條措施
+ *  往回收，收掉幾條標在最後，不讓半行字被裁在卡片邊緣。 */
+function fitMeasures(list) {
+  const fits = () => list.scrollHeight <= list.clientHeight + 1;
+  if (fits()) return;
+  const lis = [...list.querySelectorAll('.hz-measures li')];
+  const note = document.createElement('p');
+  note.className = 'hz-more';
+  list.lastElementChild.append(note);
+  let cut = 0;
+  while (!fits() && lis.length > 1) {
+    lis.pop().remove();
+    note.textContent = `另有 ${++cut} 條措施未列出`;
+  }
+  if (!cut) note.remove();
+}
+
 /** 危害分頁：[[索引…]…]。結果依「資料＋卡片尺寸」快取，換頁時不重量。 */
 function hazardPages(hz, list) {
   const key = JSON.stringify(hz) + '|' + list.clientWidth + 'x' + list.clientHeight;
@@ -718,6 +784,7 @@ function renderHazards() {
     const turned = list._page !== undefined && html !== list._page;
     list._page = html;
     list.innerHTML = html;
+    fitMeasures(list);
     if (turned && !reduceMotion() && list.animate) {     // 換頁才淡入
       list.animate([{ opacity: 0, transform: 'translateY(.375rem)' }, { opacity: 1, transform: 'none' }],
                    { duration: 320, easing: EASE_OUT });

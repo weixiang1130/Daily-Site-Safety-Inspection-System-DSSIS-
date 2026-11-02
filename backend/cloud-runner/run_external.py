@@ -5,10 +5,10 @@
 ------------
 工地看板原本靠「地端主機」把整份快照推上雲端；地端跑在誰的電腦上，
 那台電腦一關，雲端看板就顯示「資料已停止更新」。這支把**不需要公司
-內網、也不需要雲端資料庫**的三塊搬到 GitHub Actions 每 30 分鐘跑一次：
+內網、也不需要雲端資料庫**的三塊搬到 GitHub Actions 定時跑（上午每 30 分、下午每小時、其餘每 2 小時）：
 
     station   微型氣象站（公開平台）
-    worklog   本日出工（Google 試算表）
+    worklog   本日出工（Google 試算表；看板只顯示主場站，其他工地供協議表帶入）
     news      職安署新知（公開網站）
 
 缺失統計、無災害、看板設定這些「要資料庫」的區塊不在這裡——它們由雲端
@@ -172,9 +172,42 @@ def _read_external(db, ok: dict) -> dict:
             k = w.report_date.isoformat()
             totals[k] = totals.get(k, 0) + (w.headcount or 0)
         out["daily_totals"] = totals
+        out["worklog_sites"] = _site_worklogs(today)
 
     if ok.get("news"):
         out["news"] = news_section(db)
+    return out
+
+
+def _site_worklogs(today: date) -> dict:
+    """主場站以外各工地的今日出工：{工地代碼: {date, rows}}，協議表帶入用，不上看板。
+    一個工地抓不到就少那一個（雲端保留上一份），只留黃色註記：這裡每 30 分鐘跑一次，
+    來源真的壞掉時由每晚的出工資料庫寫入寄信，不必每輪寄。"""
+    import contextlib
+
+    from collectors.worklog import collect_reports, fetch_rows, worklog_sources
+
+    primary = (os.environ.get("PRIMARY_SITE_CODE") or "").strip()
+    out = {}
+    try:
+        sources = worklog_sources()
+    except RuntimeError as e:
+        bs.annotate("warning", "工地看板：其他工地出工", str(e))
+        return out
+    for code, url in sources.items():
+        if code == primary:
+            continue
+        try:
+            with contextlib.redirect_stdout(sys.stderr):
+                _, parsed, _ = collect_reports(fetch_rows(url), site_code=code)
+        except Exception as e:             # noqa: BLE001
+            bs.annotate("warning", f"工地看板：{code} 出工抓取失敗",
+                        f"{type(e).__name__}: {e}（沿用上一份資料，下一輪再抓）")
+            continue
+        out[code] = {"date": today.isoformat(), "rows": [{
+            "building": i["building"], "vendor": i["vendor"], "trade": i["trade"],
+            "headcount": i["headcount"], "supervisor": i["supervisor"], "tasks": i["tasks"],
+        } for (rd, _, _), i in parsed.items() if rd == today and i["headcount"] != 0]}
     return out
 
 

@@ -8,8 +8,9 @@ noise_guidance、work_hazards），牆上會看到的法規文字與正式環境
     python backend/tools/board_demo.py                 # http://localhost:8130
     python backend/tools/board_demo.py --scenario hot  # 熱危害第三級＋噪音超標
     python backend/tools/board_demo.py --port 8131
+    python backend/tools/board_demo.py --no-cctv       # 模擬雲端：沒有監視器
 
-只用標準函式庫；只提供看板會用到的三個 API 與 frontend/ 靜態檔。
+只用標準函式庫；只提供看板會用到的 API 與 frontend/ 靜態檔。
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ import os
 import sys
 from datetime import date, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 FRONTEND = os.path.join(ROOT, "frontend")
@@ -130,6 +131,7 @@ BRANDING = {"system_name": "職安填報系統", "war_room_name": "職安戰情�
 
 class Handler(BaseHTTPRequestHandler):
     scenario = "normal"
+    cctv = True
 
     def _json(self, obj, code=200):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
@@ -153,6 +155,27 @@ class Handler(BaseHTTPRequestHandler):
             return self._json([{"id": 1, "code": "DEMO", "name": "示範工地 A"}])
         if path.startswith("/api/board-data/"):
             return self._json(board_data(self.scenario))
+        if path == "/api/cctv/channels":
+            # --no-cctv 模擬雲端：沒有這組端點，看板隱藏監視格、危害與環境各撐 3 欄
+            if not self.cctv:
+                return self._json({"detail": "找不到路由"}, 404)
+            return self._json({"enabled": True, "channels": [4, 7]})
+        if path == "/api/cctv/snapshot" and self.cctv:
+            # 示範畫面用 SVG 代替監視器截圖（只用標準函式庫，產不出 JPEG）
+            ch = (parse_qs(urlparse(self.path).query).get("channel") or ["0"])[0]
+            shade = "#3a4a3f" if ch == "4" else "#4a3f3a"
+            svg = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720">'
+                   f'<rect width="1280" height="720" fill="{shade}"/>'
+                   f'<path d="M0 520 L420 300 L760 420 L1280 260 L1280 720 L0 720Z" fill="#00000055"/>'
+                   f'<text x="40" y="70" font-size="44" fill="#fff" font-family="sans-serif">'
+                   f'示範頻道 {ch}　{datetime.now():%H:%M:%S}</text></svg>').encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "image/svg+xml")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(svg)))
+            self.end_headers()
+            self.wfile.write(svg)
+            return
         if path in ("/api/brand/mark", "/api/brand/wordmark"):
             # 與地端相同：backend/data/brand-*.local.png，沒有就 404（看板顯示文字）
             full = os.path.join(ROOT, "backend", "data", f"brand-{path.rsplit('/', 1)[1]}.local.png")
@@ -191,8 +214,10 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--port", type=int, default=8130)
     ap.add_argument("--scenario", choices=sorted(SCENARIOS), default="normal")
+    ap.add_argument("--no-cctv", action="store_true", help="模擬雲端：沒有監視器端點")
     args = ap.parse_args()
     Handler.scenario = args.scenario
+    Handler.cctv = not args.no_cctv
     srv = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     print(f"工地看板本機模擬（情境 {args.scenario}）：http://localhost:{args.port}/static/dashboard.html")
     srv.serve_forever()

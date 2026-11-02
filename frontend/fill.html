@@ -38,6 +38,10 @@
     <select id="form"></select>
     <label>檢查地點／位置編號</label>
     <input type="text" id="location" placeholder="例：地下室 B2 全區、5F 施工區、塔吊 TC-01">
+    <label>受檢廠商</label>
+    <input type="text" id="inspVendor" data-combo="vendor" autocomplete="off"
+           placeholder="點下方今日有回報的廠商，或打字搜尋">
+    <div class="vendor-chips" id="dayVendors"></div>
     <!-- 現場共用同一組帳號，帳號名稱代表不了實際檢查人。
          稽核與事故調查都需要知道是誰檢查的，因此請填報者自行填寫。 -->
     <label>檢查人員<span class="req">＊</span></label>
@@ -51,40 +55,32 @@
   <!-- 步驟 2：逐項檢查 -->
   <div class="card hidden" id="step2">
     <h2 id="formTitle"></h2>
+    <!-- 現場常是「看到一個缺失、找到對應項目」：用關鍵字找，不必從上百項逐項捲。
+         找到標不合格後，其餘再用「全部標記為合格」。 -->
+    <div class="item-search">
+      <input type="text" id="q" placeholder="輸入關鍵字找檢查項目，例：護欄、安全帶、滅火器" autocomplete="off">
+      <button class="ghost" type="button" id="qClear">清除</button>
+    </div>
+    <p class="muted" id="qInfo" style="margin:0 0 8px"></p>
     <div class="row" style="margin-bottom:8px">
       <button class="ghost" id="allPass">全部標記為合格</button>
       <button class="ghost" id="jumpUnset">跳到第一個未填</button>
     </div>
+    <div class="draft-state" id="draftState"></div>
     <div id="items"></div>
   </div>
 
-  <!-- 步驟 3：簽名 -->
+  <!-- 步驟 3：進入簽核。簽名在簽核頁逐格進行，可分次、換人、換裝置 -->
   <div class="card hidden" id="step3">
     <span class="chapter">03</span>
-    <h2>簽核</h2>
-    <label>簽核角色</label>
-    <select id="sigRole">
-      <option>檢查人員</option><option>作業主管</option><option>職安人員</option>
-      <option>主辦工程師</option><option>工程專案主管</option>
-    </select>
-    <label>簽名（請於下方以手指或滑鼠簽名）</label>
-    <canvas class="sig-pad" id="pad"></canvas>
-    <div class="row" style="margin-top:8px">
-      <button class="ghost" id="clearSig">清除重簽</button>
-      <button id="submit">確認送出並產生 PDF</button>
+    <h2>進入簽核</h2>
+    <p class="muted">儲存後內容就鎖定，不能再改；接著由檢查人員、作業主管、職安人員等各自簽名，
+      可以分次簽完。全部簽完才產生 PDF。</p>
+    <div id="editBox" class="hidden">
+      <label>修改原因<span class="req">＊</span></label>
+      <input type="text" id="editReason" maxlength="200" placeholder="例：缺失內容寫錯、漏填責任廠商">
     </div>
-    <p class="muted" style="margin-top:10px">
-      送出後系統會記錄簽名圖、簽署人、時間與 IP，並自動產生 PDF 存查。
-    </p>
-  </div>
-
-  <div class="card hidden" id="done">
-    <h2>已送出</h2>
-    <p id="doneMsg"></p>
-    <div class="row">
-      <a id="pdfLink" target="_blank"><button style="width:100%">開啟 PDF</button></a>
-      <a href="/static/fill.html"><button class="ghost" style="width:100%">再填一張</button></a>
-    </div>
+    <button id="submit" style="width:100%;margin-top:8px">儲存並進入簽核</button>
   </div>
 </div>
 
@@ -96,7 +92,7 @@
 
 <script src="/static/common.js"></script>
 <script>
-let me = null, formDef = null, vendors = [], state = {}, pad = null;
+let me = null, formDef = null, vendors = [], state = {};
 
 const hazardOptions = HAZARDS.map(h => `<option value="${h[0]}">${h[1]}</option>`).join('');
 
@@ -112,7 +108,7 @@ const hazardOptions = HAZARDS.map(h => `<option value="${h[0]}">${h[1]}</option>
     API.get('/api/sites'), API.get('/api/forms'), API.get('/api/vendors')
   ]);
   vendors = vs;
-  installVendorDatalist(vendors);
+  VENDOR_CACHE = vendors.slice();
   document.getElementById('site').innerHTML =
     siteOptions(fillableSites(sites, brand), me.site_id);
   const bList = buildingList(brand);
@@ -122,7 +118,111 @@ const hazardOptions = HAZARDS.map(h => `<option value="${h[0]}">${h[1]}</option>
   document.getElementById('form').innerHTML =
     forms.map(f => `<option value="${f.form_code}">${esc(f.title)}（${f.item_count} 項）</option>`).join('');
   document.getElementById('date').value = today();
+  ['site', 'building', 'date'].forEach(id =>
+    document.getElementById(id).addEventListener('change', loadDayVendors));
+  await loadDayVendors();
+
+  if (EDIT) { await loadForEdit(); return; }
+
+  // 暫存：填到一半被叫走、斷線、手機重整，回來接著填
+  saveDraft = Draft.watch('fill', () => ({
+    started: !!formDef, form_code: formDef && formDef.form_code, state,
+  }), document.getElementById('draftState'));
+  Draft.offer('fill', document.getElementById('step1'), resumeDraft);
 })();
+
+/** 受檢廠商：列出這一天這一棟有 LINE 回報的廠商，點一下就帶入。新進場、還不在清單的也放行。 */
+async function loadDayVendors() {
+  const site = document.getElementById('site').value;
+  const date = document.getElementById('date').value;
+  const b = document.getElementById('building').value;
+  let d = { rows: [] };
+  try { d = await API.get('/api/worklog/day?' + new URLSearchParams({ site_id: site, date })); }
+  catch (e) { /* 地端或舊版後端沒有這個端點：只是沒有快選 */ }
+  await loadFormOptions(site);
+  if (date !== document.getElementById('date').value) return;   // 等待中又換了日期
+  const names = [...new Set((d.rows || []).filter(r => r.vendor && (!b || !r.building || r.building === b))
+    .map(r => listVendor(r.vendor).vendor))];
+  names.forEach(n => COMBO_EXTRA.vendor.add(n.trim().toLowerCase()));
+  const box = document.getElementById('dayVendors');
+  box.innerHTML = names.map(n => `<button type="button" class="ghost">${esc(n)}</button>`).join('');
+  box.querySelectorAll('button').forEach(btn => {
+    btn.onclick = () => {
+      document.getElementById('inspVendor').value = btn.textContent;
+      saveDraft();
+    };
+  });
+}
+
+let saveDraft = () => {}, editRevision = null;
+const EDIT = parseInt(new URLSearchParams(location.search).get('edit'), 10) || 0;
+
+/** 修改已填的單：把伺服器的內容組成暫存的形狀，共用同一條還原流程。 */
+async function loadForEdit() {
+  const d = await API.get('/api/edit/inspection/' + EDIT);
+  editRevision = d.revision;
+  const fields = { site: d.site_id, building: d.building || '', date: d.inspect_date,
+                   weather: d.weather || '晴', form: d.form_code, location: d.location || '',
+                   inspector: d.inspector_name || '', inspVendor: d.vendor_name || '' };
+  if (d.vendor_name) COMBO_EXTRA.vendor.add(d.vendor_name.trim().toLowerCase());
+  const st = {};
+  d.results.forEach(r => { st[r.item_id] = { result: r.result }; });
+  d.findings.forEach(x => {
+    if (!x.item_id) return;
+    const id = x.item_id;
+    st[id] = Object.assign(st[id] || { result: 'fail' }, {
+      finding_id: x.id, photo_before: x.photo_before, photo_after: x.photo_after });
+    Object.assign(fields, { [`desc-${id}`]: x.description, [`hz-${id}`]: x.hazard_code,
+      [`sv-${id}`]: x.severity, [`vd-${id}`]: x.vendor || '', [`rp-${id}`]: x.responsible_person || '',
+      [`due-${id}`]: x.due_date || '', [`pen-${id}`]: x.penalty || '', [`fx-${id}`]: x.fix_note || '' });
+    DISPOSITION_OPTS.forEach(([v]) => { fields[`dp-${v}-${id}`] = x.dispositions.includes(v); });
+    // 舊單原值：就算後來從清單刪掉，也不能讓這張單改不動
+    if (x.vendor) COMBO_EXTRA.vendor.add(x.vendor.trim().toLowerCase());
+    if (x.responsible_person) COMBO_EXTRA.person.add(x.responsible_person.trim().toLowerCase());
+  });
+  await resumeDraft({ fields, extra: { started: true, form_code: d.form_code, state: st } });
+  document.getElementById('formTitle').textContent = `修改：${formDef.title}`;
+  document.getElementById('editBox').classList.remove('hidden');
+  document.getElementById('submit').textContent = '儲存修改並重新簽核';
+}
+
+async function resumeDraft(d) {
+  Draft.apply(d.fields);
+  const x = d.extra || {};
+  if (!x.started || !x.form_code) return;          // 還在基本資料，欄位寫回就好
+  await startForm(x.form_code);
+  state = x.state || {};
+  Object.entries(state).forEach(([id, s]) => {
+    if (!document.getElementById('it-' + id)) { delete state[id]; return; }   // 表單改版、項目已不在
+    if (s.result) setResult(parseInt(id, 10), s.result);
+  });
+  Draft.apply(d.fields);                            // 逐項欄位（缺失內容、處置、期限…）
+  Object.keys(state).forEach(id => {
+    if (state[id].result !== 'fail') return;
+    syncDisposition(id);
+    showPhotos(id);
+  });
+  filterItems();
+  // 上面 setResult 逐項存檔時，逐項欄位還是剛畫出來的預設值；寫回之後要再存一次，
+  // 否則接著填之後若又重整，缺失內容、處置、期限都會變回預設
+  saveDraft();
+  toast('已載入暫存，請確認後繼續');
+}
+
+async function startForm(code) {
+  formDef = await API.get('/api/forms/' + code);
+  state = {};
+  await Promise.all([
+    loadVendorHints(document.getElementById('site').value),
+    loadFormOptions(document.getElementById('site').value),
+  ]);
+  renderItems();
+  document.getElementById('step1').classList.add('hidden');
+  document.getElementById('step2').classList.remove('hidden');
+  document.getElementById('prog').classList.remove('hidden');
+  document.getElementById('formTitle').textContent = formDef.title;
+  window.scrollTo(0, 0);
+}
 
 document.getElementById('go').onclick = async () => {
   // 檢查人員在進入逐項檢查前就要求填寫。等到最後才擋，
@@ -137,15 +237,8 @@ document.getElementById('go').onclick = async () => {
   rememberName('inspector', inspector.value);
   rememberBuilding(building);
 
-  const code = document.getElementById('form').value;
-  formDef = await API.get('/api/forms/' + code);
-  state = {};
-  renderItems();
-  document.getElementById('step1').classList.add('hidden');
-  document.getElementById('step2').classList.remove('hidden');
-  document.getElementById('prog').classList.remove('hidden');
-  document.getElementById('formTitle').textContent = formDef.title;
-  window.scrollTo(0, 0);
+  await startForm(document.getElementById('form').value);
+  saveDraft();
 };
 
 function renderItems() {
@@ -178,31 +271,19 @@ function renderItems() {
         </div>
         <div class="row">
           <div><label>責任廠商</label>
-            <input type="text" id="vd-${it.id}" list="vendorList"
-                   placeholder="可直接輸入新廠商"></div>
+            <input type="text" id="vd-${it.id}" data-combo="vendor" autocomplete="off"
+                   placeholder="點選或打字搜尋"></div>
           <div><label>責任人</label>
-            <input type="text" id="rp-${it.id}" placeholder="姓名"></div>
+            <input type="text" id="rp-${it.id}" placeholder="姓名" data-combo="person"
+                   data-combo-vendor="vd-${it.id}" autocomplete="off"></div>
         </div>
-        <div class="row">
-          <div><label>改善方式</label>
-            <select id="at-${it.id}" onchange="toggleDue(${it.id})">
-              <option value="onsite">當場改善</option>
-              <option value="scheduled">限期改善</option>
-            </select></div>
-          <div id="duewrap-${it.id}" class="hidden"><label>改善期限</label>
-            <input type="date" id="due-${it.id}"></div>
-        </div>
+        ${dispositionHtml(it.id)}
         <label>改善說明</label>
         <input type="text" id="fx-${it.id}" placeholder="例：派員立即移除／已加裝護欄">
         <div class="row">
-          <div><label>改善前照片</label>
-            <input type="file" accept="image/*" capture="environment"
-                   onchange="uploadPhoto(this, ${it.id}, 'before')"></div>
-          <div><label>改善後照片</label>
-            <input type="file" accept="image/*" capture="environment"
-                   onchange="uploadPhoto(this, ${it.id}, 'after')"></div>
+          <div><label>改善前照片</label><div class="photo-box" id="pb-${it.id}-before"></div></div>
+          <div><label>改善後照片</label><div class="photo-box" id="pb-${it.id}-after"></div></div>
         </div>
-        <div class="muted" id="ph-${it.id}"></div>
       </div>
     </div>`;
   });
@@ -215,21 +296,50 @@ function renderItems() {
   formDef.items.forEach(it => {
     const sel = document.getElementById('hz-' + it.id);
     if (sel) sel.value = it.hazard_code;
+    // 選了責任廠商就從 LINE 出工回報帶出作業主管當責任人（空的才帶）
+    bindVendorPrefill(document.getElementById('vd-' + it.id),
+                      { person: document.getElementById('rp-' + it.id) });
   });
+  filterItems();
   updateProgress();
 }
 
-function toggleDue(id) {
-  const scheduled = document.getElementById('at-' + id).value === 'scheduled';
-  document.getElementById('duewrap-' + id).classList.toggle('hidden', !scheduled);
-  if (scheduled && !document.getElementById('due-' + id).value) {
-    const d = new Date(); d.setDate(d.getDate() + 3);
-    document.getElementById('due-' + id).value = d.toISOString().slice(0, 10);
-  }
+/** 關鍵字篩選檢查項目：空白分隔的每個詞都要出現在項目或類別裡。 */
+function filterItems() {
+  const words = document.getElementById('q').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  let shown = 0;
+  formDef.items.forEach(it => {
+    const hay = `${it.category} ${it.text}`.toLowerCase();
+    const hit = !words.length || words.every(w => hay.includes(w));
+    // 已標不合格的永遠留著：搜尋別的字時不能讓正在填的缺失消失
+    const keep = hit || (state[it.id] && state[it.id].result === 'fail');
+    document.getElementById('it-' + it.id).classList.toggle('hidden', !keep);
+    if (hit) shown++;
+  });
+  document.querySelectorAll('#items .cat-head').forEach(h => {
+    let n = h.nextElementSibling, any = false;
+    while (n && !n.classList.contains('cat-head')) { if (!n.classList.contains('hidden')) any = true; n = n.nextElementSibling; }
+    h.classList.toggle('hidden', !any);
+  });
+  document.getElementById('qInfo').textContent = words.length
+    ? `符合 ${shown} 項（共 ${formDef.items.length} 項；已標不合格的項目一律顯示）` : '';
 }
+document.getElementById('q').oninput = () => formDef && filterItems();
+document.getElementById('qClear').onclick = () => {
+  document.getElementById('q').value = '';
+  if (formDef) filterItems();
+};
 
 function setResult(id, v) {
   state[id] = Object.assign(state[id] || {}, { result: v });
+  // 不合格時責任廠商預設是受檢廠商（空的才帶）
+  const vd = document.getElementById('vd-' + id);
+  const insp = document.getElementById('inspVendor').value.trim();
+  if (v === 'fail' && vd && insp && !vd.value.trim()) {
+    vd.value = insp;
+    vd.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  if (v === 'fail') showPhotos(id);
   const el = document.getElementById('it-' + id);
   el.querySelectorAll('.choices button').forEach(b => {
     b.className = b.dataset.v === v ? 'sel-' + v : '';
@@ -237,18 +347,17 @@ function setResult(id, v) {
   el.classList.toggle('is-fail', v === 'fail');
   document.getElementById('fb-' + id).classList.toggle('hidden', v !== 'fail');
   updateProgress();
+  saveDraft();
 }
 
-async function uploadPhoto(input, id, which) {
-  if (!input.files || !input.files[0]) return;
-  const fd = new FormData();
-  fd.append('file', input.files[0]);
-  try {
-    const r = await API.form('/api/upload/photo', fd);
-    state[id] = Object.assign(state[id] || {}, { ['photo_' + which]: r.path });
-    const tag = document.getElementById('ph-' + id);
-    tag.textContent = `已上傳：${state[id].photo_before ? '改善前 ✓ ' : ''}${state[id].photo_after ? '改善後 ✓' : ''}`;
-  } catch (e) { toast('照片上傳失敗：' + e.message); }
+/** 這一項缺失的照片欄。state 存路徑清單，舊暫存的單一路徑 photoBox 也看得懂。 */
+function showPhotos(id) {
+  ['before', 'after'].forEach(which => {
+    photoBox(`pb-${id}-${which}`, (state[id] || {})['photo_' + which], list => {
+      state[id] = Object.assign(state[id] || {}, { ['photo_' + which]: list });
+      saveDraft();
+    });
+  });
 }
 
 document.getElementById('allPass').onclick = () => {
@@ -259,7 +368,12 @@ document.getElementById('allPass').onclick = () => {
 document.getElementById('jumpUnset').onclick = () => {
   const it = formDef.items.find(i => !state[i.id]);
   if (!it) { toast('已全部填完'); return; }
-  document.getElementById('it-' + it.id).scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const el = document.getElementById('it-' + it.id);
+  if (el.classList.contains('hidden')) {     // 被關鍵字篩掉：清掉篩選才跳得過去
+    document.getElementById('q').value = '';
+    filterItems();
+  }
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
 };
 
 function updateProgress() {
@@ -273,13 +387,27 @@ function updateProgress() {
 document.getElementById('toSign').onclick = () => {
   document.getElementById('step3').classList.remove('hidden');
   document.getElementById('step3').scrollIntoView({ behavior: 'smooth' });
-  if (!pad) pad = initSignaturePad(document.getElementById('pad'));
 };
 
-document.getElementById('clearSig').onclick = () => pad && pad.clear();
-
 document.getElementById('submit').onclick = async () => {
-  if (!pad || pad.isEmpty()) { toast('請先簽名'); return; }
+  const reason = document.getElementById('editReason').value.trim();
+  if (EDIT && !reason) { toast('請填寫修改原因'); document.getElementById('editReason').focus(); return; }
+  if (PHOTO_UPLOADING) { toast('照片還在上傳，請稍候'); return; }
+  const off = comboCheck(['vendor', 'person']);
+  if (off) { toast(off.msg, 5000); off.el.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+  // 每筆缺失都要有處置；限期改善／代工要有期限。先檢查完再送，免得半途失敗
+  for (const it of formDef.items) {
+    if ((state[it.id] || {}).result !== 'fail') continue;
+    const d = readDisposition(it.id);
+    const msg = !d ? `第 ${it.seq} 項缺失請勾選處置方式`
+      : (d.action_type === 'scheduled' && !d.due_date) ? `第 ${it.seq} 項缺失請填改善期限` : '';
+    if (msg) {
+      toast(msg);
+      document.getElementById('it-' + it.id).classList.remove('hidden');
+      document.getElementById('it-' + it.id).scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+  }
   const btn = document.getElementById('submit');
   btn.disabled = true;
 
@@ -292,6 +420,7 @@ document.getElementById('submit').onclick = async () => {
     if (s.result === 'fail') {
       const hz = document.getElementById('hz-' + it.id).value;
       findings.push({
+        id: s.finding_id || undefined,
         item_id: it.id,
         description: document.getElementById('desc-' + it.id).value || it.text,
         hazard_code: hz,
@@ -299,40 +428,30 @@ document.getElementById('submit').onclick = async () => {
         vendor_id: await resolveVendorId(document.getElementById('vd-' + it.id).value),
         responsible_person: document.getElementById('rp-' + it.id).value || null,
         severity: document.getElementById('sv-' + it.id).value,
-        action_type: document.getElementById('at-' + it.id).value,
-        due_date: document.getElementById('due-' + it.id).value || null,
+        ...readDisposition(it.id),
         fix_note: document.getElementById('fx-' + it.id).value || null,
-        photo_before: s.photo_before || null,
-        photo_after: s.photo_after || null
+        photo_before: photoJoin(s.photo_before),
+        photo_after: photoJoin(s.photo_after)
       });
     }
   }
 
   try {
-    const res = await API.post('/api/inspections', {
+    const res = await API.post(EDIT ? '/api/edit/inspection/' + EDIT : '/api/inspections', {
+      reason, revision: editRevision,
       site_id: parseInt(document.getElementById('site').value),
       building: document.getElementById('building').value,
       form_code: formDef.form_code,
       inspect_date: document.getElementById('date').value,
       location: document.getElementById('location').value,
       inspector_name: document.getElementById('inspector').value,
+      vendor_name: document.getElementById('inspVendor').value.trim() || null,
       weather: document.getElementById('weather').value,
-      results, findings,
-      signatures: [{
-        role: document.getElementById('sigRole').value,
-        signer_name: me.name,
-        image: pad.toDataURL()
-      }]
+      results, findings, signing: true,
     });
-    document.getElementById('step2').classList.add('hidden');
-    document.getElementById('step3').classList.add('hidden');
-    document.getElementById('prog').classList.add('hidden');
-    document.getElementById('done').classList.remove('hidden');
-    document.getElementById('doneMsg').textContent =
-      `單號 INSP-${String(res.inspection_id).padStart(6, '0')}，` +
-      `共開立 ${res.finding_ids.length} 筆缺失，資料已即時進入戰情儀表板。`;
-    document.getElementById('pdfLink').href = res.pdf_url;
-    window.scrollTo(0, 0);
+    if (saveDraft.stop) saveDraft.stop();   // 已存上伺服器：排定中的存檔與之後的輸入都不能再生出暫存
+    if (!EDIT) Draft.clear('fill');   // 修改舊單不能清掉同一頁新單的暫存
+    location.href = res.sign_url || res.pdf_url || '/static/home.html';   // 地端沒有簽核流程
   } catch (e) {
     toast('送出失敗：' + e.message);
     btn.disabled = false;

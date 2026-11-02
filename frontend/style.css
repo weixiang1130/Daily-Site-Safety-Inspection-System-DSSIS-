@@ -282,6 +282,106 @@ button:disabled { opacity: .4; cursor: not-allowed; }
   background: var(--bg-surface);
 }
 
+/* 缺失處置（可複選）：立即改善／限期改善／代工／扣款 */
+.disp { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.disp label.chk {
+  display: flex; align-items: center; gap: 6px; margin: 0;
+  padding: 8px var(--sp-3); border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  font-family: var(--font-cjk); font-size: var(--fs-sm); letter-spacing: 0; text-transform: none;
+  color: var(--text-secondary); cursor: pointer;
+}
+.disp label.chk:has(input:checked) { border-color: var(--accent); background: var(--accent-subtle); color: var(--text-primary); }
+.disp input { width: auto; margin: 0; }
+
+/* 簽名格 */
+.sign-slot {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
+  padding: var(--sp-3) 0; border-bottom: 1px solid var(--border);
+}
+.sign-slot .who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sign-slot.signed .who b::before { content: "✓ "; color: var(--ok-600); }
+.sign-slot button { flex: none; padding: 8px 18px; }
+
+/* 參加協議人員依廠商分組：一列一筆，同廠商連在一起、不同廠商用底色帶與粗線區隔 */
+.att-sum { font-size: var(--fs-sm); font-weight: 500; color: var(--text-primary); margin: 0 0 var(--sp-2); }
+.att-cols, .att-row {
+  display: grid; align-items: center; column-gap: 6px;
+  grid-template-columns: 34px 150px minmax(0, 1.1fr) minmax(0, 1.1fr) 100px minmax(0, 2.6fr) 30px 30px;
+}
+.att-cols { padding: 0 6px 4px; font-size: var(--fs-xs); color: var(--text-muted); }
+.att-row { padding: 3px 6px; }
+.att-row input[type=text] { padding: 6px 8px; font-size: var(--fs-sm); min-width: 0; }
+/* 每家廠商一個編號，家與家之間留空隙：只靠底色分不開，一長串還是擠成一片 */
+.att-no { font-weight: 700; font-size: var(--fs-sm); text-align: center; color: var(--text-primary);
+  font-variant-numeric: tabular-nums; }
+.att-row.g-rest .att-no { font-weight: 500; font-size: var(--fs-xs); color: var(--text-muted); }
+.att-row.g-first { border-top: 2px solid var(--border-strong); margin-top: 12px; }
+.att-row.g-first:first-child { margin-top: 0; }
+.att-row.band { background: var(--bg-sunken); }
+.att-row.g-rest input[id^=av-] { color: var(--text-muted); border-color: transparent; background: transparent; }
+.att-row button { padding: 0; height: 30px; font-size: var(--fs-sm); }
+.att-row .row-add { visibility: hidden; }
+.att-row.g-first .row-add { visibility: visible; }
+
+/* 手機放不下一列：折成兩欄，作業內容獨佔一行 */
+@media (max-width: 760px) {
+  .att-cols { display: none; }
+  .att-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); row-gap: 4px; padding: 6px; }
+  .att-row input[id^=ac-] { grid-column: 1 / -1; }
+  .att-no { grid-column: 1 / -1; text-align: left; }
+  .att-row:not(.g-rest) .att-no::before { content: "廠商 "; font-weight: 500; color: var(--text-muted); }
+}
+
+/* 固定欄寬表格：一筆長文字不會撐開整頁，翻頁版面不跳；手機在 .table-scroll 內橫捲 */
+table.grid-fixed { table-layout: fixed; width: 100%; min-width: 980px; }
+table.grid-fixed th, table.grid-fixed td { white-space: normal; overflow-wrap: anywhere; vertical-align: top; }
+table.grid-fixed .tag { white-space: nowrap; }
+
+/* 可搜尋下拉（預設清單） */
+.combo-menu {
+  position: absolute; z-index: 60; max-height: 280px; max-width: min(420px, calc(100vw - 16px));
+  overflow-y: auto; background: var(--bg-surface); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm); box-shadow: 0 6px 18px rgba(0, 0, 0, .14);
+}
+.combo-item {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2);
+  padding: 9px var(--sp-3); font-size: var(--fs-sm); line-height: 1.35; cursor: pointer;
+}
+.combo-item:hover, .combo-item.on { background: var(--accent-subtle); }
+.combo-add { color: var(--text-accent); font-weight: 500; border-top: 1px solid var(--border); }
+.combo-head {
+  padding: 6px var(--sp-3) 4px; font-size: var(--fs-xs); color: var(--text-muted);
+  background: var(--bg-sunken);
+}
+.combo-acts { flex: none; display: flex; gap: 2px; }
+button.combo-x {
+  flex: none; padding: 0 6px; border: 0; background: transparent; color: var(--text-muted);
+  font-size: var(--fs-xs); line-height: 1.6;
+}
+button.combo-x:hover { background: var(--critical-100); color: var(--critical-600); }
+
+/* 檢查項目關鍵字搜尋 */
+.item-search { display: flex; gap: var(--sp-2); align-items: center; margin-bottom: var(--sp-2); }
+.item-search input { flex: 1; }
+.item mark { background: var(--warn-100); color: inherit; padding: 0 1px; }
+
+/* 未送出的暫存 */
+.draft-offer {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3);
+  border-left: 3px solid var(--accent);
+}
+.draft-offer p { flex: 1; min-width: 200px; margin: 0; }
+.draft-state { font-size: var(--fs-xs); color: var(--text-muted); }
+
+/* 缺失清單：改善回報／覆驗 */
+.fx-dialog { max-width: 560px; width: calc(100% - 32px); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm); padding: var(--sp-5); background: var(--bg-surface); color: var(--text-primary); }
+.fx-dialog::backdrop { background: rgba(0, 0, 0, .35); }
+.fx-dialog h2 { margin-top: 0; }
+.review-note { white-space: pre-line; font-size: var(--fs-xs); color: var(--critical-600); margin-top: 4px; }
+.act-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+.act-btns button { padding: 6px 10px; font-size: var(--fs-sm); white-space: nowrap; }
+
 /* ---------------------------------------------------------------------------
    簽名
    --------------------------------------------------------------------------- */
@@ -1213,6 +1313,41 @@ table.fixed th {
   .wrap { padding: var(--sp-5) var(--sp-4) var(--sp-8); }
   /* 戰情室走舞台縮放，真實視窗寬度的手機規則不可動到它 */
   body:not(.war) .topbar { padding: var(--sp-3) var(--sp-4); }
+  /* 手機放不下帳號名稱：疊到標題上，按鈕也被擠成兩行 */
+  body:not(.war) .topbar .who { display: none; }
+  .topbar button, .topbar a { white-space: nowrap; flex-shrink: 0; }
   body:not(.war) .brand .sub { display: none; }
   :root { --fs-display: 2rem; --fs-metric: 2.25rem; }
 }
+
+/* 自主檢查表：今日有回報的廠商，點一下帶入 */
+.vendor-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.vendor-chips button { width: auto; padding: 4px 10px; font-size: var(--fs-sm); }
+
+/* 現場照片：縮圖預覽、點開放大、✕ 刪除 */
+.photo-box { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; }
+.pb-thumb { position: relative; width: 84px; height: 84px; border: 1px solid var(--border); background: var(--bg-sunken); }
+.pb-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pb-open { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; }
+.pb-del { position: absolute; top: -8px; right: -8px; width: 26px; height: 26px; padding: 0; border-radius: 50%;
+  font-size: 13px; line-height: 1; background: var(--text-primary); color: #fff; border: 2px solid #fff; }
+.pb-busy img { opacity: .4; }
+.pb-busy span { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: var(--fs-xs); color: var(--text-primary); }
+.pb-add { display: flex; align-items: center; justify-content: center; width: 84px; height: 84px; margin: 0; padding: 4px;
+  border: 1px dashed var(--border-strong); font-size: var(--fs-xs); text-align: center; cursor: pointer; }
+/* 透明蓋在按鈕上讓手指直接點到輸入框。不用 display:none 靠 label 轉發：
+   部分手機瀏覽器（LINE 內建瀏覽器這類）對隱藏的檔案輸入框點了沒反應 */
+.pb-add { position: relative; overflow: hidden; }
+.pb-add input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; opacity: 0; cursor: pointer; }
+.pb-count { font-size: var(--fs-xs); color: var(--text-muted); }
+.photo-view { max-width: min(960px, calc(100% - 24px)); padding: 12px; border: 1px solid var(--border-strong); }
+.photo-view::backdrop { background: rgba(0, 0, 0, .7); }
+.photo-view img { display: block; max-width: 100%; max-height: 76vh; margin: 0 auto; }
+.pv-bar { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 10px; }
+.pv-bar button { width: auto; padding: 6px 14px; }
+.pv-count { min-width: 56px; text-align: center; font-size: var(--fs-sm); }
+
+/* 首頁待簽核：按鈕不折行 */
+.sign-go { flex-shrink: 0; }
+.sign-go button { white-space: nowrap; width: auto; }

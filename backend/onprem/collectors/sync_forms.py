@@ -250,6 +250,8 @@ def sync_once(full: bool = False) -> tuple:
             obj.submitted_at = parse_dt(row.get("submitted_at"))
             obj.created_at = parse_dt(row.get("created_at")) or datetime.now()
             obj.fail_count = row.get("fail_count")
+            if "vendor_name" in row:     # 舊雲端沒有的欄位不洗掉
+                obj.vendor_name = _cut(row["vendor_name"], 64)
 
         # --- 協議紀錄 ---
         for row in data.get("coordinations", []):
@@ -271,6 +273,12 @@ def sync_once(full: bool = False) -> tuple:
             obj.submitted_at = parse_dt(row.get("submitted_at"))
             obj.created_at = parse_dt(row.get("created_at")) or datetime.now()
             obj.attendee_count = row.get("attendee_count")
+
+        db.flush()
+        insp_ids = dict(db.query(Inspection.cloud_id, Inspection.id)
+                        .filter(Inspection.cloud_id.isnot(None)).all())
+        coord_ids = dict(db.query(Coordination.cloud_id, Coordination.id)
+                         .filter(Coordination.cloud_id.isnot(None)).all())
 
         # --- 缺失（儀表板的主要資料來源）---
         for row in data.get("findings", []):
@@ -298,6 +306,30 @@ def sync_once(full: bool = False) -> tuple:
             obj.verified_at = parse_dt(row.get("verified_at"))
             obj.status = row.get("status") or "open"
             obj.created_at = parse_dt(row.get("created_at")) or datetime.now()
+            # 舊雲端沒有這些欄位：有帶才寫，不要洗成空的
+            if "responsible_person" in row:
+                obj.responsible_person = _cut(row["responsible_person"], 64)
+                obj.dispositions = _cut(row.get("dispositions"), 64)
+                obj.fix_note = row.get("fix_note")
+                obj.review_note = row.get("review_note")
+                obj.penalty = row.get("penalty")
+                obj.inspection_id = insp_ids.get(row.get("inspection_id"))
+                obj.coordination_id = coord_ids.get(row.get("coordination_id"))
+
+        # 雲端已刪除的缺失（單據作廢、修改時拿掉的）。空清單或一次要刪過半不動：
+        # 比較可能是雲端出狀況，不是真的刪了那麼多
+        live = data.get("live_finding_ids")
+        if live:
+            keep = set(live)
+            mine = db.query(Finding).filter(Finding.cloud_id.isnot(None)).all()
+            gone = [f for f in mine if f.cloud_id not in keep]
+            if len(gone) * 2 > len(mine):
+                log(f"雲端缺失比地端少 {len(gone)}／{len(mine)} 筆，過半，本輪不刪")
+            else:
+                for f in gone:
+                    db.delete(f)
+                if gone:
+                    counts["缺失移除"] = len(gone)
 
         db.commit()
     finally:

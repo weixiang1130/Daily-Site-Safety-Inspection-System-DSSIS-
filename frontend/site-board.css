@@ -62,7 +62,7 @@ html.board-scale{background:#050506}
 
 /* ---- 版頭：公司標誌｜工安標誌＋戰情室名稱｜參考讀數｜無災害｜時鐘｜入口 ---- */
 /* 三欄：左 身分、中 氣象讀數（以整頁置中）、右 無災害／時鐘／入口靠右 */
-.board-header{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:1.25rem;padding:.125rem .25rem .875rem;border-bottom:1px solid var(--line)}
+.board-header{display:grid;grid-template-columns:minmax(0,1fr) auto max-content;align-items:center;gap:1.25rem;padding:.125rem .25rem .875rem;border-bottom:1px solid var(--line)}
 .brand{display:flex;align-items:center;gap:.875rem;min-width:0;justify-self:start}
 .header-right{display:flex;align-items:center;gap:1.25rem;justify-self:end;min-width:0}
 .brand-logo{display:flex;align-items:center;gap:.625rem;flex-shrink:0}
@@ -114,8 +114,9 @@ html.board-scale{background:#050506}
 .rb-note[hidden]{display:none}
 
 /* ---- 卡片格：上排三張 2 欄卡（現在／危害／環境），下排出工 4 欄＋缺失＋聯絡人 ---- */
-.board-grid{flex:1;min-height:0;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));grid-template-rows:minmax(0,1.18fr) minmax(0,1fr);gap:.875rem}
-.cycle{grid-column:1/3}.hazards{grid-column:3/5}.env{grid-column:5/7}
+.board-grid{flex:1;min-height:0;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));grid-template-rows:minmax(0,1fr) minmax(0,1fr);gap:.875rem}
+.hazards{grid-column:1/3}.env{grid-column:3/5}.cctv{grid-column:5/7}
+.no-cctv .hazards{grid-column:1/4}.no-cctv .env{grid-column:4/7}
 .workforce{grid-column:1/5}.findings{grid-column:5/6}.contacts{grid-column:6/7}
 .board-panel{
   position:relative;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;
@@ -180,6 +181,35 @@ html.board-scale{background:#050506}
 .later{list-style:none;margin:0;padding:0 0 0 .25rem;display:flex;flex-direction:column;gap:.375rem}
 .later li{display:flex;gap:.75rem;font-size:1.0625rem;color:var(--fg-subtle)}
 .later li span{min-width:3.25rem;font-variant-numeric:tabular-nums;color:var(--fg-muted)}
+/* 安全作業循環橫條：現在｜下一項｜整天時間軸 */
+.cycle-strip{flex-shrink:0;display:grid;grid-template-columns:minmax(0,24rem) minmax(0,17rem) minmax(0,1fr);align-items:center;gap:1rem}
+.cycle-strip .now-card{display:grid;grid-template-columns:auto 1fr auto;align-items:center;column-gap:.75rem;padding:.375rem .875rem .5rem}
+.cycle-strip .now-label{white-space:nowrap}
+.cycle-strip #currentTask{margin:0;font-size:1.625rem;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cycle-strip .now-meta{display:flex;flex-direction:column;align-items:flex-end;gap:0;font-size:.875rem;white-space:nowrap}
+.cycle-strip .now-progress{position:absolute;left:0;right:0;bottom:0;margin:0;height:.25rem;border-radius:0}
+.cycle-strip .next-box{display:flex;flex-direction:column;gap:.2rem;min-width:0}
+.cycle-strip .next-line{font-size:1.0625rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cycle-strip .later{flex-direction:row;gap:.75rem;overflow:hidden;white-space:nowrap}
+.cycle-strip .later li{font-size:.8125rem}
+.cycle-strip .later li span{min-width:auto}
+.cycle-strip .timeline{margin:0;min-width:0}
+.cycle-strip .tl-bar{height:1.875rem}
+.cycle-strip .tl-seg span{font-size:.75rem}
+/* 現場監視 */
+.cctv[hidden]{display:none}
+.hz-more{margin:.375rem 0 0;font-size:.75rem;color:var(--fg-muted)}
+/* 有監視格時危害、環境只剩 2 欄寬：環境卡收緊，第三列「依據」才放得下 */
+.has-cctv .act{padding:.625rem .75rem;gap:.25rem}
+.has-cctv .act ul{gap:.3rem}
+.has-cctv .act li{font-size:.9375rem;line-height:1.35}
+.has-cctv .hz-list.single .hz{padding:.625rem .875rem}
+.has-cctv .hz-list.single .hz-measures{gap:.25rem;margin-top:.375rem}
+.has-cctv .hz-list.single .hz-measures li{font-size:.9375rem;line-height:1.4}
+.cctv-stage{flex:1;min-height:0;position:relative;margin:.25rem 1rem 1rem;background:#000;display:grid;place-items:center;overflow:hidden}
+.cctv-stage img{max-width:100%;max-height:100%;width:100%;height:100%;object-fit:contain;display:block}
+.cctv-msg{position:absolute;inset:auto 0 0 0;margin:0;padding:.375rem .75rem;font-size:.8125rem;color:#fff;background:rgba(0,0,0,.6)}
+.cctv-msg[hidden]{display:none}
 .timeline{margin-top:auto}
 .tl-bar{position:relative;height:3rem;border-radius:.5rem;background:rgba(255,255,255,.04);box-shadow:inset 0 0 0 1px var(--line)}
 .tl-seg{position:absolute;top:0;bottom:0;background:var(--c);opacity:.55;border-right:2px solid var(--bg-elev);display:flex;align-items:center;justify-content:center;overflow:hidden;transition:opacity .3s var(--ease)}
@@ -248,7 +278,7 @@ html.board-scale{background:#050506}
 .gate-k{font-size:.8125rem;color:var(--fg-muted)}
 .gate b{font:600 1.75rem var(--font-ui);font-variant-numeric:tabular-nums;color:var(--fg)}
 .gate small{font-size:.8125rem;color:var(--fg-muted)}
-.gate-sub{margin-left:auto;font-size:.6875rem;color:var(--fg-muted)}
+.gate-sub{margin-left:auto;min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:.6875rem;color:var(--fg-muted)}
 .gate.old .gate-sub{color:var(--bad);font-weight:600}
 .tile-note .lm{float:right}
 .tile-note .lm b{font-weight:600;color:var(--fg)}
@@ -343,9 +373,12 @@ button:focus-visible,a:focus-visible,select:focus-visible{outline:3px solid var(
 @media(max-height:600px),(max-width:1100px){
   .site-board{height:auto;min-height:100vh;overflow:auto}
   .board-header{display:flex;flex-wrap:wrap;gap:.75rem}
+  .cycle-strip{grid-template-columns:1fr;gap:.5rem}
+  .cctv{min-height:320px}
   .header-right{flex-wrap:wrap;gap:.75rem}
   .board-grid{flex:none;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:none;grid-auto-rows:minmax(300px,auto)}
-  .cycle,.hazards,.env,.workforce{grid-column:1/-1}
+  .hazards,.env,.cctv,.workforce{grid-column:1/-1}
+  .no-cctv .hazards,.no-cctv .env{grid-column:1/-1}
   .findings{grid-column:1/2}.contacts{grid-column:2/3}
   .workforce{min-height:460px}
 }

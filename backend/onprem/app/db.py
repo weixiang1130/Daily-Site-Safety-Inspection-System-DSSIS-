@@ -177,6 +177,7 @@ class Inspection(Base):
     form_code = Column(Unicode(8), ForeignKey("form_templates.form_code"), nullable=False)
     inspect_date = Column(Date, nullable=False, default=date.today)
     location = Column(Unicode(128))            # 檢查地點 / 位置編號
+    vendor_name = Column(Unicode(64))          # 受檢廠商
     weather = Column(Unicode(16))
     inspector_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     # 實際執行檢查的人。現場共用同一組帳號登入，inspector_id 只能代表
@@ -245,6 +246,8 @@ class Finding(Base):
     description = Column(UnicodeText, nullable=False)
     vendor_id = Column(Integer, ForeignKey("vendors.id"))
     responsible_person = Column(Unicode(64))
+    dispositions = Column(Unicode(64))                  # 處置方式（可複選，逗號分隔）
+    review_note = Column(UnicodeText)                   # 覆驗不通過的紀錄
     severity = Column(Unicode(16), default="minor")     # minor/major/critical/stop_work
     action_type = Column(Unicode(16), default="onsite")  # onsite=當場改善 / scheduled=限期改善
     due_date = Column(Date)

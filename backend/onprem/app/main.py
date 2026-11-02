@@ -41,6 +41,8 @@ from .db import (
 from .pdf import build_coordination_pdf, build_inspection_pdf
 from .site_board import board_payload, validate_config
 
+NOT_SUBMITTED = ("draft", "signing", "void")
+
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 PHOTO_DIR = os.path.join(UPLOAD_DIR, "photos")
 SIG_DIR = os.path.join(UPLOAD_DIR, "signatures")
@@ -194,9 +196,19 @@ def worklog_section(db: Session, today: date):
     wl = [w for w in (db.query(WorkLog).filter(WorkLog.report_date == today)
                       .order_by(WorkLog.building, WorkLog.vendor).all())
           if w.headcount != 0]
+    # 今天才收到、日期卻寫之前的：多半沿用範本忘了改日期。不自動搬到今天（也可能是
+    # 真的補報昨天），列出來讓填表的人判斷。今天已有回報的不列：發錯日期馬上重發是常態
+    start = datetime(today.year, today.month, today.day)
+    reported = {w.vendor for w in wl}
+    late = {}
+    for w in (db.query(WorkLog).filter(WorkLog.report_date < today, WorkLog.reported_at >= start)
+              .order_by(WorkLog.reported_at).all()):
+        if w.vendor not in reported:
+            late[(w.vendor, w.report_date)] = w
     return wl, {
         "date": today.isoformat(),
         "total": sum(w.headcount or 0 for w in wl),
+        "late": [{"vendor": v, "report_date": d.isoformat()} for v, d in late],
         "rows": [{
             "building": w.building, "vendor": w.vendor, "trade": w.trade,
             "headcount": w.headcount, "supervisor": w.supervisor,
@@ -555,7 +567,8 @@ def create_inspection(payload: dict = Body(...), db: Session = Depends(get_db),
 def list_inspections(site_id: int = None, days: int = 30,
                      db: Session = Depends(get_db), user=Depends(need_login)):
     q = db.query(Inspection).filter(
-        Inspection.inspect_date >= date.today() - timedelta(days=days))
+        Inspection.inspect_date >= date.today() - timedelta(days=days),
+        Inspection.status != "void")
     if site_id:
         q = q.filter(Inspection.site_id == site_id)
     rows = q.order_by(Inspection.inspect_date.desc(), Inspection.id.desc()).limit(300).all()
@@ -680,7 +693,8 @@ def create_coordination(payload: dict = Body(...), db: Session = Depends(get_db)
 def list_coordinations(days: int = 30, db: Session = Depends(get_db),
                        user=Depends(need_login)):
     rows = db.query(Coordination)\
-        .filter(Coordination.work_date >= date.today() - timedelta(days=days))\
+        .filter(Coordination.work_date >= date.today() - timedelta(days=days),
+                Coordination.status != "void")\
         .order_by(Coordination.work_date.desc()).limit(200).all()
     return [{"id": c.id, "site": c.site.name, "building": c.building,
              "work_date": c.work_date.isoformat(),
@@ -786,6 +800,33 @@ def verify_finding(fid: int, db: Session = Depends(get_db), user=Depends(need_lo
     return {"ok": True}
 
 
+@app.post("/api/findings/{fid}/reject")
+def reject_finding(fid: int, payload: dict = Body(...), db: Session = Depends(get_db),
+                   user=Depends(need_login)):
+    if user["role"] not in ("safety", "manager", "admin"):
+        raise HTTPException(403, "僅職安人員或主管可複驗")
+    reason = str(payload.get("reason") or "").strip()
+    if not reason:
+        raise HTTPException(400, "請填寫覆驗不通過的原因")
+    if len(reason) > 200:
+        raise HTTPException(400, "原因請在 200 字以內")
+    f = db.get(Finding, fid)
+    if not f:
+        raise HTTPException(404, "查無此缺失")
+    if f.status != "fixed":
+        raise HTTPException(409, "只能退回「待複驗」的缺失")
+    # 與雲端相同：前次改善說明與照片移進紀錄，下次回報才不會沿用被退回的照片
+    note = f"{datetime.now():%m/%d %H:%M} 覆驗未通過（{user.get('name') or ''}）：{reason}"
+    if f.fix_note:
+        note += f"；前次改善說明：{f.fix_note}"
+    if f.photo_after:
+        note += "；前次改善照片：" + f.photo_after.replace("\n", "、")
+    f.review_note = "\n".join(x for x in (f.review_note, note) if x)
+    f.status, f.fixed_at, f.fix_note, f.photo_after = "open", None, None, None
+    db.commit()
+    return {"ok": True}
+
+
 # ==========================================================================
 # 檔案上傳
 # ==========================================================================
@@ -882,8 +923,9 @@ def finding_stats(db: Session) -> dict:
     day_start = datetime(today.year, today.month, today.day)
     count = func.count(Finding.id)
     return {
+        # 今天新填的。作業日期不行：多數的單隔天才補填，永遠算不進「今日」
         "findings_today": db.query(count)
-            .filter(Finding.found_at >= day_start).scalar() or 0,
+            .filter(Finding.created_at >= day_start).scalar() or 0,
         "open": db.query(count)
             .filter(Finding.status.in_(("open", "fixed"))).scalar() or 0,
         "overdue": db.query(count)
@@ -999,7 +1041,7 @@ def dashboard(request: Request, site_id: int = None, days: int = 30,
         fq = fq.filter(Finding.site_id == site_id)
     findings = fq.all()
 
-    todays = [f for f in findings if f.found_at.date() == today]
+    todays = [f for f in findings if f.created_at and f.created_at.date() == today]
     open_items = [f for f in findings if f.status in ("open", "fixed")]
     overdue = [f for f in findings if f.is_overdue]
 
@@ -1020,10 +1062,10 @@ def dashboard(request: Request, site_id: int = None, days: int = 30,
         if k in trend:
             trend[k] += 1
 
-    # 只計已送出的。草稿是還在填的表，把它算進「今日檢查」會虛增數字，
+    # 只計已送出的。草稿與簽核中是還沒完成的表，把它算進「今日檢查」會虛增數字，
     # 而這個數字是長官在牆上直接看的。
     iq = (db.query(Inspection)
-          .filter(Inspection.inspect_date == today, Inspection.status != "draft"))
+          .filter(Inspection.inspect_date == today, Inspection.status.notin_(NOT_SUBMITTED)))
     if site_id:
         iq = iq.filter(Inspection.site_id == site_id)
     todays_insp = iq.all()
@@ -1070,11 +1112,11 @@ def dashboard(request: Request, site_id: int = None, days: int = 30,
 
     # 最新交出來的表單：工地填完後要在牆上馬上看得到結果
     recent_insp = (db.query(Inspection)
-                   .filter(Inspection.status != "draft")
+                   .filter(Inspection.status.notin_(NOT_SUBMITTED))
                    .order_by(Inspection.inspect_date.desc(), Inspection.id.desc())
                    .limit(20).all())
     recent_coord = (db.query(Coordination)
-                    .filter(Coordination.status != "draft")
+                    .filter(Coordination.status.notin_(NOT_SUBMITTED))
                     .order_by(Coordination.work_date.desc(), Coordination.id.desc())
                     .limit(20).all())
 

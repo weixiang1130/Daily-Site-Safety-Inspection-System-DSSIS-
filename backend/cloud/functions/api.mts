@@ -5,6 +5,7 @@
 // 檔案層：Netlify Blobs（照片、手寫簽名、產出的 PDF）
 
 import type { Config, Context } from "@netlify/functions";
+import { createHash } from "node:crypto";
 import { getDatabase } from "@netlify/database";
 import { getDeployStore, getStore } from "@netlify/blobs";
 
@@ -14,8 +15,15 @@ import {
 } from "../lib/auth.ts";
 import { buildCoordinationPdf, buildInspectionPdf, type SigInput } from "../lib/pdf.ts";
 import { boardPayload, validateBoard } from "../lib/site-board.ts";
+import {
+  OPTION_FIELDS, PERSON_SEPARATOR, UNNAMED_VENDOR, cleanPerson, cleanTaskText, cleanVendor, learnFormOptions,
+  refreshFormOptions, splitTrades,
+} from "../lib/form-options.ts";
 
 const db = getDatabase();
+/** 給 lib 用的查詢函式：db.sql 依賴 this，不能直接傳出去。 */
+const sqlTag = (strings: TemplateStringsArray, ...values: any[]): Promise<any[]> =>
+  (db.sql as any)(strings, ...values);
 
 /** 正式環境用全域儲存區；預覽部署用各自獨立的儲存區，避免污染正式資料。 */
 function files() {
@@ -188,7 +196,8 @@ async function findingStats() {
   const today = todayISO();
   const rows = await db.sql`
     SELECT
-      COUNT(*) FILTER (WHERE found_at::date = ${today}::date) AS findings_today,
+      -- 今日＝今天新填的。作業日期不行：多數的單隔天才補填，永遠算不進「今日」
+      COUNT(*) FILTER (WHERE (created_at AT TIME ZONE 'Asia/Taipei')::date = ${today}::date) AS findings_today,
       COUNT(*) FILTER (WHERE status IN ('open', 'fixed'))     AS open,
       COUNT(*) FILTER (
         WHERE action_type = 'scheduled'
@@ -404,6 +413,16 @@ function isIsoDate(v: unknown): boolean {
   return !isNaN(d.getTime()) && d.toISOString().slice(0, 10) === t;
 }
 
+/** 匯出游標 → [缺失時間, id, 巡檢時間, id, 協議時間, id]。舊版地端存的是單一時間，三張表都從那裡接。 */
+function exportCursor(raw: string): (string | number)[] {
+  const parts = raw.split("~").map((x) => x.split("|"));
+  if (parts.length === 3 && parts.every(([at, id]) => !isNaN(Date.parse(at)) && /^\d+$/.test(id ?? ""))) {
+    return parts.flatMap(([at, id]) => [at, parseInt(id, 10)]);
+  }
+  const at = raw && !isNaN(Date.parse(raw)) ? new Date(raw).toISOString() : new Date(0).toISOString();
+  return [at, 0, at, 0, at, 0];
+}
+
 function headcountOf(v: unknown): number | null {
   return Number.isInteger(v) && (v as number) >= 0 && (v as number) <= WORKLOG_MAX_HEADCOUNT
     ? (v as number) : null;
@@ -436,7 +455,7 @@ function csvResponse(filename: string, asciiName: string, header: string[], rows
 // 會改動看板 DB 區塊（缺失、工地、看板設定）的寫入路由。在單一出口統一刷新
 // 快取，而不是在各處理器逐一呼叫——逐一加的做法曾漏掉協調會新增、刪除協調
 // 會／檢查、改工地名稱等路徑。刷新只在寫入成功後做，資料庫此時本來就醒著。
-const BOARD_WRITE = /^\/api\/(inspections|coordinations|findings|site-board|admin\/(sites|findings|coordinations|inspections))(\/|$)/;
+const BOARD_WRITE = /^\/api\/(inspections|coordinations|findings|sign\/\w+\/\d+\/(finish|void)|edit|site-board|admin\/(sites|findings|coordinations|inspections))(\/|$)/;
 
 export default async (req: Request, ctx: Context): Promise<Response> => {
   const resp = await handle(req, ctx);
@@ -586,7 +605,7 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
       try {
         inc = JSON.parse(await req.text());
         if (!inc || typeof inc !== "object" || Array.isArray(inc)) throw 0;
-        if (!("station" in inc) && !("worklog" in inc) && !("news" in inc)) throw 0;
+        if (!["station", "worklog", "worklog_sites", "news"].some((k) => k in inc)) throw 0;
         if ("worklog" in inc && !Array.isArray(inc.worklog?.rows)) throw 0;
         if ("news" in inc && !Array.isArray(inc.news)) throw 0;
         if ("daily_totals" in inc && (!inc.daily_totals || typeof inc.daily_totals !== "object"
@@ -610,6 +629,16 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
         const cutoff = new Date(Date.now() - DAILY_TOTALS_KEEP_DAYS * 86400000).toISOString().slice(0, 10);
         for (const d of Object.keys(merged)) if (d < cutoff) delete merged[d];
         out.daily_totals = merged;
+      }
+      // 其他工地的今日出工：協議表帶入用，不進 buildBoardData（看板只顯示主場站）。
+      // 逐工地合併：這輪抓不到的工地沒有出現，保留上一份
+      if (inc.worklog_sites && typeof inc.worklog_sites === "object" && !Array.isArray(inc.worklog_sites)) {
+        out.worklog_sites = { ...(prev.worklog_sites || {}) };
+        for (const [code, v] of Object.entries<any>(inc.worklog_sites)) {
+          if (SITE_CODE_RE.test(code) && Array.isArray(v?.rows)) {
+            out.worklog_sites[code] = { date: v.date, rows: v.rows, at };
+          }
+        }
       }
       if ("news" in inc) {
         out.news = inc.news;
@@ -786,6 +815,16 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
             reported_at = EXCLUDED.reported_at,
             reporter = EXCLUDED.reporter, raw = EXCLUDED.raw, updated_at = NOW()`;
       }
+
+      // 填報預設清單跟著出工資料更新。排在每晚同一次喚醒裡，不多喚醒資料庫；
+      // 只在最後一批（附完整 owned）做，一個工地重算一次就夠。失敗不影響出工資料
+      if (ownedIn === undefined || ownedIn.length) {
+        const sites = new Set<string>([...rows, ...owned].map((r: any) => r.site_code));
+        for (const code of sites) {
+          try { await refreshFormOptions(sqlTag, code); }
+          catch (e: any) { console.warn(`[form-options] ${code} 重算失敗：${e?.message || e}`); }
+        }
+      }
       return json({ ok: true, reports: upserted.length, rejects: rejectRows.length });
     }
 
@@ -880,11 +919,11 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
       const token = req.headers.get("x-agent-token") || "";
       if (!expected || token !== expected) return fail(401, "代理權杖驗證失敗");
 
-      // 增量取得：只回傳這個時間點之後異動的資料。首次同步不帶參數即可全取。
-      const sinceRaw = url.searchParams.get("since") || "";
-      const since = sinceRaw && !isNaN(Date.parse(sinceRaw))
-        ? new Date(sinceRaw).toISOString()
-        : new Date(0).toISOString();
+      // 增量取得：只回傳游標之後異動的資料。首次同步不帶參數即可全取。
+      // 三張表各記各的「更新時間|id」：遷移或批次更新會讓整批列同一時間，只用時間當游標
+      // 的話，切在分頁邊界的同時間資料會被跳過，也不會因為某張表比較落後而卡住其他表。
+      const since = url.searchParams.get("since") || "";
+      const [fAt, fId, iAt, iId, cAt, cId] = exportCursor(since);
 
       // 上限保護：資料累積幾年後不設限的全量查詢會讓函式逾時，
       // 地端拿到一半的資料卻以為同步完成，之後就再也補不回來。
@@ -898,44 +937,52 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
         SELECT f.id, s.code AS site_code, f.building, f.source, f.found_at, f.location,
                f.hazard_code, f.hazard_label, f.description, v.code AS vendor_code,
                f.severity, f.action_type, f.due_date, f.fixed_at, f.verified_at,
-               f.status, f.created_at
+               f.status, f.created_at, f.updated_at, f.responsible_person, f.fix_note,
+               f.penalty, f.dispositions, f.review_note, f.inspection_id, f.coordination_id,
+               to_char(f.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_at
         FROM findings f
         JOIN sites s ON s.id = f.site_id
         LEFT JOIN vendors v ON v.id = f.vendor_id
-        WHERE GREATEST(f.created_at, COALESCE(f.fixed_at, f.created_at),
-                       COALESCE(f.verified_at, f.created_at)) > ${since}
-        ORDER BY f.id LIMIT ${LIMIT}`;
+        WHERE (f.updated_at, f.id) > (${fAt}::timestamptz, ${fId}::int)
+        ORDER BY f.updated_at, f.id LIMIT ${LIMIT}`;
       const inspections = await db.sql`
         SELECT i.id, s.code AS site_code, i.building, i.form_code, i.inspect_date,
-               i.location, i.inspector_name, i.status, i.submitted_at, i.created_at,
+               i.location, i.inspector_name, i.vendor_name, i.status, i.submitted_at,
+               i.created_at, i.updated_at,
+               to_char(i.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_at,
                (SELECT COUNT(*) FROM inspection_results r
                  WHERE r.inspection_id = i.id AND r.result = 'fail') AS fail_count
         FROM inspections i
         JOIN sites s ON s.id = i.site_id
-        WHERE i.created_at > ${since} OR i.submitted_at > ${since}
-        ORDER BY i.id LIMIT ${LIMIT}`;
+        WHERE (i.updated_at, i.id) > (${iAt}::timestamptz, ${iId}::int)
+        ORDER BY i.updated_at, i.id LIMIT ${LIMIT}`;
       const coordinations = await db.sql`
         SELECT c.id, s.code AS site_code, c.building, c.meeting_date, c.work_date,
-               c.recorder_name, c.status, c.submitted_at, c.created_at,
+               c.recorder_name, c.status, c.submitted_at, c.created_at, c.updated_at,
+               to_char(c.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_at,
                (SELECT COUNT(*) FROM coordination_attendees a
                  WHERE a.coordination_id = c.id) AS attendee_count
         FROM coordinations c
         JOIN sites s ON s.id = c.site_id
-        WHERE c.created_at > ${since} OR c.submitted_at > ${since}
-        ORDER BY c.id LIMIT ${LIMIT}`;
+        WHERE (c.updated_at, c.id) > (${cAt}::timestamptz, ${cId}::int)
+        ORDER BY c.updated_at, c.id LIMIT ${LIMIT}`;
 
-      // 地端拿這個時間當下一輪的 since。用資料本身的最大時間而不是「現在」——
-      // 用「現在」的話，查詢期間才寫進來的資料會被永遠跳過。
-      const stamps = [...findings, ...inspections, ...coordinations]
-        .map((r: any) => r.created_at).filter(Boolean)
-        .map((t: any) => new Date(t).toISOString());
-      const nextSince = stamps.length ? stamps.sort().at(-1) : since;
+      // 地端拿這個當下一輪的 since。用資料本身的位置而不是「現在」——用「現在」的話，
+      // 查詢期間才寫進來的資料會被永遠跳過。updated_at 由資料庫觸發器維護，退回、修改、
+      // 作廢都會動到它，舊單的異動才不會被跳過。
+      const tables: any[][] = [findings, inspections, coordinations];
+      const cut = tables.filter((rows) => rows.length >= LIMIT);
+      const nextSince = [[fAt, fId], [iAt, iId], [cAt, cId]].map(([at, id], n) => {
+        const last = tables[n].at(-1);
+        return last ? `${last.cursor_at}|${last.id}` : `${at}|${id}`;
+      }).join("~");
 
+      // 作廢、修改會真的刪掉缺失，增量抓不到「不見了」：附上現存 id 讓地端對帳
+      const live = cut.length ? [] : await db.sql`SELECT id FROM findings`;
       return json({
-        since, next_since: nextSince, limit: LIMIT,
-        truncated: findings.length >= LIMIT || inspections.length >= LIMIT
-          || coordinations.length >= LIMIT,
+        since, next_since: nextSince, limit: LIMIT, truncated: cut.length > 0,
         sites, vendors, findings, inspections, coordinations,
+        live_finding_ids: cut.length ? null : live.map((r: any) => r.id),
       });
     }
 
@@ -1183,6 +1230,161 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
         SELECT id, code, name FROM vendors WHERE active = TRUE ORDER BY name`);
     }
 
+    // 填報預帶：這個工地近 30 天 LINE 出工回報裡各廠商最近一次的工種與作業主管。
+    // 選了廠商就帶出工種／責任人，現場不必再打一次（仍可修改）。出工資料每晚
+    // 才寫入，最新只到昨天——預帶用途夠了。
+    if (p === "/api/vendors/hints" && method === "GET") {
+      const siteId = parseInt(url.searchParams.get("site_id") || "0", 10);
+      const rows = await db.sql`
+        SELECT DISTINCT ON (w.vendor) w.vendor, w.trade_summary, w.report_date,
+               (SELECT x.supervisor FROM worklog_reports x
+                WHERE x.site_code = w.site_code AND x.vendor = w.vendor AND x.supervisor <> ''
+                  AND x.report_date >= CURRENT_DATE - 30
+                ORDER BY x.report_date DESC, x.reported_at DESC NULLS LAST LIMIT 1) AS supervisor
+        FROM worklog_reports w JOIN sites s ON s.code = w.site_code
+        WHERE s.id = ${siteId} AND w.report_date >= CURRENT_DATE - 30
+        ORDER BY w.vendor, w.report_date DESC, w.reported_at DESC NULLS LAST`;
+      return json(rows.map((r: any) => ({
+        vendor: r.vendor,
+        // 「電班8、水班1」→「電班、水班」：預帶的是職種，人數由現場當天另計
+        trade: splitTrades(r.trade_summary).map((t) => t.name).join("、") || null,
+        // 最近一次有寫的主管：當天沒寫不代表換人。「王大明/李小華」不預帶
+        supervisor: cleanPerson(r.supervisor),
+        report_date: dateOnly(r.report_date),
+      })));
+    }
+
+    // 某日出工回報：協議巡視表的「參加協議人員」直接帶入，現場不必再打一次。
+    // 當天的在工地看板的外部快取（GitHub 定時解析 LINE 後推上來，主場站之外在 worklog_sites）；
+    // worklog_reports 每晚才寫，白天沒有今天的，但事後補填過去的單要靠它。
+    if (p === "/api/worklog/day" && method === "GET") {
+      const code = await siteCodeOf(url.searchParams.get("site_id"));
+      const today = todayISO();
+      const raw = url.searchParams.get("date") || today;
+      const date = isIsoDate(raw) ? raw : today;
+      if (!code || date > today) return json({ date, updated_at: null, rows: [] });
+      // 回報的廠商欄常帶人數或工項；看不出是廠商的留原文，由現場判斷。
+      // 明確是工項的（鋼承板）不當廠商：供應商留空讓現場選，否則會多出一個假的簽名格
+      const shape = (r: any, trade: string | null) => {
+        const { vendor, work: said } = cleanVendor(r.vendor);
+        const work = said === UNNAMED_VENDOR ? null : said;   // 沒寫廠商不是一種作業項目
+        return {
+          building: r.building ?? null, vendor: vendor ?? (said ? null : r.vendor ?? null), work,
+          trade: trade ?? work ?? null, headcount: r.headcount ?? null,
+          supervisor: cleanPerson(r.supervisor) ?? r.supervisor ?? null, tasks: cleanTaskText(r.tasks) || null,
+        };
+      };
+      if (date === today) {
+        const ext = (await readJsonBlob(EXTERNAL_KEY)) || {};
+        const primary = code === primaryCode();
+        const wl = primary ? ext.worklog : ext.worklog_sites?.[code];
+        if (wl && Array.isArray(wl.rows) && (!wl.date || wl.date === today)) {
+          return json({ date, updated_at: (primary ? ext.section_at?.worklog : wl.at) ?? null,
+                        rows: wl.rows.map((r: any) => shape(r, r.trade ?? null)),
+                        // 今天才收到、日期卻是之前的：多半沿用範本忘了改日期，提醒現場
+                        late: (wl.late || []).map((x: any) => ({
+                          vendor: cleanVendor(x.vendor).vendor ?? x.vendor, report_date: x.report_date })) });
+        }
+      }
+      // 0 人的是「施工回報」改版後消失的廠商，當天不在場
+      const rows = await db.sql`
+        SELECT building, vendor, trade_summary, headcount, supervisor, tasks FROM worklog_reports
+        WHERE site_code = ${code} AND report_date = ${date}::date
+          AND (headcount IS NULL OR headcount > 0)
+        ORDER BY vendor`;
+      return json({ date, updated_at: null, rows: rows.map((r: any) => shape(r, r.trade_summary ?? null)) });
+    }
+
+    // 填報預設清單：協議巡視表、自主檢查表的可搜尋下拉。各工地各自一份，
+    // 內容來自歷史出工回報（每晚重算）與現場新增、表單送出累積。
+    if (p === "/api/form-options" && method === "GET") {
+      const code = await siteCodeOf(url.searchParams.get("site_id"));
+      if (!code) return fail(404, "查無此工地");
+      return json(await optionLists(code));
+    }
+
+    // 下列三支都回完整清單，前端直接覆蓋本地，不自己推算。
+    // 權限比照點工系統：工地使用者就能維護，等管理員建檔現場只會亂打或卡住。
+    // 「＋ 新增」：逐筆合併（upsert），兩人同時新增不會互蓋；曾被刪除的由這裡恢復。
+    if (p === "/api/form-options" && method === "POST") {
+      const b = await req.json();
+      const code = await siteCodeOf(b.site_id);
+      if (!code) return fail(404, "查無此工地");
+      const value = String(b.value ?? "").trim();
+      const bad = optionValueError(b.field, value);
+      if (bad) return fail(400, bad);
+      const vendor = b.field === "vendor" ? "" : String(b.vendor ?? "").trim().slice(0, 64);
+      // 只差大小寫視為同值：abc 已存在時輸入 ABC 不另存一筆
+      const same = (await db.sql`
+        SELECT value FROM form_options
+        WHERE site_code = ${code} AND field = ${b.field} AND LOWER(value) = LOWER(${value})
+        GROUP BY value HAVING bool_and(active) LIMIT 1`)[0];
+      const stored = same?.value ?? value;
+      await db.sql`
+        INSERT INTO form_options (site_code, field, value, vendor, source, n, last_used)
+        VALUES (${code}, ${b.field}, ${stored}, ${vendor}, 'manual', 1, CURRENT_DATE)
+        ON CONFLICT (site_code, field, value, vendor, source) DO UPDATE SET
+          n = form_options.n + 1, last_used = CURRENT_DATE, active = TRUE, updated_at = NOW()`;
+      await db.sql`
+        UPDATE form_options SET active = TRUE, canonical = NULL, updated_at = NOW()
+        WHERE site_code = ${code} AND field = ${b.field} AND value = ${stored} AND NOT active`;
+      return json({ ok: true, value: stored, options: await optionLists(code) });
+    }
+
+    // 改正錯字。單一語句＝同一交易：舊值停用並記下新值、先前改到舊值的跟著指向新值、
+    // 次數併到新值（新值已存在就是合併）。已送出的單據不動：送出即已簽核存查。
+    if (p === "/api/form-options/rename" && method === "POST") {
+      const b = await req.json();
+      const code = await siteCodeOf(b.site_id);
+      if (!code) return fail(404, "查無此工地");
+      const from = String(b.from ?? "");
+      const to = String(b.to ?? "").trim();
+      const bad = optionValueError(b.field, to);
+      if (bad) return fail(400, bad);
+      if (from === to) return json({ ok: true, options: await optionLists(code) });
+      const moved = await db.sql`
+        WITH moved AS (
+          UPDATE form_options SET active = FALSE, canonical = ${to}, updated_at = NOW()
+          WHERE site_code = ${code} AND field = ${b.field} AND value = ${from} AND active
+          RETURNING vendor, n, last_used
+        ), chain AS (
+          UPDATE form_options SET canonical = ${to}, updated_at = NOW()
+          WHERE site_code = ${code} AND field = ${b.field} AND canonical = ${from} AND value <> ${to}
+        ), merged AS (
+          SELECT vendor, SUM(n)::int AS n, MAX(last_used) AS last_used FROM moved GROUP BY vendor
+        )
+        INSERT INTO form_options (site_code, field, value, vendor, source, n, last_used)
+        SELECT ${code}::text, ${b.field}::text, ${to}::text, vendor, 'form', n, last_used FROM merged
+        ON CONFLICT (site_code, field, value, vendor, source) DO UPDATE SET
+          n = form_options.n + EXCLUDED.n, updated_at = NOW()
+        RETURNING id`;
+      if (!moved.length) return fail(404, "這個選項可能已被改正或刪除，請重新整理");
+      await db.sql`
+        UPDATE form_options SET active = TRUE, canonical = NULL, updated_at = NOW()
+        WHERE site_code = ${code} AND field = ${b.field} AND value = ${to}`;
+      if (b.field === "vendor") {        // 人員、職種記的「這家廠商用過」跟著換名
+        await db.sql`
+          UPDATE form_options o SET vendor = ${to}, updated_at = NOW()
+          WHERE o.site_code = ${code} AND o.vendor = ${from}
+            AND NOT EXISTS (SELECT 1 FROM form_options x
+                            WHERE x.site_code = o.site_code AND x.field = o.field AND x.value = o.value
+                              AND x.vendor = ${to} AND x.source = o.source)`;
+      }
+      return json({ ok: true, options: await optionLists(code) });
+    }
+
+    // 刪除：只標記不真的刪，每晚依出工回報重算時才不會長回來；不動任何單據。
+    // 冪等：已經不在清單裡也算成功。
+    if (p === "/api/form-options/hide" && method === "POST") {
+      const b = await req.json();
+      const code = await siteCodeOf(b.site_id);
+      if (!code) return fail(404, "查無此工地");
+      await db.sql`
+        UPDATE form_options SET active = FALSE, updated_at = NOW()
+        WHERE site_code = ${code} AND field = ${String(b.field)} AND value = ${String(b.value)}`;
+      return json({ ok: true, options: await optionLists(code) });
+    }
+
     // 依名稱取得廠商，不存在就建立。
     // 協力商在各工地差異很大且會隨工程階段更換，不可能由管理員預先維護齊全，
     // 因此填報時允許現場直接輸入新廠商名稱。這裡必須建立正式的廠商資料
@@ -1252,6 +1454,7 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
         JOIN form_templates ft ON ft.form_code = i.form_code
         JOIN users u ON u.id = i.inspector_id
         WHERE i.inspect_date >= CURRENT_DATE - ${days}::int
+          AND i.status <> 'void'
           AND (${siteId}::int IS NULL OR i.site_id = ${siteId}::int)
         ORDER BY i.inspect_date DESC, i.id DESC
         LIMIT 300`;
@@ -1259,6 +1462,102 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
         ...r, inspect_date: dateOnly(r.inspect_date),
         pdf_url: r.pdf_key ? `/api/inspections/${r.id}/pdf` : null,
       })));
+    }
+
+    // 已填單據查詢：自主檢查表＋協議巡視表合併成一張清單，依日期區間、單別、表單、
+    // 棟別篩選；關鍵字比對填表人、地點、表單名、廠商、參加人員、缺失內容、協議事項。
+    // 現場常是「上週那張 B2 施工架的表」「某廠商被開過什麼」這種找法。
+    if (p === "/api/records" && method === "GET") {
+      const sp = url.searchParams;
+      const iso = (v: string | null) => (isIsoDate(v) ? v : null);
+      const to = iso(sp.get("to")) || todayISO();
+      const from = iso(sp.get("from")) || dateOnly(new Date(Date.parse(to) - 30 * 86400000));
+      const kind = ["inspection", "coordination"].includes(sp.get("kind") || "") ? sp.get("kind")! : "";
+      const formCode = (sp.get("form_code") || "").trim();
+      const building = (sp.get("building") || "").trim();
+      const siteId = parseInt(sp.get("site_id") || "", 10) || null;
+      const q = (sp.get("q") || "").trim().slice(0, 50);
+      // LIKE 的 % _ \ 要跳脫，否則輸入「100%」會變成萬用字元
+      const pat = q ? `%${q.replace(/[\\%_]/g, (m) => "\\" + m)}%` : "";
+      const rows = await db.sql`
+        SELECT * FROM (
+          SELECT 'inspection' AS kind, i.id, i.inspect_date AS d, i.building, s.name AS site,
+                 ft.title, i.form_code, COALESCE(i.inspector_name, u.display_name) AS person,
+                 i.location, i.pdf_key, i.status,
+                 (SELECT COUNT(*)::int FROM inspection_results r
+                   WHERE r.inspection_id = i.id AND r.result = 'fail') AS fail_count,
+                 (SELECT COUNT(*)::int FROM findings f WHERE f.inspection_id = i.id) AS finding_count,
+                 NULL::int AS attendee_count
+          FROM inspections i
+          JOIN sites s ON s.id = i.site_id
+          JOIN form_templates ft ON ft.form_code = i.form_code
+          JOIN users u ON u.id = i.inspector_id
+          WHERE ${kind}::text IN ('', 'inspection') AND i.status <> 'void'
+            AND i.inspect_date BETWEEN ${from}::date AND ${to}::date
+            AND (${siteId}::int IS NULL OR i.site_id = ${siteId}::int)
+            AND (${building}::text = '' OR i.building = ${building}::text)
+            AND (${formCode}::text = '' OR i.form_code = ${formCode}::text)
+            AND (${pat}::text = ''
+              OR i.inspector_name ILIKE ${pat}::text OR i.location ILIKE ${pat}::text
+              OR i.vendor_name ILIKE ${pat}::text OR ft.title ILIKE ${pat}::text
+              OR EXISTS (SELECT 1 FROM findings f LEFT JOIN vendors v ON v.id = f.vendor_id
+                         WHERE f.inspection_id = i.id
+                           AND (f.description ILIKE ${pat}::text OR v.name ILIKE ${pat}::text
+                                OR f.responsible_person ILIKE ${pat}::text)))
+          UNION ALL
+          SELECT 'coordination', c.id, c.work_date, c.building, s.name,
+                 '每日協議巡視處理紀錄表', NULL, c.recorder_name, NULL, c.pdf_key, c.status, NULL,
+                 (SELECT COUNT(*)::int FROM findings f WHERE f.coordination_id = c.id),
+                 (SELECT COUNT(*)::int FROM coordination_attendees a WHERE a.coordination_id = c.id)
+          FROM coordinations c
+          JOIN sites s ON s.id = c.site_id
+          WHERE ${kind}::text IN ('', 'coordination') AND c.status <> 'void'
+            AND ${formCode}::text = ''
+            AND c.work_date BETWEEN ${from}::date AND ${to}::date
+            AND (${siteId}::int IS NULL OR c.site_id = ${siteId}::int)
+            AND (${building}::text = '' OR c.building = ${building}::text)
+            AND (${pat}::text = ''
+              OR c.recorder_name ILIKE ${pat}::text OR c.agreement_text ILIKE ${pat}::text
+              OR c.handling_text ILIKE ${pat}::text
+              OR EXISTS (SELECT 1 FROM coordination_attendees a LEFT JOIN vendors v ON v.id = a.vendor_id
+                         WHERE a.coordination_id = c.id
+                           AND (a.vendor_name ILIKE ${pat}::text OR v.name ILIKE ${pat}::text
+                                OR a.person_name ILIKE ${pat}::text OR a.work_item ILIKE ${pat}::text
+                                OR a.work_content ILIKE ${pat}::text))
+              OR EXISTS (SELECT 1 FROM findings f LEFT JOIN vendors v ON v.id = f.vendor_id
+                         WHERE f.coordination_id = c.id
+                           AND (f.description ILIKE ${pat}::text OR v.name ILIKE ${pat}::text
+                                OR f.responsible_person ILIKE ${pat}::text)))
+        ) x
+        ORDER BY d DESC, id DESC
+        LIMIT 201`;
+      return json({
+        from, to, truncated: rows.length > 200,
+        rows: rows.slice(0, 200).map((r: any) => ({
+          kind: r.kind, id: r.id, date: dateOnly(r.d), building: r.building, site: r.site,
+          title: r.title, form_code: r.form_code, person: r.person, location: r.location,
+          status: r.status,
+          no: `${r.kind === "inspection" ? "INSP" : "COORD"}-${String(r.id).padStart(6, "0")}`,
+          fail_count: r.fail_count, finding_count: r.finding_count, attendee_count: r.attendee_count,
+          pdf_url: r.pdf_key ? `/api/${r.kind === "inspection" ? "inspections" : "coordinations"}/${r.id}/pdf` : null,
+        })),
+      });
+    }
+
+    // 多人分次簽核
+    if (p === "/api/sign/pending" && method === "GET") return await pendingSigns();
+    const signMatch = /^\/api\/sign\/(inspection|coordination)\/(\d+)(?:\/(sign|undo|finish|void))?$/.exec(p);
+    if (signMatch) {
+      return await handleSign(req, me, signMatch[1], parseInt(signMatch[2], 10), signMatch[3] || "", method);
+    }
+
+    // 修改已填單據
+    const editMatch = /^\/api\/edit\/(inspection|coordination)\/(\d+)$/.exec(p);
+    if (editMatch) return await handleEdit(req, me, editMatch[1], parseInt(editMatch[2], 10), method);
+    const revPdf = /^\/api\/revisions\/(\d+)\/pdf$/.exec(p);
+    if (revPdf) {
+      const key = (await db.sql`SELECT pdf_key FROM form_revisions WHERE id = ${parseInt(revPdf[1], 10)}`)[0]?.pdf_key;
+      return key ? await servePdfKey(key) : fail(404, "這一版沒有 PDF");
     }
 
     const inspPdf = /^\/api\/inspections\/(\d+)\/pdf$/.exec(p);
@@ -1276,7 +1575,7 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
                (SELECT COUNT(*)::int FROM coordination_attendees a
                  WHERE a.coordination_id = c.id) AS attendee_count
         FROM coordinations c JOIN sites s ON s.id = c.site_id
-        WHERE c.work_date >= CURRENT_DATE - ${days}::int
+        WHERE c.work_date >= CURRENT_DATE - ${days}::int AND c.status <> 'void'
         ORDER BY c.work_date DESC, c.id DESC LIMIT 200`;
       return json(rows.map((r: any) => ({
         ...r, work_date: dateOnly(r.work_date),
@@ -1323,24 +1622,57 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
       return json({ ok: true, finding_id: id });
     }
 
+    // 改善回報：責任廠商或工程師補上改善後照片／說明 → 待複驗。
+    // 照片上傳不等於改善通過，結案一定要再經安衛人員覆驗（下方 verify）。
     const fixMatch = /^\/api\/findings\/(\d+)\/fix$/.exec(p);
     if (fixMatch && method === "POST") {
       const b = await req.json();
-      await db.sql`
-        UPDATE findings SET fixed_at = NOW(), fix_note = ${b.fix_note ?? null},
+      const note = String(b.fix_note ?? "").trim();
+      if (!note && !b.photo_after) return fail(400, "請附改善後照片或改善說明");
+      const rows = await db.sql`
+        UPDATE findings SET fixed_at = NOW(), fix_note = ${note || null},
           photo_after = COALESCE(${b.photo_after ?? null}, photo_after), status = 'fixed'
-        WHERE id = ${parseInt(fixMatch[1], 10)}`;
+        WHERE id = ${parseInt(fixMatch[1], 10)} AND status IN ('open', 'fixed')
+        RETURNING id`;
+      if (!rows.length) return fail(409, "這筆缺失已結案，不能再回報改善");
       return json({ ok: true });
     }
 
+    // 覆驗通過才結案；只能對「待複驗」的缺失按——還在改善中的不能跳過改善回報
     const verifyMatch = /^\/api\/findings\/(\d+)\/verify$/.exec(p);
     if (verifyMatch && method === "POST") {
       if (!["safety", "manager", "admin"].includes(me.role)) {
         return fail(403, "僅職安人員或主管可複驗");
       }
-      await db.sql`
+      const rows = await db.sql`
         UPDATE findings SET verifier_id = ${me.id}, verified_at = NOW(), status = 'closed'
-        WHERE id = ${parseInt(verifyMatch[1], 10)}`;
+        WHERE id = ${parseInt(verifyMatch[1], 10)} AND status = 'fixed'
+        RETURNING id`;
+      if (!rows.length) return fail(409, "只能複驗「待複驗」的缺失，請先回報改善");
+      return json({ ok: true });
+    }
+
+    // 覆驗不通過：退回改善中。原因、日期與前次改善照片累加記在 review_note，
+    // 前次的改善照片與說明都不刪（稽核要看得到改善過幾次、為何退回）
+    const rejectMatch = /^\/api\/findings\/(\d+)\/reject$/.exec(p);
+    if (rejectMatch && method === "POST") {
+      if (!["safety", "manager", "admin"].includes(me.role)) {
+        return fail(403, "僅職安人員或主管可複驗");
+      }
+      const b = await req.json();
+      const reason = String(b.reason ?? "").trim();
+      if (!reason) return fail(400, "請填寫覆驗不通過的原因");
+      if (reason.length > 200) return fail(400, "原因請在 200 字以內");
+      const rows = await db.sql`
+        UPDATE findings SET status = 'open', fixed_at = NULL, fix_note = NULL, photo_after = NULL,
+          review_note = CONCAT_WS(E'\n', review_note,
+            TO_CHAR(NOW() AT TIME ZONE 'Asia/Taipei', 'MM/DD HH24:MI') || ' 覆驗未通過（'
+              || ${me.name} || '）：' || ${reason}
+              || COALESCE('；前次改善說明：' || fix_note, '')
+              || COALESCE('；前次改善照片：' || REPLACE(photo_after, E'\n', '、'), ''))
+        WHERE id = ${parseInt(rejectMatch[1], 10)} AND status = 'fixed'
+        RETURNING id`;
+      if (!rows.length) return fail(409, "只能退回「待複驗」的缺失");
       return json({ ok: true });
     }
 
@@ -1476,6 +1808,70 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
 // 缺失
 // ---------------------------------------------------------------------------
 
+/** 工地 id → 工地代碼（出工資料與預設清單用代碼分工地）。 */
+async function siteCodeOf(id: unknown): Promise<string | null> {
+  const n = parseInt(String(id ?? ""), 10);
+  if (!n) return null;
+  return (await db.sql`SELECT code FROM sites WHERE id = ${n}`)[0]?.code ?? null;
+}
+
+const attendeeRows = (list: any[] = []) => list.map((a: any) => ({
+  vendor: a.vendor_name, supervisor: a.person_name, trade_summary: a.trade,
+  work_item: a.work_item, tasks: a.work_content,
+}));
+
+/** 現場實際填的內容累積進預設清單。學不成不該讓已存好的單據送出失敗。 */
+async function learnFromForm(siteId: unknown, rows: any[], findings: any[] = []) {
+  try {
+    const code = await siteCodeOf(siteId);
+    if (!code) return;
+    const ids = [...new Set(findings.map((f: any) => Number(f.vendor_id)).filter(Boolean))];
+    const names = new Map((ids.length ? await db.sql`
+      SELECT id, name FROM vendors WHERE id = ANY(${ids}::int[])` : []).map((v: any) => [v.id, v.name]));
+    await learnFormOptions(sqlTag, code, [...rows, ...findings.map((f: any) => ({
+      vendor: names.get(Number(f.vendor_id)) ?? null, supervisor: f.responsible_person,
+    }))]);
+  } catch (e: any) { console.warn(`[form-options] 累積失敗：${e?.message || e}`); }
+}
+
+/** 某工地的完整清單＋改正對照（舊值→新值，今日名單帶入時用）。 */
+async function optionLists(code: string) {
+  const out: Record<string, any> = Object.fromEntries(OPTION_FIELDS.map((f) => [f, []]));
+  const rows = await db.sql`
+    SELECT field, value, SUM(n)::int AS n,
+           COALESCE(json_agg(DISTINCT vendor) FILTER (WHERE vendor <> ''), '[]') AS vendors
+    FROM form_options
+    WHERE site_code = ${code}
+    GROUP BY field, value
+    HAVING bool_and(active)
+    ORDER BY SUM(n) DESC, MAX(last_used) DESC NULLS LAST, value`;
+  for (const r of rows as any[]) out[r.field]?.push({ value: r.value, n: r.n, vendors: r.vendors });
+  const renames: Record<string, Record<string, string>> = {};
+  const moved = await db.sql`
+    SELECT DISTINCT field, value, canonical FROM form_options
+    WHERE site_code = ${code} AND canonical IS NOT NULL`;
+  for (const r of moved as any[]) (renames[r.field] ||= {})[r.value] = r.canonical;
+  out.renames = renames;
+  // 每家廠商最常出現的人員：LINE 當天沒寫主管時預帶。清單的 n 是跨廠商合計，不能拿來比
+  const people = new Set(out.person.map((o: any) => o.value));
+  const usual: Record<string, string> = {};
+  const byVendor = await db.sql`
+    SELECT vendor, value, SUM(n)::int AS n FROM form_options
+    WHERE site_code = ${code} AND field = 'person' AND vendor <> '' AND active
+    GROUP BY vendor, value ORDER BY vendor, n DESC, value`;
+  for (const r of byVendor as any[]) if (people.has(r.value)) usual[r.vendor] ||= r.value;
+  out.vendor_person = usual;
+  return out;
+}
+
+/** 名單值的驗證，新增與改正共用。回錯誤訊息，沒問題回 null。 */
+function optionValueError(field: unknown, value: string): string | null {
+  if (!OPTION_FIELDS.includes(String(field))) return "欄位錯誤";
+  if (!value || value.length > 64) return "內容請在 1～64 字以內";
+  if (field === "person" && PERSON_SEPARATOR.test(value)) return "一格只能填一個人名，請分開新增";
+  return null;
+}
+
 /** 棟別長度防線。雲端此欄是無上限的 TEXT，但地端是 NVARCHAR(32)：
     一筆超長值會讓地端同步整批 rollback、進度不推進、每輪重抓同一批——
     牆面從此停止更新。表單送不出超長值，這裡擋的是直接打 API 的寫入。 */
@@ -1496,15 +1892,43 @@ function shapeFinding(f: any) {
     hazard_code: f.hazard_code, hazard_label: f.hazard_label, description: f.description,
     vendor: f.vendor ?? null, responsible_person: f.responsible_person,
     severity: f.severity, action_type: f.action_type,
+    dispositions: parseDispositions(f.dispositions, f.action_type),
+    penalty: f.penalty == null ? null : Number(f.penalty),
     due_date: due, status: f.status, overdue: Boolean(overdue),
+    fix_note: f.fix_note ?? null, fixed_at: f.fixed_at ? minuteISO(f.fixed_at) : null,
+    verified_at: f.verified_at ? minuteISO(f.verified_at) : null,
+    review_note: f.review_note ?? null,
     photo_before: f.photo_before, photo_after: f.photo_after,
   };
 }
 
+/** 缺失處置（可複選）：onsite=立即改善 scheduled=限期改善 proxy=代工 deduct=扣款 */
+const DISPOSITIONS = ["onsite", "scheduled", "proxy", "deduct"];
+
+/** 處置清單：陣列或逗號字串皆可；舊資料或舊版表單沒有時退回 action_type。 */
+function parseDispositions(v: unknown, actionType?: string): string[] {
+  const raw = Array.isArray(v) ? v : String(v ?? "").split(",");
+  const out = DISPOSITIONS.filter((d) => raw.map((x) => String(x).trim()).includes(d));
+  return out.length ? out : [actionType === "scheduled" ? "scheduled" : "onsite"];
+}
+
+/** 處置清單 → 寫入欄位。限期改善或代工＝之後才會改善完成：開成「改善中」、帶期限，
+    逾期判斷照舊讀 action_type。只有立即改善（可另加扣款）才算改善完成（待複驗）；
+    只勾扣款還沒改善，一樣是改善中。 */
+function dispositionOf(b: any) {
+  const disp = parseDispositions(b.dispositions, b.action_type);
+  const onsite = disp.includes("onsite") && !disp.includes("scheduled") && !disp.includes("proxy");
+  const actionType = onsite ? "onsite" : "scheduled";
+  const penalty = disp.includes("deduct") && Number(b.penalty) > 0 ? Number(b.penalty) : null;
+  return { disp, onsite, actionType, penalty };
+}
+
+const ONSITE_NOTE = "當場改善完成";
+
 async function insertFinding(b: any, me: SessionUser, ids: {
   siteId?: number; inspectionId?: number; coordinationId?: number;
 } = {}): Promise<number> {
-  const onsite = (b.action_type || "onsite") === "onsite";
+  const { disp, onsite, actionType, penalty } = dispositionOf(b);
   // found_at 可指定，用於補登既有紙本紀錄。未指定時為現在時間。
   // 沒有這個欄位的話，補登的歷史單據會全部堆在匯入當天，趨勢圖失真。
   const foundAt = b.found_at || new Date().toISOString();
@@ -1512,7 +1936,7 @@ async function insertFinding(b: any, me: SessionUser, ids: {
     INSERT INTO findings
       (site_id, building, inspection_id, coordination_id, item_id, source, found_at, location,
        hazard_code, hazard_label, description, vendor_id, responsible_person,
-       severity, action_type, due_date, fixed_at, fix_note, status,
+       severity, action_type, dispositions, penalty, due_date, fixed_at, fix_note, status,
        photo_before, photo_after, created_by)
     VALUES (
       ${ids.siteId ?? b.site_id}, ${String(b.building ?? "").trim() || null},
@@ -1520,10 +1944,10 @@ async function insertFinding(b: any, me: SessionUser, ids: {
       ${b.item_id ?? null}, ${b.source ?? "inspection"}, ${foundAt}, ${b.location ?? null},
       ${b.hazard_code ?? "OTHER"}, ${b.hazard_label ?? "其他"}, ${b.description},
       ${b.vendor_id ? Number(b.vendor_id) : null}, ${b.responsible_person ?? null},
-      ${b.severity ?? "minor"}, ${b.action_type ?? "onsite"},
+      ${b.severity ?? "minor"}, ${actionType}, ${disp.join(",")}, ${penalty},
       ${!onsite && b.due_date ? b.due_date : null},
       ${onsite ? foundAt : null},
-      ${onsite ? (b.fix_note || "當場改善完成") : (b.fix_note ?? null)},
+      ${onsite ? (b.fix_note || ONSITE_NOTE) : (b.fix_note ?? null)},
       ${onsite ? "fixed" : "open"},
       ${b.photo_before ?? null}, ${b.photo_after ?? null}, ${me.id})
     RETURNING id`;
@@ -1541,24 +1965,25 @@ async function createInspection(req: Request, me: SessionUser): Promise<Response
   const badBuilding = buildingTooLong(b.building);
   if (badBuilding) return badBuilding;
 
+  // signing＝進入多人簽核：內容鎖定、完成簽核才算送出並產生 PDF
+  const signing = b.signing === true;
+  const inspectorName = (b.inspector_name || "").trim() || null;
+  const vendorName = String(b.vendor_name ?? "").trim().slice(0, 64) || null;
+  const slots = signing ? JSON.stringify(inspectionSlots(inspectorName, vendorName)) : null;
   const [insp] = await db.sql`
     INSERT INTO inspections
       (site_id, building, form_code, inspect_date, location, weather, inspector_id,
-       inspector_name, status, submitted_at)
+       inspector_name, vendor_name, status, submitted_at, sign_slots)
     VALUES (${Number(b.site_id)}, ${(b.building || "").trim() || null},
             ${b.form_code}, ${b.inspect_date || todayISO()},
             ${b.location ?? null}, ${b.weather ?? null}, ${me.id},
-            ${(b.inspector_name || "").trim() || null},
-            'submitted', NOW())
+            ${inspectorName}, ${vendorName},
+            ${signing ? "signing" : "submitted"},
+            CASE WHEN ${signing}::boolean THEN NULL ELSE NOW() END, ${slots}::jsonb)
     RETURNING id, site_id, building, form_code, inspect_date, location, weather,
               inspector_name, submitted_at`;
 
-  for (const r of b.results || []) {
-    await db.sql`
-      INSERT INTO inspection_results (inspection_id, item_id, day, result, remark)
-      VALUES (${insp.id}, ${Number(r.item_id)}, ${r.day ?? null},
-              ${r.result || "na"}, ${r.remark ?? null})`;
-  }
+  await writeResults(insp.id, b.results || []);
 
   const findingIds: number[] = [];
   for (const f of b.findings || []) {
@@ -1568,6 +1993,13 @@ async function createInspection(req: Request, me: SessionUser): Promise<Response
         building: insp.building },
       me, { siteId: insp.site_id, inspectionId: insp.id },
     ));
+  }
+
+  await learnFromForm(insp.site_id, [{ vendor: vendorName }], b.findings);
+
+  if (signing) {
+    return json({ ok: true, inspection_id: insp.id, finding_ids: findingIds,
+                  sign_url: `/static/sign.html?kind=inspection&id=${insp.id}` });
   }
 
   const sigs = await saveSignatures(b.signatures || [], me, { inspectionId: insp.id });
@@ -1582,7 +2014,8 @@ async function createInspection(req: Request, me: SessionUser): Promise<Response
 
 async function renderInspectionPdf(id: number): Promise<string | null> {
   const insp = (await db.sql`
-    SELECT i.id, i.inspect_date, i.location, i.weather, i.submitted_at, i.building,
+    SELECT i.id, i.inspect_date, i.location, i.weather, i.submitted_at, i.building, i.sign_slots,
+           i.revision, i.vendor_name,
            s.name AS site_name, ft.title AS form_title,
            -- 共用帳號的情況下，帳號名稱代表不了實際檢查人，
            -- 因此以填報時填寫的姓名優先
@@ -1605,12 +2038,13 @@ async function renderInspectionPdf(id: number): Promise<string | null> {
     WHERE f.inspection_id = ${id} ORDER BY f.id`;
 
   const sigRows = await db.sql`
-    SELECT role, signer_name, signed_at, image_key FROM signatures
+    SELECT role, signer_name, signed_at, image_key, slot_key FROM signatures
     WHERE inspection_id = ${id} ORDER BY id`;
-  const sigs = await hydrateSignatures(sigRows);
+  const sigs = await hydrateSignatures(sigRows, insp.sign_slots);
 
   const bytes = await buildInspectionPdf(insp, results, findings, sigs);
-  const key = `pdf/INSP-${String(id).padStart(6, "0")}.pdf`;
+  // 每版一個檔：修改紀錄留著舊版的路徑，重新完成簽核不能蓋掉它
+  const key = `pdf/INSP-${String(id).padStart(6, "0")}${insp.revision ? `-r${insp.revision}` : ""}.pdf`;
   await files().set(key, bytes.buffer as ArrayBuffer, {
     metadata: { contentType: "application/pdf" },
   });
@@ -1625,29 +2059,23 @@ async function createCoordination(req: Request, me: SessionUser): Promise<Respon
   const b = await req.json();
   const badBuilding = buildingTooLong(b.building);
   if (badBuilding) return badBuilding;
+  const signing = b.signing === true;
+  const slots = signing ? JSON.stringify(coordinationSlots(b.attendees || [])) : null;
   const [co] = await db.sql`
     INSERT INTO coordinations
       (site_id, building, meeting_date, work_date, weather, agreement_text, patrol_text,
-       handling_text, recorder_name, status, submitted_at, created_by)
+       handling_text, recorder_name, status, submitted_at, created_by, sign_slots)
     VALUES (${Number(b.site_id)}, ${(b.building || "").trim() || null},
             ${b.meeting_date || todayISO()},
             ${b.work_date || todayISO()}, ${b.weather ?? null},
             ${b.agreement_text ?? null}, ${b.patrol_text ?? null},
             ${b.handling_text ?? null},
             ${(b.recorder_name || "").trim() || null},
-            'submitted', NOW(), ${me.id})
+            ${signing ? "signing" : "submitted"},
+            CASE WHEN ${signing}::boolean THEN NULL ELSE NOW() END, ${me.id}, ${slots}::jsonb)
     RETURNING id, site_id, building`;
 
-  for (const a of b.attendees || []) {
-    await db.sql`
-      INSERT INTO coordination_attendees
-        (coordination_id, work_item, vendor_id, vendor_name, trade,
-         person_name, employee_no, work_content)
-      VALUES (${co.id}, ${a.work_item ?? null},
-              ${a.vendor_id ? Number(a.vendor_id) : null}, ${a.vendor_name ?? null},
-              ${a.trade ?? null}, ${a.person_name ?? null},
-              ${a.employee_no ?? null}, ${a.work_content ?? null})`;
-  }
+  await writeAttendees(co.id, b.attendees || []);
 
   const findingIds: number[] = [];
   for (const f of b.findings || []) {
@@ -1657,6 +2085,13 @@ async function createCoordination(req: Request, me: SessionUser): Promise<Respon
         ...f, source: "coordination", building: co.building },
       me, { siteId: co.site_id, coordinationId: co.id },
     ));
+  }
+
+  await learnFromForm(co.site_id, attendeeRows(b.attendees), b.findings);
+
+  if (signing) {
+    return json({ ok: true, coordination_id: co.id, finding_ids: findingIds,
+                  sign_url: `/static/sign.html?kind=coordination&id=${co.id}` });
   }
 
   await saveSignatures(b.signatures || [], me, { coordinationId: co.id });
@@ -1685,12 +2120,12 @@ async function renderCoordinationPdf(id: number): Promise<string | null> {
     WHERE f.coordination_id = ${id} ORDER BY f.id`;
 
   const sigRows = await db.sql`
-    SELECT role, signer_name, signed_at, image_key FROM signatures
+    SELECT role, signer_name, signed_at, image_key, slot_key FROM signatures
     WHERE coordination_id = ${id} ORDER BY id`;
-  const sigs = await hydrateSignatures(sigRows);
+  const sigs = await hydrateSignatures(sigRows, co.sign_slots);
 
   const bytes = await buildCoordinationPdf(co, attendees, findings, sigs);
-  const key = `pdf/COORD-${String(id).padStart(6, "0")}.pdf`;
+  const key = `pdf/COORD-${String(id).padStart(6, "0")}${co.revision ? `-r${co.revision}` : ""}.pdf`;
   await files().set(key, bytes.buffer as ArrayBuffer, {
     metadata: { contentType: "application/pdf" },
   });
@@ -1717,22 +2152,434 @@ async function saveSignatures(
   return n;
 }
 
-async function hydrateSignatures(rows: any[]): Promise<SigInput[]> {
-  return Promise.all(rows.map(async (s) => ({
+/** 簽名列 → PDF 用。有簽名格的單：每格都列，沒簽的留「未簽」；舊單只列簽過的。 */
+async function hydrateSignatures(rows: any[], slots?: any[] | null): Promise<SigInput[]> {
+  const one = async (s: any) => ({
     role: s.role,
     signer_name: s.signer_name,
+    printed_name: s.slot_key ? s.signer_name : undefined,   // 新流程的姓名是本人填的
     signed_at: new Date(s.signed_at)
       .toLocaleString("zh-TW", { timeZone: TZ, hour12: false }),
     image: await readFileBytes(s.image_key),
+  });
+  if (!slots) return Promise.all(rows.map(one));
+  return Promise.all(slotsOf(slots).map(async (slot: any) => {
+    const hit = rows.find((r) => r.slot_key === slot.key);
+    if (hit) return one(hit);
+    return { role: slot.role, signer_name: "", printed_name: slot.name || undefined,
+             signed_at: "", image: null, unsigned: true };
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// 多人分次簽核
+// ---------------------------------------------------------------------------
+const INSPECTION_SIGN_ROLES = ["檢查人員", "作業主管", "職安人員", "主辦工程師", "工程專案主管"];
+const COORDINATION_SIGN_ROLES = ["工程專案主管", "職安人員", "施工組"];
+
+/** 自主檢查表的簽名格：角色各一格，有填受檢廠商時廠商也簽一格。 */
+function inspectionSlots(inspector: string | null, vendor: string | null) {
+  const slots: { key: string; role: string; name: string | null }[] = INSPECTION_SIGN_ROLES.map((role) => ({
+    key: role, role, name: role === "檢查人員" ? inspector : null,
+  }));
+  if (vendor) slots.push({ key: `供應商：${vendor}`, role: `供應商：${vendor}`, name: null });
+  return slots;
+}
+
+/** 協議表的簽名格：角色各一格，參加協議的廠商各一格，帶入該廠商第一位人員當負責人。 */
+function coordinationSlots(attendees: any[]) {
+  const slots: { key: string; role: string; name: string | null }[] =
+    COORDINATION_SIGN_ROLES.map((role) => ({ key: role, role, name: null }));
+  const seen = new Set<string>();
+  for (const a of attendees) {
+    const vendor = String(a?.vendor_name ?? "").trim();
+    if (!vendor || seen.has(vendor)) continue;
+    seen.add(vendor);
+    const key = `供應商：${vendor}`;
+    const person = attendees.find((x) => String(x?.vendor_name ?? "").trim() === vendor
+      && String(x?.person_name ?? "").trim());
+    slots.push({ key, role: key, name: person ? String(person.person_name).trim() : null });
+  }
+  return slots;
+}
+
+/** sign_slots：驅動程式通常已解析成陣列，保險起見字串也接受。 */
+const slotsOf = (v: any): any[] => (typeof v === "string" ? JSON.parse(v) : v) || [];
+
+/** 單據的簽核資料（兩種單的欄位不同，這裡整理成一種形狀）。 */
+async function loadSignDoc(kind: string, id: number): Promise<any | null> {
+  if (kind === "inspection") {
+    const d = (await db.sql`
+      SELECT i.id, i.inspect_date AS date, i.building, i.location, i.status, i.sign_slots, i.pdf_key,
+             i.revision, i.inspector_id AS owner, i.inspector_name AS person, s.name AS site, ft.title
+      FROM inspections i JOIN sites s ON s.id = i.site_id
+      JOIN form_templates ft ON ft.form_code = i.form_code WHERE i.id = ${id}`)[0];
+    return d ? { ...d, no: `INSP-${String(id).padStart(6, "0")}` } : null;
+  }
+  const d = (await db.sql`
+    SELECT c.id, c.work_date AS date, c.building, c.status, c.sign_slots, c.pdf_key,
+           c.revision, c.created_by AS owner, c.recorder_name AS person, c.agreement_text, c.handling_text, s.name AS site,
+           '每日協議巡視處理紀錄表' AS title
+    FROM coordinations c JOIN sites s ON s.id = c.site_id WHERE c.id = ${id}`)[0];
+  return d ? { ...d, no: `COORD-${String(id).padStart(6, "0")}` } : null;
+}
+
+async function writeResults(id: number, results: any[]) {
+  for (const r of results) {
+    await db.sql`
+      INSERT INTO inspection_results (inspection_id, item_id, day, result, remark)
+      VALUES (${id}, ${Number(r.item_id)}, ${r.day ?? null},
+              ${r.result || "na"}, ${r.remark ?? null})`;
+  }
+}
+
+async function writeAttendees(id: number, attendees: any[]) {
+  for (const a of attendees) {
+    await db.sql`
+      INSERT INTO coordination_attendees
+        (coordination_id, work_item, vendor_id, vendor_name, trade,
+         person_name, employee_no, work_content)
+      VALUES (${id}, ${a.work_item ?? null},
+              ${a.vendor_id ? Number(a.vendor_id) : null}, ${a.vendor_name ?? null},
+              ${a.trade ?? null}, ${a.person_name ?? null},
+              ${a.employee_no ?? null}, ${a.work_content ?? null})`;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 修改已填單據：開新版。舊內容、舊簽名、舊 PDF 存進 form_revisions，單據回到簽核中。
+// ---------------------------------------------------------------------------
+/** 單據完整內容：帶回表單用，也是修改前的快照。 */
+async function editData(kind: string, id: number): Promise<any | null> {
+  const findings = await db.sql`
+    SELECT f.id, f.item_id, f.description, f.hazard_code, f.hazard_label, f.severity, f.location,
+           f.vendor_id, v.name AS vendor, f.responsible_person, f.action_type, f.dispositions,
+           f.penalty, f.due_date, f.fix_note, f.photo_before, f.photo_after, f.status
+    FROM findings f LEFT JOIN vendors v ON v.id = f.vendor_id
+    WHERE (${kind}::text = 'inspection' AND f.inspection_id = ${id})
+       OR (${kind}::text = 'coordination' AND f.coordination_id = ${id})
+    ORDER BY f.id`;
+  const shaped = findings.map((f: any) => ({
+    ...f, due_date: dateOnly(f.due_date), penalty: f.penalty == null ? null : Number(f.penalty),
+    dispositions: parseDispositions(f.dispositions, f.action_type),
+  }));
+  if (kind === "inspection") {
+    const h = (await db.sql`
+      SELECT id, site_id, building, form_code, inspect_date, location, weather, inspector_name,
+             vendor_name, status, revision, pdf_key, inspector_id AS owner
+      FROM inspections WHERE id = ${id}`)[0];
+    if (!h) return null;
+    const results = await db.sql`
+      SELECT item_id, result, remark FROM inspection_results WHERE inspection_id = ${id}`;
+    return { ...h, inspect_date: dateOnly(h.inspect_date), results, findings: shaped };
+  }
+  const h = (await db.sql`
+    SELECT id, site_id, building, meeting_date, work_date, weather, agreement_text, handling_text,
+           recorder_name, status, revision, pdf_key, created_by AS owner
+    FROM coordinations WHERE id = ${id}`)[0];
+  if (!h) return null;
+  const attendees = await db.sql`
+    SELECT work_item, vendor_id, vendor_name, trade, person_name, employee_no, work_content
+    FROM coordination_attendees WHERE coordination_id = ${id} ORDER BY id`;
+  return { ...h, meeting_date: dateOnly(h.meeting_date), work_date: dateOnly(h.work_date),
+           attendees, findings: shaped };
+}
+
+/** 改內容與作廢：職安、主管、管理員，或填這張單的帳號。簽名不限：下一位簽的人可能沒有帳號權限。 */
+function canAlter(me: SessionUser, owner: number | null): boolean {
+  return ["safety", "manager", "admin"].includes(me.role) || me.id === owner;
+}
+
+/** 舊內容、舊簽名名單與舊 PDF 存進 form_revisions。回 false＝這一版已經有人先存了。 */
+async function saveRevision(
+  kind: string, id: number, data: any, rev: number, reason: string, me: SessionUser,
+): Promise<boolean> {
+  const sigs = await db.sql`
+    SELECT role, signer_name, signed_at, image_key FROM signatures
+    WHERE (${kind}::text = 'inspection' AND inspection_id = ${id})
+       OR (${kind}::text = 'coordination' AND coordination_id = ${id})`;
+  const rows = await db.sql`
+    INSERT INTO form_revisions (doc_key, rev, reason, edited_by, edited_name, snapshot, pdf_key)
+    VALUES (${`${kind}:${id}`}, ${rev}, ${reason}, ${me.id}, ${me.name},
+            ${JSON.stringify({ ...data, signatures: sigs })}::jsonb, ${data.pdf_key ?? null})
+    ON CONFLICT (doc_key, rev) DO NOTHING
+    RETURNING id`;
+  return rows.length > 0;
+}
+
+/** 缺失依 id 對回去，保留單號與改善進度。已結案的不動；表單上拿掉的刪除，新增的開新單。 */
+async function syncFindings(
+  kind: string, id: number, list: any[], me: SessionUser,
+  base: { site_id: number; building: string | null; location?: string | null; source: string; date: string },
+) {
+  const old = await db.sql`
+    SELECT id, status, action_type FROM findings
+    WHERE (${kind}::text = 'inspection' AND inspection_id = ${id})
+       OR (${kind}::text = 'coordination' AND coordination_id = ${id})`;
+  const keep = new Set<number>();
+  for (const f of list) {
+    const prev = f.id ? old.find((o: any) => o.id === Number(f.id)) : null;
+    if (!prev) {
+      await insertFinding({ found_at: `${base.date}T09:00:00+08:00`,   // 補登的缺失跟著單據日期
+                            ...f, id: undefined, source: base.source, building: base.building,
+                            location: f.location ?? base.location },
+                          me, kind === "inspection"
+                            ? { siteId: base.site_id, inspectionId: id }
+                            : { siteId: base.site_id, coordinationId: id });
+      continue;
+    }
+    keep.add(prev.id);
+    if (prev.status === "closed") continue;
+    const { disp, onsite, actionType, penalty } = dispositionOf(f);
+    // 處置從「之後改善」改成「立即改善」就算改善完成；反過來則回到改善中。沒換類型維持原狀態：
+    // 被覆驗退回的缺失改個錯字，不能跳回待複驗
+    const changed = (prev.action_type === "onsite") !== onsite;
+    const status = !changed ? prev.status : onsite ? "fixed" : "open";
+    const note = !changed ? (f.fix_note ?? null)
+      : onsite ? (f.fix_note || ONSITE_NOTE)
+      : (f.fix_note === ONSITE_NOTE ? null : f.fix_note ?? null);
+    await db.sql`
+      UPDATE findings SET description = ${f.description}, hazard_code = ${f.hazard_code ?? "OTHER"},
+        hazard_label = ${f.hazard_label ?? "其他"}, severity = ${f.severity ?? "minor"},
+        location = COALESCE(${f.location ?? base.location ?? null}, location),
+        building = ${base.building},
+        vendor_id = ${f.vendor_id ? Number(f.vendor_id) : null},
+        responsible_person = ${f.responsible_person ?? null}, action_type = ${actionType},
+        dispositions = ${disp.join(",")}, penalty = ${penalty},
+        due_date = ${onsite ? null : (f.due_date ?? null)}, fix_note = ${note},
+        photo_before = ${f.photo_before ?? null}, photo_after = ${f.photo_after ?? null},
+        status = ${status},
+        fixed_at = CASE WHEN ${status}::text = 'open' THEN NULL ELSE COALESCE(fixed_at, found_at) END
+      WHERE id = ${prev.id}`;
+  }
+  for (const o of old as any[]) {
+    if (!keep.has(o.id) && o.status !== "closed") {
+      await db.sql`DELETE FROM findings WHERE id = ${o.id}`;
+    }
+  }
+}
+
+const STALE_DOC = "這張單剛被修改過，請重新整理後再操作";
+
+async function handleEdit(
+  req: Request, me: SessionUser, kind: string, id: number, method: string,
+): Promise<Response> {
+  const data = await editData(kind, id);
+  if (!data) return fail(404, "查無此單據");
+  if (data.status === "void") return fail(409, "這張單已作廢，不能修改");
+  if (method === "GET") return json(data);
+  if (method !== "POST") return fail(405, "方法不支援");
+  if (!canAlter(me, data.owner)) return fail(403, "僅填表人、職安人員或主管可修改");
+
+  const b = await req.json();
+  if (Number(b.revision) !== data.revision) return fail(409, STALE_DOC);
+  const reason = String(b.reason ?? "").trim();
+  if (!reason) return fail(400, "請填寫修改原因");
+  if (reason.length > 200) return fail(400, "修改原因請在 200 字以內");
+  const bad = buildingTooLong(b.building);
+  if (bad) return bad;
+
+  // 先存舊版：後面任何一步失敗，舊內容都還找得回來。兩人同時修改時後者在這裡被擋下
+  const rev = data.revision + 1;
+  if (!await saveRevision(kind, id, data, rev, reason, me)) return fail(409, STALE_DOC);
+
+  const building = String(b.building ?? "").trim() || null;
+  if (kind === "inspection") {
+    const inspector = String(b.inspector_name ?? "").trim() || null;
+    const vendorName = String(b.vendor_name ?? "").trim().slice(0, 64) || null;
+    const slots = JSON.stringify(inspectionSlots(inspector, vendorName));
+    await db.sql`
+      UPDATE inspections SET building = ${building}, inspect_date = ${b.inspect_date || data.inspect_date},
+        location = ${b.location ?? null}, weather = ${b.weather ?? null}, inspector_name = ${inspector},
+        vendor_name = ${vendorName},
+        status = 'signing', submitted_at = NULL, pdf_key = NULL, sign_slots = ${slots}::jsonb,
+        revision = ${rev}
+      WHERE id = ${id}`;
+    await db.sql`DELETE FROM signatures WHERE inspection_id = ${id}`;
+    await db.sql`DELETE FROM inspection_results WHERE inspection_id = ${id}`;
+    await writeResults(id, b.results || []);
+    await syncFindings(kind, id, b.findings || [], me,
+      { site_id: data.site_id, building, location: b.location ?? null, source: "inspection",
+        date: b.inspect_date || data.inspect_date });
+    await learnFromForm(data.site_id, [{ vendor: vendorName }], b.findings);
+  } else {
+    const slots = JSON.stringify(coordinationSlots(b.attendees || []));
+    await db.sql`
+      UPDATE coordinations SET building = ${building}, meeting_date = ${b.meeting_date || data.meeting_date},
+        work_date = ${b.work_date || data.work_date}, weather = ${b.weather ?? null},
+        agreement_text = ${b.agreement_text ?? null}, handling_text = ${b.handling_text ?? null},
+        recorder_name = ${String(b.recorder_name ?? "").trim() || null},
+        status = 'signing', submitted_at = NULL, pdf_key = NULL, sign_slots = ${slots}::jsonb,
+        revision = ${rev}
+      WHERE id = ${id}`;
+    await db.sql`DELETE FROM signatures WHERE coordination_id = ${id}`;
+    await db.sql`DELETE FROM coordination_attendees WHERE coordination_id = ${id}`;
+    await writeAttendees(id, b.attendees || []);
+    await syncFindings(kind, id, b.findings || [], me,
+      { site_id: data.site_id, building, source: "coordination",
+        date: b.work_date || data.work_date });
+    await learnFromForm(data.site_id, attendeeRows(b.attendees), b.findings);
+  }
+  return json({ ok: true, revision: rev, sign_url: `/static/sign.html?kind=${kind}&id=${id}` });
+}
+
+async function pendingSigns(): Promise<Response> {
+  const rows = await db.sql`
+    SELECT * FROM (
+      SELECT 'inspection' AS kind, i.id, i.inspect_date AS d, i.building, s.name AS site, ft.title,
+             i.inspector_name AS person, i.sign_slots, i.created_at,
+             (SELECT COUNT(*)::int FROM signatures g WHERE g.doc_key = 'inspection:' || i.id) AS signed
+      FROM inspections i JOIN sites s ON s.id = i.site_id
+      JOIN form_templates ft ON ft.form_code = i.form_code
+      WHERE i.status = 'signing'
+      UNION ALL
+      SELECT 'coordination', c.id, c.work_date, c.building, s.name, '每日協議巡視處理紀錄表',
+             c.recorder_name, c.sign_slots, c.created_at,
+             (SELECT COUNT(*)::int FROM signatures g WHERE g.doc_key = 'coordination:' || c.id)
+      FROM coordinations c JOIN sites s ON s.id = c.site_id
+      WHERE c.status = 'signing'
+    ) x ORDER BY created_at DESC LIMIT 100`;
+  return json(rows.map((r: any) => ({
+    kind: r.kind, id: r.id, date: dateOnly(r.d), building: r.building, site: r.site, title: r.title,
+    person: r.person, signed: r.signed, total: slotsOf(r.sign_slots).length,
+    url: `/static/sign.html?kind=${r.kind}&id=${r.id}`,
   })));
+}
+
+async function handleSign(
+  req: Request, me: SessionUser, kind: string, id: number, action: string, method: string,
+): Promise<Response> {
+  const doc = await loadSignDoc(kind, id);
+  if (!doc) return fail(404, "查無此單據");
+  const docKey = `${kind}:${id}`;
+  const slots = slotsOf(doc.sign_slots);
+
+  if (!action && method === "GET") {
+    const sigs = await db.sql`
+      SELECT slot_key, signer_name, signed_at FROM signatures WHERE doc_key = ${docKey}`;
+    const findings = await db.sql`
+      SELECT f.description, f.responsible_person, v.name AS vendor
+      FROM findings f LEFT JOIN vendors v ON v.id = f.vendor_id
+      WHERE (${kind}::text = 'inspection' AND f.inspection_id = ${id})
+         OR (${kind}::text = 'coordination' AND f.coordination_id = ${id})
+      ORDER BY f.id`;
+    const attendees = kind === "coordination" ? await db.sql`
+      SELECT vendor_name, person_name, work_content FROM coordination_attendees
+      WHERE coordination_id = ${id} ORDER BY id` : [];
+    const revisions = await db.sql`
+      SELECT id, rev, reason, edited_name, created_at, pdf_key FROM form_revisions
+      WHERE doc_key = ${docKey} ORDER BY rev DESC`;
+    return json({
+      revisions: revisions.map((r: any) => ({
+        rev: r.rev, reason: r.reason, edited_name: r.edited_name, at: minuteISO(r.created_at),
+        pdf_url: r.pdf_key ? `/api/revisions/${r.id}/pdf` : null,
+      })),
+      kind, id, no: doc.no, title: doc.title, date: dateOnly(doc.date), site: doc.site,
+      revision: doc.revision,
+      building: doc.building, location: doc.location ?? null, person: doc.person,
+      status: doc.status, agreement_text: doc.agreement_text ?? null,
+      handling_text: doc.handling_text ?? null, attendees, findings,
+      pdf_url: doc.pdf_key ? `/api/${kind}s/${id}/pdf` : null,
+      slots: slots.map((s) => {
+        const hit = sigs.find((x: any) => x.slot_key === s.key);
+        return { ...s, signed: !!hit, signer_name: hit?.signer_name ?? null,
+                 signed_at: hit ? minuteISO(hit.signed_at) : null };
+      }),
+    });
+  }
+  if (method !== "POST") return fail(405, "方法不支援");
+  if (doc.status !== "signing") return fail(409, "這張單已完成簽核或已作廢，請重新整理");
+  const b = await req.json();
+  // 頁面開著時內容可能被改過：簽名是對看到的內容負責，舊頁面不能簽到新內容上
+  if (Number(b.revision) !== doc.revision) return fail(409, STALE_DOC);
+
+  if (action === "sign") {
+    const slot = slots.find((s) => s.key === b.slot_key);
+    if (!slot) return fail(400, "沒有這個簽名欄");
+    const name = String(b.signer_name ?? "").trim();
+    if (!name || name.length > 32) return fail(400, "請填寫簽名人姓名");
+    const image = String(b.image ?? "");
+    if (!image.startsWith("data:image/png;base64,")) return fail(400, "簽名格式錯誤");
+    // 同一份單出現一模一樣的簽名圖，就是同一張圖被重複送出，不是另一個人簽的
+    const hash = createHash("sha256").update(image).digest("hex");
+    const same = (await db.sql`
+      SELECT role FROM signatures WHERE doc_key = ${docKey} AND image_hash = ${hash}`)[0];
+    if (same) return fail(409, `這個簽名和「${same.role}」完全相同，請本人重新簽名`);
+    const key = await saveDataUrl(image, "signatures");
+    const rows = await db.sql`
+      INSERT INTO signatures
+        (inspection_id, coordination_id, role, signer_id, signer_name, image_key,
+         doc_key, slot_key, image_hash)
+      VALUES (${kind === "inspection" ? id : null}, ${kind === "coordination" ? id : null},
+              ${slot.role}, ${me.id}, ${name}, ${key}, ${docKey}, ${slot.key}, ${hash})
+      ON CONFLICT (doc_key, slot_key) DO NOTHING
+      RETURNING id`;
+    if (!rows.length) return fail(409, "這一格剛被別人簽了，請重新整理");
+    return json({ ok: true });
+  }
+
+  if (action === "undo") {
+    await db.sql`DELETE FROM signatures WHERE doc_key = ${docKey} AND slot_key = ${String(b.slot_key)}`;
+    return json({ ok: true });
+  }
+
+  if (action === "finish") {
+    const n = (await db.sql`SELECT COUNT(*)::int AS n FROM signatures WHERE doc_key = ${docKey}`)[0].n;
+    if (!n) return fail(400, "至少要有一個人簽名才能完成");
+    // PDF 印提交時間，要先寫；狀態等 PDF 產好才改：產檔失敗或逾時，單據還在簽核中，再按一次就好
+    let done: any[];
+    if (kind === "inspection") {
+      await db.sql`UPDATE inspections SET submitted_at = NOW() WHERE id = ${id}`;
+      await renderInspectionPdf(id);
+      done = await db.sql`
+        UPDATE inspections SET status = 'submitted'
+        WHERE id = ${id} AND status = 'signing' AND revision = ${doc.revision} RETURNING id`;
+    } else {
+      await db.sql`UPDATE coordinations SET submitted_at = NOW() WHERE id = ${id}`;
+      await renderCoordinationPdf(id);
+      done = await db.sql`
+        UPDATE coordinations SET status = 'submitted'
+        WHERE id = ${id} AND status = 'signing' AND revision = ${doc.revision} RETURNING id`;
+    }
+    if (!done.length) return fail(409, STALE_DOC);
+    return json({ ok: true, pdf_url: `/api/${kind}s/${id}/pdf` });
+  }
+
+  if (action === "void") {
+    if (!canAlter(me, doc.owner)) return fail(403, "僅填表人、職安人員或主管可作廢");
+    const reason = String(b.reason ?? "").trim();
+    if (!reason) return fail(400, "請填寫作廢原因");
+    if (reason.length > 200) return fail(400, "作廢原因請在 200 字以內");
+    // 內容、簽名與缺失整份留進修改紀錄，稽核才查得到作廢了什麼、誰作廢的
+    const rev = doc.revision + 1;
+    const snapshot = await editData(kind, id);
+    if (!await saveRevision(kind, id, snapshot, rev, `作廢：${reason}`, me)) return fail(409, STALE_DOC);
+    // 這張單開出的缺失一起移除，否則重填後會重複。已結案的經過覆驗，留著不動
+    if (kind === "inspection") {
+      await db.sql`DELETE FROM findings WHERE inspection_id = ${id} AND status <> 'closed'`;
+      await db.sql`UPDATE inspections SET status = 'void', revision = ${rev} WHERE id = ${id}`;
+    } else {
+      await db.sql`DELETE FROM findings WHERE coordination_id = ${id} AND status <> 'closed'`;
+      await db.sql`UPDATE coordinations SET status = 'void', revision = ${rev} WHERE id = ${id}`;
+    }
+    return json({ ok: true });
+  }
+  return fail(404, "找不到簽核動作");
 }
 
 async function servePdf(table: "inspections" | "coordinations", id: number) {
   const rows = table === "inspections"
-    ? await db.sql`SELECT pdf_key FROM inspections WHERE id = ${id}`
-    : await db.sql`SELECT pdf_key FROM coordinations WHERE id = ${id}`;
-  const key = rows[0]?.pdf_key;
+    ? await db.sql`SELECT pdf_key, status FROM inspections WHERE id = ${id}`
+    : await db.sql`SELECT pdf_key, status FROM coordinations WHERE id = ${id}`;
+  let key = rows[0]?.pdf_key;
+  if (!key && rows[0]?.status === "submitted") {     // 已完成但 PDF 沒產成：看的時候補產
+    key = await (table === "inspections" ? renderInspectionPdf(id) : renderCoordinationPdf(id));
+  }
   if (!key) return fail(404, "PDF 尚未產生");
+  return servePdfKey(key);
+}
+
+async function servePdfKey(key: string) {
   const data = await files().get(key, { type: "arrayBuffer" });
   if (!data) return fail(404, "PDF 檔案不存在");
   return new Response(data as ArrayBuffer, {

@@ -38,7 +38,7 @@ import os
 import re
 import sys
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 try:
@@ -67,7 +67,20 @@ MACHINE_WORDS = ("堆高機", "塔吊", "作業車", "挖掘機", "吊車", "吊
 # 「名稱：數字」，不擋的話一則訊息就是幾十億人，還會讓雲端寫入整批失敗。
 MAX_COUNT = 999
 
+# 回報只寫工班、沒寫廠商（「工務*1、司機*6」）：人數不能丟，廠商留給現場選
+UNNAMED_VENDOR = "未標示廠商"
+
 ROC_DATE = re.compile(r"(1[0-9]{2})[/.．](\d{1,2})[/.．](\d{1,2})")
+# 手機打字把 0 打成英文字母：「115/1O/2O」「外藉勞工1O人」
+ROC_DATE_TYPO = re.compile(r"(1\d{2}\s*[/.．]\s*)([0-9Oo]{1,2})(\s*[/.．]\s*)([0-9Oo]{1,2})")
+COUNT_TYPO = re.compile(r"(\d)[Oo](?=\s*[人名])")
+# 沒寫年：「10/30商辦棟」「10/1（四）」，只認行首。「3/5F」「7/8樓」「3/5區」是樓層與工區
+_MD_END = r"(?![\dA-Za-zＦｆ樓層區棟/])"
+MONTH_DAY = re.compile(r"^\s*(\d{1,2})/(\d{1,2})" + _MD_END, re.M)
+# 無年份日期離接收日多遠以內才信：更遠的多半是工區編號，不是回報日
+MONTH_DAY_RANGE = 31
+# 內文提到的日期不是回報日：「預計115/11/05完成」
+NOT_REPORT_DATE = re.compile(r"預計|預定|完成|截止|之前|以前")
 AD_DATE = re.compile(r"(20\d{2})[/.．-](\d{1,2})[/.．-](\d{1,2})")
 STAR_COUNT = re.compile(r"([一-鿿\w]{1,8})\s*[*×xX＊]\s*(\d+)")
 COLON_COUNT = re.compile(r"^([^\s：:]{1,8})\s*[：:]\s*(\d+)\s*[人名]?\s*$")
@@ -76,11 +89,34 @@ COLON_COUNT = re.compile(r"^([^\s：:]{1,8})\s*[：:]\s*(\d+)\s*[人名]?\s*$")
 # GRAND（總人數／合計）獨佔：訊息同時列「本籍出工數3＋外籍出工數11」
 # 與「總人數14」時，只能取 14，全部加總會變 28。
 GRAND_COUNT = re.compile(r"(?:總人數|合計)[^0-9\n]{0,6}(\d+)")
+ALL_COUNT = re.compile(r"^\s*共\s*(\d+)\s*[人名]\s*$", re.M)   # 「共5人」獨立一行
 TOTAL_COUNT = re.compile(r"出工數[^0-9\n]{0,6}(\d+)")
 SUPERVISOR = re.compile(r"作業主管(?:姓名)?[：:\s]\s*([^\s，,、：:]{2,10})")
+# 沒有分隔符號的寫法：「作業主管某某某外藉勞工10人」。只收三個字，否則會吃到後面的字
+SUPERVISOR_TIGHT = re.compile(r"作業主管([一-鿿]{3})(?=[外本\s，,、]|$)", re.M)
 TASK_LINE = re.compile(r"^\d+[.、)]\s*(.+)$")
 # 「本公司移工 13人」——廠商行自帶人數的寫法
 VENDOR_COUNT = re.compile(r"^(.{2,20}?)[\s　]+(\d+)\s*人$")
+# 「某某-鋼筋綁紮*15」：廠商、工種、總人數寫在同一行，後面的行是各區細項（人數已含在內）
+VENDOR_STAR = re.compile(r"^([^\s*×xX＊\d]{2,12})[-－]\s*([一-鿿\w]{1,10})\s*[*×xX＊]\s*(\d+)\s*$")
+# 「鋼承板（某某）」：工項在前，廠商在括號裡
+VENDOR_PAREN = re.compile(r"^([一-鿿]{2,10})[（(]([一-鿿]{2,6})[）)]\s*$")
+# 括號裡不是廠商：「出工回報（更正）」「住宅棟（多雲）」「（星期五）」。整段比對，
+# 「鋼承板（順風）」的風是名字的一部分
+PAREN_NOT_VENDOR = re.compile(r"(?:[多晴陰雨雲風時轉偶陣有]|天氣)+|(?:更正|修正|更新|補報|重發)[版後]?"
+                              r"|(?:星期|禮拜|週|周).")
+PAREN_TITLE = re.compile(r"出工|回報|更正|修正|星期|禮拜|週|天氣")
+# 去掉標題後只剩更正字樣的行：「更正」「出工回報更正」
+NOT_VENDOR_LINE = re.compile(r"(?:更正|修正)[版後]?(?:回報)?")
+# 「外藉勞工10人」「本籍1人」
+WORKER_COUNT = re.compile(r"(?:外[藉籍]|本[藉籍])[^0-9\n人]{0,5}(\d+)\s*[人名]")
+# 細項行尾的人數：「A棟2F站窗-1人」（只有一行細項、沒有其他人數時才用）
+TAIL_COUNT = re.compile(r"[-－]\s*(\d+)\s*人\s*$", re.M)
+# 「商辦棟某某移工12人」：整則都是這種行，每行一組（棟別、名稱、人數）
+GROUP_LINE = re.compile(r"^(住宅棟|商辦棟|辦公棟|住宅|商辦)?\s*([一-鿿]{2,10}?)\s*(\d+)\s*人\s*$")
+# 統計列不是一組：「合計14人」「出工數5人」
+GROUP_TOTAL = re.compile(r"合計|總計|小計|共計|人數|出工")
+LINE_COUNT = re.compile(r"\d+\s*[人名]\s*$")
 HAS_CJK = re.compile(r"[一-鿿]")
 
 # 「施工回報」：一天一則、逐行列出各廠商——另一種回報寫法（例如 BD10）。
@@ -126,7 +162,8 @@ def worklog_sources() -> dict:
       - 各設一個 WORKLOG_URL_<工地代碼>（例如 WORKLOG_URL_BD10）
       - 一個 WORKLOG_SOURCES，內容是 JSON：{"BD10": "網址", "BD12": "網址"}——
         GitHub 上只要改這一個 Secret，新增工地不必改 workflow
-    只有出工資料庫（cloud-runner/push_worklog.py）讀多來源。
+    讀多來源的只有 cloud-runner：出工資料庫（push_worklog.py）與協議表帶入用的
+    今日出工（run_external.py 的 _site_worklogs）。
     """
     out = {}
     primary = (env("PRIMARY_SITE_CODE") or "").strip()
@@ -166,16 +203,19 @@ def parse_building(text: str, labels: list) -> Optional[str]:
     for lb in labels:
         if lb in text:
             return lb
-    # 常見同義寫法：現場偶爾把辦公棟寫成商辦棟
+    # 常見同義寫法：現場偶爾把辦公棟寫成商辦棟、住宅棟寫成住宅區
     if "商辦" in text and "辦公棟" in labels:
         return "辦公棟"
+    if "住宅" in text and "住宅棟" in labels:
+        return "住宅棟"
     m = re.search(r"([一-鿿]{1,4}棟)", text)
     return m.group(1) if m else None
 
 
 def parse_report_date(text: str, fallback: Optional[date]) -> Optional[date]:
     # 先把空白全部拿掉再比對——現場有人把日期打成「115/ 09 / 0 5」
-    flat = re.sub(r"\s+", "", text)
+    flat = re.sub(r"\s+", "", "\n".join(
+        ln for ln in text.splitlines() if not NOT_REPORT_DATE.search(ln)))
     m = ROC_DATE.search(flat)
     if m:
         try:
@@ -188,13 +228,46 @@ def parse_report_date(text: str, fallback: Optional[date]) -> Optional[date]:
             return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
         except ValueError:
             pass
-    return fallback
+    return _month_day(text, fallback) or fallback
+
+
+def _month_day(text: str, fallback: Optional[date]) -> Optional[date]:
+    """沒寫年的日期取最靠近接收日的那一年（1/1 收到「12/31」是去年）。"""
+    if not fallback:
+        return None
+    for m in MONTH_DAY.finditer(text):
+        for year in (fallback.year, fallback.year - 1, fallback.year + 1):
+            try:
+                d = date(year, int(m.group(1)), int(m.group(2)))
+            except ValueError:
+                continue
+            if abs((d - fallback).days) <= MONTH_DAY_RANGE:
+                return d
+    return None
+
+
+def _fix_date_typo(text: str) -> str:
+    def zero(t: str) -> str:
+        return t.replace("O", "0").replace("o", "0")
+    text = ROC_DATE_TYPO.sub(lambda m: m.group(1) + zero(m.group(2)) + m.group(3) + zero(m.group(4)), text)
+    return COUNT_TYPO.sub(r"\g<1>0", text)
+
+
+def _supervisor(text: str) -> Optional[str]:
+    m = SUPERVISOR.search(text) or SUPERVISOR_TIGHT.search(text)
+    return m.group(1) if m else None      # 有寫才顯示，不代填回報人
+
+
+_AREA = r"(?:住宅|商辦|辦公)"
+_AREA_SEP = r"[\s\-－：:／/，,、+＋]"
+_AREA_TOKEN = re.compile(f"(?:^|(?<={_AREA_SEP})){_AREA}區?(?:{_AREA_SEP}*{_AREA}區?)*(?=$|{_AREA_SEP})")
 
 
 def _strip_meta(line: str, labels: list) -> str:
     """去掉行內的日期、天氣註記與棟別，看剩下什麼。"""
     s = re.sub(r"1[0-9]{2}\s*[/.．]\s*\d(?:\s*\d)?\s*[/.．]\s*\d(?:\s*\d)?", "", line)
     s = AD_DATE.sub("", s)
+    s = re.sub(r"^\s*\d{1,2}/\d{1,2}" + _MD_END, "", s)
     s = re.sub(r"[（(][^（）()]{1,4}[）)]", "", s)      # （雨）（晴）之類
     s = s.replace("出工回報", "")
     for lb in labels:
@@ -204,7 +277,11 @@ def _strip_meta(line: str, labels: list) -> str:
     # 1~2 個英文字母」，英文開頭的廠商名（如 ABC營造）就被切爛了
     s = re.sub(r"[一-鿿]{1,4}棟", "", s)
     s = re.sub(r"[A-Za-z]{1,2}(?:\d{1,4}棟?|棟)", "", s)
-    return s.strip(" -－：:／/，,、。　")
+    # 「住宅區」「商辦/住宅」是棟別的別寫，不是廠商。只認行首或獨立一段：
+    # 「某某住宅工程」「辦公家具行」裡的字是廠商名的一部分
+    s = _AREA_TOKEN.sub("", s.strip())
+    s = re.sub(r"^" + _AREA + "區", "", s)
+    return s.strip(" -－：:／/，,、。　+＋")
 
 
 def parse_message(content: str, labels: list, fallback_date: Optional[date]) -> Optional[dict]:
@@ -214,9 +291,7 @@ def parse_message(content: str, labels: list, fallback_date: Optional[date]) -> 
 
     report_date = parse_report_date(content, fallback_date)
     building = parse_building(content, labels)
-
-    m = SUPERVISOR.search(content)
-    supervisor = m.group(1) if m else None      # 有寫才顯示，不代填回報人
+    supervisor = _supervisor(content)
 
     def is_machine(name: str) -> bool:
         return any(w in name for w in MACHINE_WORDS)
@@ -232,11 +307,40 @@ def parse_message(content: str, labels: list, fallback_date: Optional[date]) -> 
     # 「出工數」們加總（本籍＋外籍分列）→「工種*人數」加總 →
     # 「工種：N人」行加總（此時工程師、製圖員等也會計入——訊息沒給
     # 總數，只能全列都算）。機具不算人。
-    grands = [int(n) for n in GRAND_COUNT.findall(content) if int(n) <= MAX_COUNT]
+    grands = [int(n) for n in GRAND_COUNT.findall(content) if int(n) <= MAX_COUNT] \
+        or [int(n) for n in ALL_COUNT.findall(content) if int(n) <= MAX_COUNT]
     totals = [grands[-1]] if grands else \
         [int(n) for n in TOTAL_COUNT.findall(content) if int(n) <= MAX_COUNT]
-    star_pairs = [(name, int(n)) for name, n in STAR_COUNT.findall(content)
-                  if is_trade(name, int(n))]
+    # 編號行是各區細項：「鋼筋工*22」底下「1. A區*1、2. B區*21」，人數已含在上面，
+    # 一起加會變兩倍。細項加起來比上面還多就不是細項（「工務*1」底下「1.鋼筋工*5」）
+    def stars_in(text: str) -> list:
+        return [(name, int(n)) for name, n in STAR_COUNT.findall(text) if is_trade(name, int(n))]
+    plain = [p for ln in lines if not TASK_LINE.match(ln) for p in stars_in(ln)]
+    numbered = [p for ln in lines if TASK_LINE.match(ln) for p in stars_in(ln)]
+    star_pairs = plain + numbered if plain and sum(n for _, n in numbered) > sum(n for _, n in plain) \
+        else plain or stars_in(content)
+
+    def is_stat(ln: str) -> bool:
+        return bool(TOTAL_COUNT.search(ln) or GRAND_COUNT.search(ln) or ALL_COUNT.search(ln)
+                    or SUPERVISOR.search(ln) or SUPERVISOR_TIGHT.fullmatch(ln))
+
+    # 「某某-鋼筋綁紮*15」要是第一行內容才代表廠商：上面已經有廠商行、或各行前段
+    # 不同時，前段是工區（「甲工程／地下室-鋼筋綁紮*5／外牆-模板組立*3」）
+    vstars = [(i, m) for i, m in enumerate(map(VENDOR_STAR.match, lines))
+              if m and HAS_CJK.search(m.group(1)) and int(m.group(3)) <= MAX_COUNT
+              and not re.search(r"[區棟樓]$", m.group(1))]
+    if vstars and (len({m.group(1) for _, m in vstars}) > 1
+                   or any(_strip_meta(ln, labels) and not is_stat(ln)
+                          for ln in lines[:vstars[0][0]])):
+        vstars = []
+    vendor_star = vstars[0][1] if vstars else None
+    vstar_lines = {i for i, _ in vstars}
+    if vstars:
+        own = [(m.group(2), int(m.group(3))) for _, m in vstars]
+        rest_lines = [ln for i, ln in enumerate(lines) if i not in vstar_lines]
+        others = [p for ln in rest_lines for p in stars_in(ln)]
+        # 其他行是細項，人數已含在總數裡；比總數還多就不可能是細項
+        star_pairs = own + others if sum(n for _, n in others) > sum(n for _, n in own) else own
     colon_pairs = []
     for ln in lines:
         cm = COLON_COUNT.match(ln)
@@ -253,17 +357,27 @@ def parse_message(content: str, labels: list, fallback_date: Optional[date]) -> 
     elif colon_pairs:
         headcount = sum(n for _, n in colon_pairs)
     else:
-        headcount = None
+        workers = [int(n) for n in WORKER_COUNT.findall(content) if int(n) <= MAX_COUNT] \
+            or [int(n) for n in TAIL_COUNT.findall(content) if int(n) <= MAX_COUNT]
+        headcount = sum(workers) if workers else None
 
     # 工種摘要：0 人的班別不上牆（鋼構廠商的回報把沒出工的班別也列出來）
     trade_parts = [f"{name}{n}" for name, n in star_pairs + colon_pairs if n]
     trade = "、".join(trade_parts)[:128] or None
 
     # 廠商行：跳過標題、統計、主管與日期行後的第一個含中文的內容行
-    vendor = None
-    vendor_line_idx = None
+    vendor = vendor_star.group(1).strip() if vendor_star else None
+    vendor_line_idx = lines.index(vendor_star.group(0).strip()) if vendor_star else None
     for i, ln in enumerate(lines):
-        if TOTAL_COUNT.search(ln) or GRAND_COUNT.search(ln) or SUPERVISOR.search(ln):
+        if vendor:
+            break
+        pm = VENDOR_PAREN.match(ln)
+        if pm and not PAREN_NOT_VENDOR.fullmatch(pm.group(2)) and not PAREN_TITLE.search(pm.group(1)):
+            vendor = pm.group(2)
+            trade = trade or pm.group(1)
+            vendor_line_idx = i
+            break
+        if is_stat(ln):
             continue
         if STAR_COUNT.search(ln) or COLON_COUNT.match(ln):
             continue
@@ -271,8 +385,11 @@ def parse_message(content: str, labels: list, fallback_date: Optional[date]) -> 
             continue
         if ln.rstrip().endswith(("：", ":")):
             continue                     # 「施工範圍：」這類小節標題
+        # 「某某模板作業主管某某某外藉勞工15人」整段擠在一行：廠商在「作業主管」前面
         rest = _strip_meta(ln, labels)
-        if not rest:
+        if "作業主管" in rest:
+            rest = re.sub(r"^\d+[A-Za-z]+", "", rest.split("作業主管")[0].strip())   # 「6FL某某模板」
+        if not rest or NOT_VENDOR_LINE.fullmatch(rest):
             continue                     # 純日期／棟別／標題行
         vm = VENDOR_COUNT.match(rest)    # 「本公司移工 13人」自帶人數
         if vm:
@@ -293,6 +410,13 @@ def parse_message(content: str, labels: list, fallback_date: Optional[date]) -> 
                 trade = "、".join(works)[:128] or None
         vendor_line_idx = i
         break
+    # 找不到廠商、或找到的是區域工項（「1F出土破碎咬碎」），但有寫工班人數：
+    # 人數留著、廠商標成未標示。沒有人數的才算解析失敗
+    section_titles = []
+    if (not vendor or re.match(r"\d", vendor)) and star_pairs:
+        vendor = UNNAMED_VENDOR
+        vendor_line_idx = None
+        section_titles = [ln.rstrip("：: ") for ln in lines if ln.rstrip().endswith(("：", ":"))]
     if not vendor or len(vendor) > 20 or not report_date:
         # 廠商抓不到、或整段擠成一行（抓出來的「廠商」其實是整句話）——
         # 這種寧可略過留在原始表裡，也不要上牆一筆看似正常的錯資料
@@ -300,15 +424,19 @@ def parse_message(content: str, labels: list, fallback_date: Optional[date]) -> 
     vendor = vendor[:64]
 
     # 施作項目：編號行、「工作項目：」行，以及未被歸類的剩餘內容行
-    tasks = []
+    tasks = list(section_titles)
     for i, ln in enumerate(lines):
-        if i == vendor_line_idx:
+        if i == vendor_line_idx or i in vstar_lines:
             continue
         if ln.rstrip().endswith(("：", ":")):
             continue                     # 「施工機具：」這類小節標題
         tm = TASK_LINE.match(ln)
         if tm:
-            tasks.append(tm.group(1))
+            tasks.append(re.sub(r"\s*[*×xX＊]\s*\d+\s*$", "", tm.group(1)) if vendor_star
+                         else tm.group(1))
+            continue
+        if vendor_star and STAR_COUNT.search(ln):
+            tasks.append(re.sub(r"\s*[*×xX＊]\s*\d+\s*$", "", ln))   # 細項行，人數已算在總數
             continue
         if "工作項目" in ln:
             _, _, rest = ln.partition("：") if "：" in ln else ln.partition(":")
@@ -316,10 +444,12 @@ def parse_message(content: str, labels: list, fallback_date: Optional[date]) -> 
                 tasks.append(rest.strip())
             continue
         if ("出工回報" in ln or TOTAL_COUNT.search(ln) or GRAND_COUNT.search(ln)
-                or SUPERVISOR.search(ln)
+                or ALL_COUNT.search(ln) or SUPERVISOR.search(ln) or SUPERVISOR_TIGHT.search(ln)
+                or WORKER_COUNT.search(ln)
                 or STAR_COUNT.search(ln) or COLON_COUNT.match(ln)):
             continue
-        if not _strip_meta(ln, labels):
+        left = _strip_meta(ln, labels)
+        if not left or NOT_VENDOR_LINE.fullmatch(left):
             continue
         tasks.append(ln)
     task_text = "、".join(tasks)[:400] or None
@@ -335,6 +465,88 @@ def parse_message(content: str, labels: list, fallback_date: Optional[date]) -> 
             "trade": trade, "headcount": headcount, "supervisor": supervisor,
             "tasks": task_text,
             "trades": [{"trade": k, "headcount": v} for k, v in trades.items()]}
+
+
+def _parse_groups(content: str, labels: list, fallback_date: Optional[date]) -> list:
+    """整則都是「[棟別]名稱N人」的行（一家分棟、分工別列人數）→ 每組一筆；否則回空。
+    「點工2人」接在「某某移工12人」後面時補上同一個名稱開頭。"""
+    report_date = parse_report_date(content, fallback_date)
+    body = []
+    for ln in (x.strip() for x in content.splitlines()):
+        left = _strip_meta(ln, labels) if ln else ""
+        if not left or NOT_VENDOR_LINE.fullmatch(left):
+            continue
+        if "出工回報" in ln and not LINE_COUNT.search(ln):
+            continue                     # 標題行；「某某出工回報12人」是廠商行
+        body.append(ln.replace("出工回報", ""))
+    matches = [GROUP_LINE.match(ln) for ln in body]
+    if not report_date or not body or not all(matches):
+        return []
+    # 有統計列時整則的總數才是答案，交給 parse_message 取總數，不當成一組組相加
+    if any(GROUP_TOTAL.search(m.group(2)) or int(m.group(3)) > MAX_COUNT for m in matches):
+        return []
+    items: dict = {}
+    prev = ""
+    for m in matches:
+        name = m.group(2)
+        if name in ("點工", "移工") and prev[-2:] in ("點工", "移工"):
+            name = prev[:-2] + name
+        prev = name
+        building = parse_building(m.group(1), labels) if m.group(1) \
+            else parse_building(content, labels)
+        key = (building, name)
+        if key in items:
+            items[key]["headcount"] += int(m.group(3))
+            continue
+        items[key] = {"report_date": report_date, "building": building, "vendor": name,
+                      "trade": None, "headcount": int(m.group(3)), "supervisor": None,
+                      "tasks": None, "trades": []}
+    return list(items.values())
+
+
+def parse_report(content: str, labels: list, fallback_date: Optional[date]) -> list:
+    """一則出工回報 → 一到多筆。一則可能列好幾組（_parse_groups），也可能兩家廠商
+    貼在同一則、各自帶日期；只有整則解析不出東西才回空（呼叫端記成解析失敗）。"""
+    content = _fix_date_typo(content)
+    groups = _parse_groups(content, labels, fallback_date)
+    if groups:
+        return groups
+    items = _parse_blocks(content, labels, fallback_date)
+    if items:
+        return items
+    one = parse_message(content, labels, fallback_date)
+    return [one] if one else []
+
+
+def _parse_blocks(content: str, labels: list, fallback_date: Optional[date]) -> list:
+    """兩家貼同一則、各帶日期 → 各一筆。每一塊都要是完整回報（有廠商、有人數、日期不在
+    未來）才算，否則是同一則裡提到別的日期，整則當一筆。"""
+    lines = content.splitlines()
+    starts = [i for i, ln in enumerate(lines) if ROC_DATE.search(re.sub(r"\s+", "", ln))
+              and not NOT_REPORT_DATE.search(ln)]
+    if len(starts) < 2:
+        return []
+    # 第一個日期上面就有內容：廠商寫在日期上面，每塊要往上多帶一行，否則廠商和人數會錯開
+    if any(_strip_meta(ln, labels) for ln in lines[:starts[0]] if ln.strip()):
+        def above(i: int) -> int:
+            i -= 1
+            while i > 0 and not lines[i].strip():
+                i -= 1
+            return i
+        starts = [0] + [above(i) for i in starts[1:]]
+        if any(a >= b for a, b in zip(starts, starts[1:])):
+            return []
+    blocks = ["\n".join(lines[a:b]) for a, b in zip(starts, starts[1:] + [len(lines)])]
+    items = [parse_message(b, labels, fallback_date) for b in blocks]
+    latest = fallback_date + timedelta(days=1) if fallback_date else None
+    if not all(one and one["headcount"] is not None and (not latest or one["report_date"] <= latest)
+               for one in items):
+        return []
+    # 同一則裡其他家都是今天，只有一家是舊日期：沿用範本忘了改，跟著今天
+    if sum(one["report_date"] == fallback_date for one in items) >= 2:
+        for one in items:
+            one["report_date"] = fallback_date
+    return items
 
 
 def parse_daily_list(content: str, fallback_date: Optional[date]) -> dict:
@@ -398,9 +610,16 @@ def collect_reports(rows: Optional[list] = None, site_code: Optional[str] = None
     一天一則清單的「施工回報」）。每筆回報帶上 site_code（呼叫端指定）。
 
     回傳 (讀到的列數, {(日期, 棟別, 廠商): 回報}, 解析失敗的訊息清單)。
-    同一天同一棟同一廠商以最新一則為準（廠商常重發更正版）；被蓋過的訊息
-    記在勝出回報的 superseded_ids——雲端要靠它刪掉這些訊息改判前留在別的
-    鍵上的舊列，否則解析規則一改，同一批人會在兩個鍵各算一次。
+
+    同一天同一棟同一廠商有好幾則「出工回報」時（2026-10-30 檢討會：同廠商分 7F、
+    B1 各自回報，只取到一則）：
+      - 標題寫「更正／修正」→ 取代這家當天之前所有回報
+      - 施作內容相同（重發、或只改人數的更正）→ 以較新的一則為準
+      - 施作內容不同（不同樓層、不同工班）→ 人數相加、施作項目合併
+    合併或被取代的訊息都記在該筆的 superseded_ids——雲端要靠它刪掉這些訊息
+    改判前留在別的鍵上的舊列，否則解析規則一改，同一批人會在兩個鍵各算一次。
+    同一班人上午在 B1、下午到 7F 又回報一次的情形，從訊息上分辨不出來，會被相加；
+    要靠工地的回報原則（換區不重報）避免。
 
     施工回報是「整天的清單」：同一天發了第二則就是更正版（實例：「施工回報修正」），
     以最新一則為準取代整天。舊版有、新版沒有或改成 0 工的廠商，產生一筆 0 人的回報
@@ -424,17 +643,20 @@ def collect_reports(rows: Optional[list] = None, site_code: Optional[str] = None
     daily = {}              # 施工回報：日期 → [(接收時間, 列序, 訊息ID, 該則的廠商名單)]
     pending = []            # (item, 列序)：施工回報的回報，等整天替換算完再進 parsed
 
+    per_vendor = {}         # 出工回報：鍵 → [(接收時間, 列序, 解析結果, 是否標明更正)]
+
     def take(item):
         key = (item["report_date"], item["building"] or "", item["vendor"])
+        own = list(item.pop("absorbed_ids", []))     # 已併入這筆的其他訊息
         old = parsed.get(key)
         if old is None:
-            item["superseded_ids"] = []
+            item["superseded_ids"] = own
             parsed[key] = item
         elif (item["reported_at"] or datetime.min) >= (old["reported_at"] or datetime.min):
-            item["superseded_ids"] = old["superseded_ids"] + [old["message_id"]]
+            item["superseded_ids"] = old["superseded_ids"] + [old["message_id"]] + own
             parsed[key] = item
         else:
-            old["superseded_ids"].append(item["message_id"])
+            old["superseded_ids"] += [item["message_id"]] + own
 
     for idx, row in enumerate(rows):
         content = (row.get("訊息內容") or "").strip()
@@ -459,12 +681,16 @@ def collect_reports(rows: Optional[list] = None, site_code: Optional[str] = None
         meta = {"reporter": reporter, "reported_at": reported_at,
                 "message_id": message_id, "raw": content[:2000], "site_code": site_code}
         if kind == "per_vendor":
-            one = parse_message(content, labels, fallback)
-            if not one:
+            ones = parse_report(content, labels, fallback)
+            if not ones:
                 rejects.append(reject)
                 continue
-            one.update(meta)
-            take(one)
+            corrected = bool(CORRECTION.search("\n".join(content.splitlines()[:2])))
+            for one in ones:
+                one.update(meta)
+                key = (one["report_date"], one["building"] or "", one["vendor"])
+                per_vendor.setdefault(key, []).append(
+                    (reported_at or datetime.min, idx, one, corrected))
             continue
 
         res = parse_daily_list(content, fallback)
@@ -496,6 +722,8 @@ def collect_reports(rows: Optional[list] = None, site_code: Optional[str] = None
         for vendor in sorted(dropped):
             pending.append(dict(latest_meta, report_date=day, building=None, vendor=vendor,
                                 trade=None, headcount=0, supervisor=None, tasks=None, trades=[]))
+    for msgs in per_vendor.values():
+        take(_merge_vendor_reports(msgs))
     for item in pending:
         take(item)
 
@@ -505,12 +733,96 @@ def collect_reports(rows: Optional[list] = None, site_code: Optional[str] = None
     return len(rows), parsed, rejects
 
 
+CORRECTION = re.compile(r"更正|修正")
+_TASK_PREFIX = re.compile(r"^\s*(工作內容|作業項目|施作項目|工作項目)\s*[：:]\s*")
+_TASK_NOISE = re.compile(r"[\s、，,。．.；;()（）]")
+
+
+def _task_key(text: Optional[str]) -> str:
+    """施作內容的比對鍵：去掉「工作內容：」這類前綴、空白與標點、全形 F 轉半形。
+    兩則的比對鍵相同，視為同一工班（重發或改人數的更正）。"""
+    t = _TASK_PREFIX.sub("", (text or "").strip())
+    return _TASK_NOISE.sub("", t).replace("Ｆ", "F").upper()
+
+
+def _same_task(a: str, b: str) -> bool:
+    """同一工班：內容相同，或其中一則只是另一則改寫、增減幾項（「5F鋪版」與
+    「5F鋪版、B1F吊料」）。太短的不算，「7F」會包含在一堆不相干的內容裡。"""
+    return a == b or (min(len(a), len(b)) >= 4 and (a in b or b in a))
+
+
+def _trade_names(item: dict) -> set:
+    return {t["trade"] for t in item.get("trades") or [] if t.get("trade")}
+
+
+def _same_crew(a: dict, b: dict) -> bool:
+    """同一工班的另一則回報。沒寫施作內容的不能靠內容分：工種不同才是別班
+    （工務*1 與鋼筋工*9 都歸「未標示廠商」），否則是同一班補寫內容或改人數。"""
+    ka, kb = _task_key(a.get("tasks")), _task_key(b.get("tasks"))
+    if ka and kb:
+        return _same_task(ka, kb)
+    ta, tb = _trade_names(a), _trade_names(b)
+    if a["vendor"] == UNNAMED_VENDOR and not (ta or tb):
+        return a.get("raw") == b.get("raw")   # 廠商與工種都不知道：內容一樣才敢當重發
+    return not (ta and tb) or bool(ta & tb)
+
+
+def _merge_vendor_reports(msgs: list) -> dict:
+    """同一天同一棟同一廠商的多則出工回報 → 一筆（規則見 collect_reports 說明）。"""
+    msgs = sorted(msgs, key=lambda m: (m[0], m[1]))
+    parts, absorbed = [], []
+    for _, _, item, corrected in msgs:
+        if corrected:
+            absorbed += [p["message_id"] for p in parts]
+            parts = [item]
+            continue
+        hits = [p for p in parts if _same_crew(p, item)]
+        if not hits:
+            parts.append(item)
+            continue
+        k = _task_key(item.get("tasks"))
+        # 彙整之後又發其中一項（內容是舊則的一部分、人數沒有更多）：彙整那則才是全部
+        if k and all(_task_key(p.get("tasks")) != k and k in _task_key(p.get("tasks"))
+                     and (item["headcount"] or 0) <= (p["headcount"] or 0) for p in hits):
+            absorbed.append(item["message_id"])
+            continue
+        # 同一班重發、改寫，或彙整好幾則：取代命中的全部，留在原位置
+        if not k:                        # 這則沒寫內容：前面寫過的不能跟著消失
+            item = dict(item, tasks="；".join(dict.fromkeys(
+                p["tasks"] for p in hits if p.get("tasks"))) or None)
+        at = parts.index(hits[0])
+        absorbed += [p["message_id"] for p in hits]
+        parts = [p for p in parts if p not in hits]
+        parts.insert(at, item)
+    latest = max(parts, key=lambda p: p["reported_at"] or datetime.min)
+    out = dict(latest)
+    if len(parts) > 1:
+        counts = [p["headcount"] for p in parts if p["headcount"] is not None]
+        out["headcount"] = sum(counts) if counts else None
+        out["tasks"] = "；".join(dict.fromkeys(
+            _TASK_PREFIX.sub("", p["tasks"]) for p in parts if p.get("tasks")))[:400] or None
+        out["supervisor"] = next(
+            (p["supervisor"] for p in reversed(parts) if p.get("supervisor")), None)
+        trades: dict = {}
+        for p in parts:
+            for t in p.get("trades") or []:
+                trades[t["trade"]] = trades.get(t["trade"], 0) + (t["headcount"] or 0)
+        out["trades"] = [{"trade": k, "headcount": v} for k, v in trades.items()]
+        # 同工種分兩則：摘要寫合計（鋼筋工8），不是「鋼筋工5、鋼筋工3」
+        out["trade"] = "、".join(dict.fromkeys(
+            [f"{k}{v}" for k, v in trades.items() if v]
+            + [p["trade"] for p in parts if p.get("trade") and not p.get("trades")]))[:128] or None
+        out["raw"] = "\n——\n".join(p["raw"] for p in parts if p.get("raw"))[:2000]
+    out["absorbed_ids"] = absorbed + [p["message_id"] for p in parts if p is not latest]
+    return out
+
+
 def poll_once() -> str:
     row_count, parsed, rejects = collect_reports()
     skipped = sum(1 for x in rejects if not x.get("notice"))
 
     db = SessionLocal()
-    created = updated = 0
+    created = updated = removed = 0
     try:
         for (rd, bld, vendor), item in parsed.items():
             obj = (db.query(WorkLog)
@@ -527,12 +839,24 @@ def poll_once() -> str:
                           "reporter", "reported_at", "message_id", "raw"):
                 setattr(obj, field, item[field])
             obj.fetched_at = datetime.now()
+        # 解析規則改版後，同一則訊息換了鍵：舊鍵那列要刪，否則同一批人算兩次。
+        # 只刪「訊息還在、但這個鍵已不屬於它」的列；來源消失的列不動（試算表曾進垃圾桶）
+        keys = {(rd, bld or None, vendor) for rd, bld, vendor in parsed}
+        ids = {m for item in parsed.values()
+               for m in [item["message_id"], *(item.get("superseded_ids") or [])] if m}
+        db.flush()
+        rows = db.query(WorkLog.id, WorkLog.message_id, WorkLog.report_date,
+                        WorkLog.building, WorkLog.vendor).all()   # 不載入原文：每 15 分鐘掃一次全表
+        for oid, mid, rd, bld, vendor in rows:
+            if mid in ids and (rd, bld or None, vendor) not in keys:
+                db.query(WorkLog).filter(WorkLog.id == oid).delete()
+                removed += 1
         db.commit()
     finally:
         db.close()
 
     msg = (f"讀到 {row_count} 列、出工回報 {len(parsed)} 組"
-           f"（新增 {created}、更新 {updated}）")
+           f"（新增 {created}、更新 {updated}、改判移除 {removed}）")
     if skipped:
         msg += f"，{skipped} 則解析不出廠商或日期已略過"
     return msg

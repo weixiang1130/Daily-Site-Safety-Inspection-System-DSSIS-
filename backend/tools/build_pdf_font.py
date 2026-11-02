@@ -70,13 +70,16 @@ DROP_TABLES = ["CFF ", "VORG", "DSIG"]
 
 PUNCT = "　、。，；：？！（）「」『』【】《》〈〉—…～·※°µμ³²±§％＃＠"
 
+# 現場回報會用到、但不在 Big5 常用字區的字（「卍字柱」是工地的構件叫法）
+EXTRA_CHARS = "卍"
+
 # 系統文字的來源：檢查表題庫、後端會印出的標籤、前端頁面上的字
 TEXT_SOURCES = ["backend/data/forms.json", "backend/cloud/lib/*.ts", "frontend/*.html"]
 
 
 def repertoire() -> set[str]:
     """決定要收錄哪些字。"""
-    chars = {chr(c) for c in range(0x20, 0x7F)} | set(PUNCT)
+    chars = {chr(c) for c in range(0x20, 0x7F)} | set(PUNCT) | set(EXTRA_CHARS)
 
     n_before = len(chars)
     for pattern in TEXT_SOURCES:

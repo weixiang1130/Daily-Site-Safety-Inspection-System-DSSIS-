@@ -18,7 +18,8 @@
   <div class="page-head">
     <div class="eyebrow">Findings Register</div>
     <h1>缺失清單</h1>
-    <p class="lede">限期改善逾期者以紅色標示。職安人員與主管可直接複驗結案。</p>
+    <p class="lede">改善中 → 回報改善（附改善後照片）→ 待複驗 → 職安人員覆驗通過才結案；
+      不通過退回改善中並留下原因。限期改善逾期者以紅色標示。</p>
   </div>
 
   <div class="card">
@@ -49,6 +50,32 @@
   </div>
 </div>
 
+<!-- 改善回報：照片上傳不等於改善通過，送出後是「待複驗」 -->
+<dialog class="fx-dialog" id="fixDlg" data-nodraft>
+  <h2>回報改善</h2>
+  <p class="muted" id="fixWhat"></p>
+  <label>改善後照片</label>
+  <div class="photo-box" id="fixPhotos"></div>
+  <label>改善說明</label>
+  <input type="text" id="fixNote" placeholder="例：已補設護欄並以束帶固定">
+  <div class="row" style="margin-top:16px">
+    <button class="ghost" type="button" id="fixCancel">取消</button>
+    <button type="button" id="fixSend">送出，等待覆驗</button>
+  </div>
+</dialog>
+
+<!-- 覆驗不通過：原因必填，會連同前次改善照片記在這筆缺失上 -->
+<dialog class="fx-dialog" id="rejDlg" data-nodraft>
+  <h2>覆驗不通過</h2>
+  <p class="muted" id="rejWhat"></p>
+  <label>原因</label>
+  <input type="text" id="rejReason" maxlength="200" placeholder="例：護欄高度不足 90 公分、中欄杆未設">
+  <div class="row" style="margin-top:16px">
+    <button class="ghost" type="button" id="rejCancel">取消</button>
+    <button class="danger" type="button" id="rejSend">退回改善中</button>
+  </div>
+</dialog>
+
 <script src="/static/common.js"></script>
 <script>
 let me = null;
@@ -77,42 +104,113 @@ async function load() {
 
   const rows = await API.get('/api/findings?' + q.toString());
   const canVerify = ['safety', 'manager', 'admin'].includes(me.role);
+  ROWS = new Map(rows.map(f => [f.id, f]));
+  const actions = f => {
+    const b = [];
+    if (f.status === 'open') b.push(`<button class="ghost" onclick="openFix(${f.id})">回報改善</button>`);
+    if (f.status === 'fixed' && canVerify) {
+      b.push(`<button class="ghost" onclick="verify(${f.id})">覆驗通過</button>`);
+      b.push(`<button class="ghost" onclick="openReject(${f.id})">不通過</button>`);
+    }
+    return b.length ? `<div class="act-btns">${b.join('')}</div>` : '';
+  };
 
   // 單一工地之後，棟別才是有資訊量的欄位；舊資料沒有棟別時退回工地名，
   // 完整工地名放進 title 供懸停查看。
 
   document.getElementById('list').innerHTML = rows.length ? `
-    <div class="table-scroll"><table><thead><tr>
+    <div class="table-scroll"><table class="grid-fixed">
+    <colgroup><col style="width:82px"><col style="width:92px"><col style="width:72px"><col style="width:76px">
+      <col><col style="width:112px"><col style="width:122px"><col style="width:96px"><col style="width:86px">
+      <col style="width:56px"><col style="width:106px"></colgroup>
+    <thead><tr>
       <th>單號</th><th>發現時間</th><th>棟別／工地</th><th>災害類別</th><th>缺失內容</th>
-      <th>責任廠商／人</th><th>改善方式</th><th>期限</th><th>狀態</th><th>照片</th><th></th>
+      <th>責任廠商／人</th><th>處置</th><th>期限</th><th>狀態</th><th>照片</th><th></th>
     </tr></thead><tbody>
     ${rows.map(f => `<tr>
       <td>${esc(f.no)}</td>
       <td>${esc(f.found_at.replace('T', ' '))}</td>
       <td title="${esc(f.site)}">${esc(f.building || f.site)}</td>
       <td>${esc(f.hazard_label || '')}</td>
-      <td>${esc(f.description)}</td>
+      <td>${esc(f.description)}
+        ${f.fix_note && f.status !== 'open' ? `<div class="muted">改善：${esc(f.fix_note)}</div>` : ''}
+        ${f.review_note ? `<div class="review-note">${esc(f.review_note)}</div>` : ''}</td>
       <td>${esc(f.vendor || '')}${f.responsible_person ? '／' + esc(f.responsible_person) : ''}</td>
-      <td>${f.action_type === 'onsite' ? '當場改善' : '限期改善'}</td>
+      <td>${esc(dispositionText(f))}</td>
       <td>${esc(f.due_date || '')}</td>
       <td>${f.overdue ? '<span class="tag overdue">逾期</span>' :
             statusTag(f.status)}</td>
-      <td>${f.photo_before ? `<a href="${esc(f.photo_before)}" target="_blank">前</a> ` : ''}
-          ${f.photo_after ? `<a href="${esc(f.photo_after)}" target="_blank">後</a>` : ''}</td>
-      <td>${f.status !== 'closed' && canVerify
-            ? `<button class="ghost" onclick="verify(${f.id})">複驗結案</button>` : ''}</td>
+      <td>${photoLink(f, 'before', '前')} ${photoLink(f, 'after', '後')}</td>
+      <td>${actions(f)}</td>
     </tr>`).join('')}</tbody></table></div>
     <p class="muted" style="margin-top:10px">共 ${rows.length} 筆</p>`
     : '<p class="muted">查無資料。</p>';
 }
 
+let ROWS = new Map(), fixId = null, fixPhotos = [], fixBox = null, rejId = null;
+
+/** 照片欄：「前 2」點開放大，多張可切換。 */
+function photoLink(f, which, label) {
+  const n = photoList(f['photo_' + which]).length;
+  return n ? `<a href="#" onclick="photoView(ROWS.get(${f.id}).photo_${which}); return false">${label}${n > 1 ? ' ' + n : ''}</a>` : '';
+}
+
+const what = f => `${f.no}　${f.description}`;
+
 async function verify(id) {
+  const f = ROWS.get(id);
+  if (!f.photo_after && !confirm(`${f.no} 沒有改善後照片，確定覆驗通過、結案？`)) return;
   try {
     await API.post(`/api/findings/${id}/verify`, {});
-    toast('已複驗結案');
+    toast('覆驗通過，已結案');
     load();
   } catch (e) { toast('操作失敗：' + e.message); }
 }
+
+function openFix(id) {
+  fixId = id; fixPhotos = [];
+  document.getElementById('fixWhat').textContent = what(ROWS.get(id));
+  if (fixBox) fixBox.abort();           // 上一筆還在傳的照片不能算到這一筆
+  fixBox = photoBox('fixPhotos', [], list => { fixPhotos = list; });
+  document.getElementById('fixNote').value = '';
+  document.getElementById('fixDlg').showModal();
+}
+
+document.getElementById('fixDlg').addEventListener('cancel', () => fixBox.abort());   // Esc
+document.getElementById('fixCancel').onclick = () => {
+  fixBox.abort();
+  document.getElementById('fixDlg').close();
+};
+document.getElementById('fixSend').onclick = async () => {
+  const note = document.getElementById('fixNote').value.trim();
+  if (PHOTO_UPLOADING) { toast('照片還在上傳，請稍候'); return; }
+  if (!fixPhotos.length && !note) { toast('請附改善後照片或改善說明'); return; }
+  try {
+    await API.post(`/api/findings/${fixId}/fix`, { fix_note: note || null, photo_after: photoJoin(fixPhotos) });
+    document.getElementById('fixDlg').close();
+    toast('已回報改善，等待職安人員覆驗');
+    load();
+  } catch (e) { toast('送出失敗：' + e.message); }
+};
+
+function openReject(id) {
+  rejId = id;
+  document.getElementById('rejWhat').textContent = what(ROWS.get(id));
+  document.getElementById('rejReason').value = '';
+  document.getElementById('rejDlg').showModal();
+}
+
+document.getElementById('rejCancel').onclick = () => document.getElementById('rejDlg').close();
+document.getElementById('rejSend').onclick = async () => {
+  const reason = document.getElementById('rejReason').value.trim();
+  if (!reason) { toast('請填寫不通過的原因'); return; }
+  try {
+    await API.post(`/api/findings/${rejId}/reject`, { reason });
+    document.getElementById('rejDlg').close();
+    toast('已退回改善中');
+    load();
+  } catch (e) { toast('送出失敗：' + e.message); }
+};
 </script>
 </body>
 </html>

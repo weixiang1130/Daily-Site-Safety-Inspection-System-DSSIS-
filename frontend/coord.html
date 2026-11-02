@@ -14,7 +14,7 @@
   <a href="/static/home.html"><button class="ghost">首頁</button></a>
 </div>
 
-<div class="wrap" id="main">
+<div class="wrap wide" id="main">
   <div class="page-head">
     <div class="eyebrow">Daily Coordination &amp; Patrol</div>
     <h1>每日協議、巡視及處理紀錄表</h1>
@@ -42,9 +42,15 @@
   <div class="card">
     <span class="chapter">02</span>
     <h2>參加協議人員</h2>
-    <p class="muted">未來可由門禁系統當日進場名單自動帶入，現階段先手動新增。</p>
+    <!-- 今天 LINE 群組已經回報過出工的廠商直接帶進來，現場只補沒回報的、改不對的 -->
+    <p class="muted" id="dayInfo">讀取 LINE 出工回報中…</p>
+    <p class="att-sum" id="attSum"></p>
+    <div class="att-cols"><span></span><span>供應商</span><span>作業項目</span><span>職種</span><span>人員姓名</span><span>作業內容</span></div>
     <div id="attendees"></div>
-    <button class="ghost" id="addAtt" style="margin-top:10px">＋ 新增一列</button>
+    <div class="row" style="margin-top:10px">
+      <button class="ghost" id="addAtt">＋ 新增一列</button>
+      <button class="ghost" id="fillDay" disabled>帶入 LINE 出工回報</button>
+    </div>
   </div>
 
   <div class="card">
@@ -70,37 +76,21 @@
 
   <div class="card">
     <span class="chapter">06</span>
-    <h2>簽核</h2>
-    <label>簽核角色</label>
-    <select id="sigRole">
-      <option>工程專案主管</option><option>職安人員</option><option>施工組</option>
-      <option>供應商</option>
-    </select>
-    <label>簽名</label>
-    <canvas class="sig-pad" id="pad"></canvas>
-    <div class="row" style="margin-top:8px">
-      <button class="ghost" id="clearSig">清除重簽</button>
-      <button id="submit">確認送出並產生 PDF</button>
+    <h2>進入簽核</h2>
+    <p class="muted">儲存後內容就鎖定，不能再改。接著由工程專案主管、職安人員、施工組，
+      以及上面每一家供應商的負責人各自簽名，可以分次簽完。全部簽完才產生 PDF。</p>
+    <div class="draft-state" id="draftState"></div>
+    <div id="editBox" class="hidden">
+      <label>修改原因<span class="req">＊</span></label>
+      <input type="text" id="editReason" maxlength="200" placeholder="例：協議事項寫錯、漏列廠商">
     </div>
-  </div>
-</div>
-
-<div class="wrap hidden" id="done">
-  <div class="card">
-    <h2>已送出</h2>
-    <p id="doneMsg"></p>
-    <div class="row">
-      <a id="pdfLink" target="_blank">
-        <button style="width:100%">開啟 PDF</button></a>
-      <a href="/static/home.html">
-        <button class="ghost" style="width:100%">回首頁</button></a>
-    </div>
+    <button id="submit" style="width:100%;margin-top:8px">儲存並進入簽核</button>
   </div>
 </div>
 
 <script src="/static/common.js"></script>
 <script>
-let me = null, vendors = [], pad = null, attSeq = 0, findSeq = 0;
+let me = null, vendors = [], attSeq = 0, findSeq = 0;
 const hazardOptions = HAZARDS.map(h => `<option value="${h[0]}">${h[1]}</option>`).join('');
 
 (async () => {
@@ -113,7 +103,7 @@ const hazardOptions = HAZARDS.map(h => `<option value="${h[0]}">${h[1]}</option>
   me = r.user;
   const [sites, vs] = await Promise.all([API.get('/api/sites'), API.get('/api/vendors')]);
   vendors = vs;
-  installVendorDatalist(vendors);
+  VENDOR_CACHE = vendors.slice();
   document.getElementById('site').innerHTML =
     siteOptions(fillableSites(sites, brand), me.site_id);
   const bList = buildingList(brand);
@@ -124,24 +114,318 @@ const hazardOptions = HAZARDS.map(h => `<option value="${h[0]}">${h[1]}</option>
   document.getElementById('recorder').value = recallName('recorder');
   document.getElementById('mdate').value = today();
   document.getElementById('wdate').value = today();
-  addAttendee(); addAttendee();
-  pad = initSignaturePad(document.getElementById('pad'));
+  await Promise.all([loadVendorHints(document.getElementById('site').value), loadDayLog(),
+                     loadFormOptions(document.getElementById('site').value)]);
+  document.getElementById('site').addEventListener('change', async e => {
+    await Promise.all([loadVendorHints(e.target.value), loadDayLog(), loadFormOptions(e.target.value)]);
+    refillDay();
+  });
+  // 換棟別：還沒被動過的自動帶入列換成新棟別的名單
+  document.getElementById('building').addEventListener('change', refillDay);
+  // 補填改作業日期時開會日期跟著走（兩者通常同一天）；手動改過開會日期的不動
+  let prevWdate = document.getElementById('wdate').value;
+  document.getElementById('wdate').addEventListener('change', async e => {
+    const m = document.getElementById('mdate');
+    if (m.value === prevWdate) m.value = e.target.value;
+    prevWdate = e.target.value;
+    await loadDayLog();
+    refillDay();
+  });
+
+  if (EDIT) { await loadForEdit(); return; }
+
+  // 回到這個分頁時看看有沒有新回報，只更新提示、不動使用者正在填的列。不用定時輪詢：
+  // 這支查詢會碰資料庫，頁面開著定時打會讓資料庫一直醒著（按醒著的時數計費）
+  document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState !== 'visible' || Date.now() - dayLoadedAt < 60000) return;
+    await loadDayLog();
+    showDayInfo();
+  });
+
+  // 有未送出的暫存時不自動帶入：等使用者選「接著填」或「捨棄」，免得兩份名單疊在一起
+  const hasDraft = !!Draft.load('coord');
+  if (hasDraft || !fillDay(true)) { addAttendee(); addAttendee(); }
+  if (hasDraft) showDayInfo();
+
+  // 暫存：列數與已上傳照片要一起存，接著填時先把列長回來才能寫回欄位
+  saveDraft = Draft.watch('coord', () => ({ attSeq, findSeq, photos, attLive: liveAttendees() }),
+                          document.getElementById('draftState'));
+  Draft.offer('coord', document.querySelector('#main .card'), resumeDraft, () => fillDay(true));
 })();
+
+/* ---------------------------------------------------------------------------
+   作業日期當天的 LINE 出工回報 → 參加協議人員
+   對應：作業項目＝工種、職種＝工種原文（含各工種人數）、人員姓名＝作業主管、
+   作業內容＝施作項目。事後補填過去的單也帶（實際上多數的單都是隔天才填）。
+   --------------------------------------------------------------------------- */
+let DAY = { rows: [] }, dayLoadedAt = 0;
+
+async function loadDayLog() {
+  dayLoadedAt = Date.now();
+  const q = new URLSearchParams({ site_id: document.getElementById('site').value,
+                                  date: document.getElementById('wdate').value });
+  let d;
+  try { d = await API.get('/api/worklog/day?' + q); }
+  catch (e) { d = { rows: [] }; }         // 地端或舊版後端沒有這個端點：只是不帶入
+  if (q.get('date') !== document.getElementById('wdate').value) return;   // 等待中又換了日期
+  DAY = d;
+  // 回報的廠商與主管可能還不在名單（新進場），帶入的值送出時要放行
+  (DAY.rows || []).forEach(r => {
+    if (r.vendor) COMBO_EXTRA.vendor.add(String(r.vendor).trim().toLowerCase());
+    if (r.supervisor) COMBO_EXTRA.person.add(String(r.supervisor).trim().toLowerCase());
+  });
+}
+
+/** 作業日期、目前棟別的回報。回報沒寫棟別的（一則列多棟的施工回報）兩棟都列。 */
+function dayRows() {
+  const b = document.getElementById('building').value;
+  if (DAY.date !== document.getElementById('wdate').value) return [];
+  return (DAY.rows || []).filter(r => (r.vendor || r.work || r.trade) && (!b || !r.building || r.building === b));
+}
+
+const rowKey = (vendor, tasks) => `${_vkey(vendor)}|${String(tasks || '').trim()}`;
+
+/** 當天回報裡還沒列在上面的。 */
+function pendingRows() {
+  const have = new Set();
+  for (let i = 1; i <= attSeq; i++) {
+    const v = document.getElementById('av-' + i);
+    if (!v) continue;
+    const content = document.getElementById('ac-' + i).value;
+    // 只寫工項的列沒有供應商，也算已列出，否則每按一次就多一列
+    if (v.value.trim() || content.trim() || document.getElementById('aw-' + i).value.trim()) {
+      have.add(rowKey(v.value, content));
+    }
+  }
+  return dayRows().filter(r => {
+    const key = rowKey(listVendor(r.vendor).vendor, r.tasks);
+    if (have.has(key)) return false;
+    have.add(key);
+    return true;
+  });
+}
+
+function showDayInfo(n, note = '') {
+  const rows = dayRows();
+  const wd = document.getElementById('wdate').value;
+  const label = wd === today() ? '今日' : wd;
+  const more = pendingRows().length;
+  // 沒有回報時也要能按：頁面開著等回報進來，按下去會重抓
+  document.getElementById('fillDay').disabled = wd > today();
+  const at = DAY.updated_at ? `（${String(DAY.updated_at).slice(11, 16)} 更新）` : '';
+  const late = (DAY.late || []).map(x => `${x.vendor}（寫 ${x.report_date}）`).join('、');
+  const lateNote = late && wd === today() ? ` 另有今天收到、日期卻是之前的回報：${late}，如果其實是今天的請手動加入。` : '';
+  document.getElementById('dayInfo').textContent =
+    (wd > today() ? '作業日期還沒到，沒有 LINE 出工回報可帶入。'
+    : !rows.length ? `${label}這一棟沒有 LINE 出工回報可帶入，請手動新增；選了供應商仍會帶出職種與作業主管。`
+    : n != null ? `已帶入${label} LINE 出工回報 ${n} 筆${at}。請刪改不在場的、補上沒回報的。${note}`
+    : more ? `${label} LINE 出工回報還有 ${more} 筆沒帶入${at}，按「帶入 LINE 出工回報」加進來。`
+    : `${label} LINE 出工回報 ${rows.length} 筆都已列在上面${at}。`)
+    + lateNote;
+}
+
+/** 把當天回報加成參加人員列。已列出的供應商不重複加；先填空白列再新增。
+    回傳加了幾家。auto=true 是開頁自動帶入（加的列會標記，換棟別時可換掉）。 */
+function fillDay(auto = false) {
+  let added = 0, guessed = 0, blank = 0, noVendor = 0;
+  for (const r of pendingRows()) {
+    const who = listVendor(r.vendor);
+    let i = 0;
+    for (let k = 1; k <= attSeq; k++) {
+      const ids = ['aw', 'av', 'at', 'ap', 'ac'].map(p => document.getElementById(`${p}-${k}`));
+      if (ids[0] && ids.every(el => !el.value.trim())) { i = k; break; }
+    }
+    if (!i) { addAttendee(); i = attSeq; }
+    const trade = String(r.trade || '');
+    const said = optionCanon('person', r.supervisor || '');
+    const usual = said ? '' : vendorPerson(who.vendor);
+    const vals = {
+      aw: r.work || who.work || tradeNames(trade),
+      av: who.vendor,
+      at: trade || (r.headcount ? `${r.headcount} 人` : ''),
+      ap: said || usual,
+      ac: r.tasks || '',
+    };
+    Object.entries(vals).forEach(([p, v]) => { document.getElementById(`${p}-${i}`).value = v; });
+    document.getElementById('ap-' + i).title = usual ? '當天回報沒寫主管，依過去紀錄預帶，請確認' : '';
+    const row = document.getElementById('att-' + i);
+    row.dataset.auto = auto ? JSON.stringify(vals) : '';
+    added++;
+    if (usual) guessed++; else if (!said) blank++;
+    if (!who.vendor) noVendor++;
+  }
+  const note = [noVendor && `${noVendor} 列回報只寫工項，請選供應商`,
+                guessed && `${guessed} 列的人員依過去紀錄預帶，請確認`,
+                blank && `${blank} 列沒有人員姓名，請補上（新增一次，下次會自動帶出）`].filter(Boolean).join('；');
+  showDayInfo(added || null, note);
+  groupAttendees();
+  if (added && !auto) { toast(`已帶入 ${added} 筆`); saveDraft(); }
+  return added;
+}
+
+/** 換棟別／作業日期／工地：拿掉還沒被改過的自動帶入列，依新條件重帶。
+    修改舊單不自動動列（名單是簽核過的內容），要帶入由使用者按鈕。 */
+function refillDay() {
+  if (EDIT) { showDayInfo(); return; }
+  for (let i = 1; i <= attSeq; i++) {
+    const row = document.getElementById('att-' + i);
+    if (!row || !row.dataset.auto) continue;
+    const orig = JSON.parse(row.dataset.auto);
+    const same = Object.keys(orig).every(p => document.getElementById(`${p}-${i}`).value === orig[p]);
+    if (same) row.remove();
+  }
+  if (!fillDay(true) && !document.querySelector('#attendees .att-row')) addAttendee();
+  groupAttendees();
+  saveDraft();
+}
+document.getElementById('fillDay').onclick = async e => {
+  e.target.disabled = true;               // 重抓：頁面開著時又有新回報進來
+  await loadDayLog();
+  if (!fillDay(false)) {
+    showDayInfo();
+    toast(dayRows().length ? '當天回報的供應商都已列在上面' : '這一棟目前還沒有回報');
+  }
+};
+
+let saveDraft = () => {}, editRevision = null;
+
+const liveAttendees = () => [...document.querySelectorAll('#attendees > .att-row')].map(r => parseInt(r.id.slice(4), 10));
+
+const EDIT = parseInt(new URLSearchParams(location.search).get('edit'), 10) || 0;
+const findIds = {};                // 修改時：第幾列缺失對應哪一筆既有缺失（保留單號與改善進度）
+
+/** 修改已填的單：把伺服器的內容組成暫存的形狀，共用同一條還原流程。 */
+async function loadForEdit() {
+  const d = await API.get('/api/edit/coordination/' + EDIT);
+  editRevision = d.revision;
+  const fields = { site: d.site_id, building: d.building || '', mdate: d.meeting_date, wdate: d.work_date,
+                   weather: d.weather || '晴', recorder: d.recorder_name || '',
+                   agreement: d.agreement_text || '', handling: d.handling_text || '' };
+  d.attendees.forEach((a, n) => {
+    const i = n + 1;
+    Object.assign(fields, { [`aw-${i}`]: a.work_item || '', [`av-${i}`]: a.vendor_name || '',
+      [`at-${i}`]: a.trade || '', [`ap-${i}`]: a.person_name || '', [`ac-${i}`]: a.work_content || '' });
+    // 舊單原值：就算後來從清單刪掉，也不能讓這張單改不動
+    if (a.vendor_name) COMBO_EXTRA.vendor.add(a.vendor_name.trim().toLowerCase());
+    if (a.person_name) COMBO_EXTRA.person.add(a.person_name.trim().toLowerCase());
+  });
+  const ph = {};
+  d.findings.forEach((x, n) => {
+    const i = n + 1;
+    findIds[i] = x.id;
+    ph[i] = { before: x.photo_before, after: x.photo_after };
+    Object.assign(fields, { [`fd-${i}`]: x.description, [`fh-${i}`]: x.hazard_code, [`fs-${i}`]: x.severity,
+      [`fl-${i}`]: x.location || '', [`fv-${i}`]: x.vendor || '', [`fp-${i}`]: x.responsible_person || '',
+      [`ff-${i}`]: x.fix_note || '', [`due-f${i}`]: x.due_date || '', [`pen-f${i}`]: x.penalty || '' });
+    DISPOSITION_OPTS.forEach(([v]) => { fields[`dp-${v}-f${i}`] = x.dispositions.includes(v); });
+    if (x.vendor) COMBO_EXTRA.vendor.add(x.vendor.trim().toLowerCase());
+    if (x.responsible_person) COMBO_EXTRA.person.add(x.responsible_person.trim().toLowerCase());
+  });
+  resumeDraft({ fields, extra: { attSeq: d.attendees.length, findSeq: d.findings.length, photos: ph } });
+  document.querySelector('.page-head h1').textContent = `修改：${document.querySelector('.page-head h1').textContent}`;
+  document.getElementById('editBox').classList.remove('hidden');
+  document.getElementById('submit').textContent = '儲存修改並重新簽核';
+}
+
+function resumeDraft(d) {
+  const x = d.extra || {};
+  while (attSeq < (x.attSeq || 0)) addAttendee();
+  // 刪掉的列不要長回來（舊暫存沒有 attLive：全部保留）
+  if (x.attLive) {
+    for (let i = 1; i <= attSeq; i++) {
+      const row = document.getElementById('att-' + i);
+      if (row && !x.attLive.includes(i)) row.remove();     // 按接著填之前可能已經手動刪掉
+    }
+  }
+  while (findSeq < (x.findSeq || 0)) addFinding();
+  Object.assign(photos, x.photos || {});
+  Draft.apply(d.fields);
+  for (let i = 1; i <= findSeq; i++) {
+    syncDisposition('f' + i);
+    showPhotos(i);
+  }
+  loadVendorHints(document.getElementById('site').value);
+  loadFormOptions(document.getElementById('site').value);
+  loadDayLog().then(() => showDayInfo());   // 還原的作業日期可能不是今天
+  groupAttendees();
+  saveDraft();
+  toast('已載入暫存，請確認後繼續（簽名需重簽）');
+}
 
 function addAttendee() {
   const i = ++attSeq;
   const div = document.createElement('div');
-  div.className = 'row';
-  div.style.marginBottom = '8px';
+  div.className = 'att-row';
+  div.id = 'att-' + i;
   div.innerHTML = `
-    <input type="text" id="aw-${i}" placeholder="作業項目">
-    <input type="text" id="av-${i}" list="vendorList" placeholder="供應商（可直接輸入）">
-    <input type="text" id="at-${i}" placeholder="職種">
-    <input type="text" id="ap-${i}" placeholder="人員姓名">
-    <input type="text" id="ac-${i}" placeholder="作業內容">`;
+    <span class="att-no"></span>
+    <input type="text" id="av-${i}" placeholder="供應商" data-combo="vendor" autocomplete="off">
+    <input type="text" id="aw-${i}" placeholder="作業項目" data-combo="work_item"
+           data-combo-vendor="av-${i}" autocomplete="off">
+    <input type="text" id="at-${i}" placeholder="職種" data-combo="trade"
+           data-combo-vendor="av-${i}" autocomplete="off">
+    <input type="text" id="ap-${i}" placeholder="人員姓名" data-combo="person"
+           data-combo-vendor="av-${i}" autocomplete="off">
+    <input type="text" id="ac-${i}" placeholder="作業內容" data-combo="content"
+           data-combo-vendor="av-${i}" autocomplete="off">
+    <button type="button" class="ghost row-add" title="同廠商加一列"
+            onclick="addSameVendor(${i})">＋</button>
+    <button type="button" class="ghost row-del" title="刪除這一列（今天沒來的廠商）"
+            onclick="document.getElementById('att-${i}').remove(); groupAttendees(); saveDraft()">✕</button>`;
   document.getElementById('attendees').appendChild(div);
+  bindVendorPrefill(document.getElementById('av-' + i), {
+    trade: document.getElementById('at-' + i), person: document.getElementById('ap-' + i),
+  });
 }
-document.getElementById('addAtt').onclick = addAttendee;
+document.getElementById('addAtt').onclick = () => { addAttendee(); groupAttendees(); saveDraft(); };
+
+function addSameVendor(i) {
+  const vendor = document.getElementById('av-' + i).value;
+  addAttendee();
+  document.getElementById('av-' + attSeq).value = vendor;
+  groupAttendees();
+  document.getElementById('ap-' + attSeq).focus();
+  saveDraft();
+}
+
+/* 參加協議人員依廠商分組：同一家排在一起，不同家用底色帶與粗線分開，一眼看出有幾家。
+   輸入途中不動：只在供應商欄離開時重排（打字打到一半列被搬走，輸入框會失焦）。 */
+let grouping = false;
+function groupAttendees() {
+  // 搬動正在輸入的列會失焦，瀏覽器當場補發 change：重入的話編號會以搬到一半的順序算
+  if (grouping) return;
+  grouping = true;
+  const box = document.getElementById('attendees');
+  const focused = document.activeElement;
+  const rows = [...box.querySelectorAll('.att-row')];
+  const name = r => r.querySelector('[id^=av-]').value.trim();
+  const groups = new Map();
+  rows.forEach(r => {
+    const k = _vkey(name(r));
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(r);
+  });
+  const keys = [...groups.keys()].filter(Boolean);
+  keys.concat(groups.has('') ? [''] : []).forEach((k, n) => {     // 還沒選供應商的排最後
+    groups.get(k).forEach((r, i) => {
+      const multi = k && i > 0;
+      r.classList.toggle('g-first', !multi);
+      // 編號算家數：同一家第二列是 1-2，一眼看出這列屬於哪一家
+      r.querySelector('.att-no').textContent = k ? (i ? `${n + 1}-${i + 1}` : n + 1) : n + i + 1;
+      r.classList.toggle('g-rest', !!multi);
+      r.classList.toggle('band', n % 2 === 1);
+      box.appendChild(r);
+    });
+  });
+  grouping = false;
+  const named = rows.filter(r => name(r)).length;
+  document.getElementById('attSum').textContent = keys.length
+    ? `共 ${keys.length} 家廠商、${named} 列` : '';
+  if (focused && focused !== document.body && box.contains(focused)) focused.focus();
+}
+document.getElementById('attendees').addEventListener('change', e => {
+  if (e.target.id && e.target.id.startsWith('av-')) groupAttendees();
+});
 
 function addFinding() {
   const i = ++findSeq;
@@ -160,49 +444,34 @@ function addFinding() {
     </div>
     <div class="row">
       <div><label>責任廠商</label>
-        <input type="text" id="fv-${i}" list="vendorList"
-               placeholder="可直接輸入新廠商"></div>
-      <div><label>責任人</label><input type="text" id="fp-${i}"></div>
+        <input type="text" id="fv-${i}" data-combo="vendor" autocomplete="off"
+               placeholder="點選或打字搜尋"></div>
+      <div><label>責任人</label><input type="text" id="fp-${i}" data-combo="person"
+        data-combo-vendor="fv-${i}" autocomplete="off"></div>
     </div>
-    <div class="row">
-      <div><label>改善方式</label>
-        <select id="fa-${i}" onchange="
-          document.getElementById('fw-${i}').classList.toggle('hidden', this.value!=='scheduled')">
-          <option value="onsite">當場改善</option>
-          <option value="scheduled">限期改善</option>
-        </select></div>
-      <div id="fw-${i}" class="hidden"><label>改善期限</label>
-        <input type="date" id="fdue-${i}"></div>
-    </div>
+    ${dispositionHtml('f' + i)}
     <label>改善說明</label>
     <input type="text" id="ff-${i}" placeholder="例：派員立即設置護欄">
     <div class="row">
-      <div><label>改善前照片</label>
-        <input type="file" accept="image/*" capture="environment"
-               onchange="upPhoto(this, ${i}, 'before')"></div>
-      <div><label>改善後照片</label>
-        <input type="file" accept="image/*" capture="environment"
-               onchange="upPhoto(this, ${i}, 'after')"></div>
-    </div>
-    <div class="muted" id="fph-${i}"></div>`;
+      <div><label>改善前照片</label><div class="photo-box" id="pb-${i}-before"></div></div>
+      <div><label>改善後照片</label><div class="photo-box" id="pb-${i}-after"></div></div>
+    </div>`;
   document.getElementById('findings').appendChild(div);
+  showPhotos(i);
+  bindVendorPrefill(document.getElementById('fv-' + i), { person: document.getElementById('fp-' + i) });
 }
-document.getElementById('addFind').onclick = addFinding;
+document.getElementById('addFind').onclick = () => { addFinding(); saveDraft(); };
 
 const photos = {};
-async function upPhoto(input, i, which) {
-  if (!input.files || !input.files[0]) return;
-  const fd = new FormData();
-  fd.append('file', input.files[0]);
-  try {
-    const r = await API.form('/api/upload/photo', fd);
-    photos[i] = Object.assign(photos[i] || {}, { [which]: r.path });
-    document.getElementById('fph-' + i).textContent =
-      `已上傳：${photos[i].before ? '改善前 ✓ ' : ''}${photos[i].after ? '改善後 ✓' : ''}`;
-  } catch (e) { toast('照片上傳失敗：' + e.message); }
+/** 第 i 筆缺失的照片欄：photos[i] 是 { before: 路徑清單, after: 路徑清單 }。 */
+function showPhotos(i) {
+  ['before', 'after'].forEach(which => {
+    photoBox(`pb-${i}-${which}`, (photos[i] || {})[which], list => {
+      photos[i] = Object.assign(photos[i] || {}, { [which]: list });
+      saveDraft();
+    });
+  });
 }
-
-document.getElementById('clearSig').onclick = () => pad && pad.clear();
 
 document.getElementById('submit').onclick = async () => {
   // 紀錄人員是必填。現場共用同一組帳號，沒有這個名字就無法回答
@@ -212,18 +481,31 @@ document.getElementById('submit').onclick = async () => {
   // 沒選棟別就送出，整張表連同每筆缺失都會記在錯的棟名下
   const building = document.getElementById('building').value;
   if (!building) { toast('請先選擇棟別'); return; }
+  if (PHOTO_UPLOADING) { toast('照片還在上傳，請稍候'); return; }
   rememberName('recorder', recorder.value);
   rememberBuilding(building);
-  if (!pad || pad.isEmpty()) { toast('請先簽名'); return; }
+  const reason = document.getElementById('editReason').value.trim();
+  if (EDIT && !reason) { toast('請填寫修改原因'); document.getElementById('editReason').focus(); return; }
+  const off = comboCheck(['vendor', 'person']);
+  if (off) { toast(off.msg, 5000); off.el.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+  // 每筆缺失各自要有處置；限期改善／代工要有期限
+  for (let i = 1; i <= findSeq; i++) {
+    const d = document.getElementById('fd-' + i);
+    if (!d || !d.value.trim()) continue;
+    const disp = readDisposition('f' + i);
+    const msg = !disp ? `第 ${i} 筆缺失請勾選處置方式`
+      : (disp.action_type === 'scheduled' && !disp.due_date) ? `第 ${i} 筆缺失請填改善期限` : '';
+    if (msg) { toast(msg); d.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+  }
   const btn = document.getElementById('submit');
   btn.disabled = true;
 
   const attendees = [];
-  for (let i = 1; i <= attSeq; i++) {
+  for (const i of liveAttendees()) {
     const w = document.getElementById('aw-' + i);
-    if (!w) continue;
     const vname = document.getElementById('av-' + i).value.trim();
-    if (!w.value && !document.getElementById('ap-' + i).value) continue;
+    // 只有整列空白才略過：LINE 帶入的列常沒有主管，廠商不能因此被丟掉（簽名格靠它）
+    if (!vname && !w.value && !document.getElementById('ap-' + i).value) continue;
     attendees.push({
       work_item: w.value,
       vendor_id: await resolveVendorId(vname),
@@ -240,6 +522,7 @@ document.getElementById('submit').onclick = async () => {
     if (!d || !d.value.trim()) continue;
     const hz = document.getElementById('fh-' + i).value;
     findings.push({
+      id: findIds[i] || undefined,
       description: d.value,
       hazard_code: hz,
       hazard_label: (HAZARDS.find(h => h[0] === hz) || [, '其他'])[1],
@@ -247,16 +530,16 @@ document.getElementById('submit').onclick = async () => {
       severity: document.getElementById('fs-' + i).value,
       vendor_id: await resolveVendorId(document.getElementById('fv-' + i).value),
       responsible_person: document.getElementById('fp-' + i).value,
-      action_type: document.getElementById('fa-' + i).value,
-      due_date: document.getElementById('fdue-' + i).value || null,
+      ...readDisposition('f' + i),
       fix_note: document.getElementById('ff-' + i).value,
-      photo_before: (photos[i] || {}).before || null,
-      photo_after: (photos[i] || {}).after || null
+      photo_before: photoJoin((photos[i] || {}).before),
+      photo_after: photoJoin((photos[i] || {}).after)
     });
   }
 
   try {
-    const res = await API.post('/api/coordinations', {
+    const res = await API.post(EDIT ? '/api/edit/coordination/' + EDIT : '/api/coordinations', {
+      reason, revision: editRevision,
       site_id: parseInt(document.getElementById('site').value),
       building: document.getElementById('building').value,
       meeting_date: document.getElementById('mdate').value,
@@ -265,19 +548,11 @@ document.getElementById('submit').onclick = async () => {
       recorder_name: document.getElementById('recorder').value.trim(),
       agreement_text: document.getElementById('agreement').value,
       handling_text: document.getElementById('handling').value,
-      attendees, findings,
-      signatures: [{
-        role: document.getElementById('sigRole').value,
-        signer_name: me.name, image: pad.toDataURL()
-      }]
+      attendees, findings, signing: true,
     });
-    document.getElementById('main').classList.add('hidden');
-    document.getElementById('done').classList.remove('hidden');
-    document.getElementById('doneMsg').textContent =
-      `單號 COORD-${String(res.coordination_id).padStart(6, '0')}，` +
-      `共開立 ${findings.length} 筆缺失。`;
-    document.getElementById('pdfLink').href = res.pdf_url;
-    window.scrollTo(0, 0);
+    if (saveDraft.stop) saveDraft.stop();   // 已存上伺服器：排定中的存檔不能把它又存回來
+    if (!EDIT) Draft.clear('coord');   // 修改舊單不能清掉同一頁新單的暫存
+    location.href = res.sign_url || res.pdf_url || '/static/home.html';   // 地端沒有簽核流程
   } catch (e) {
     toast('送出失敗：' + e.message);
     btn.disabled = false;

@@ -34,6 +34,11 @@
     </p>
   </div>
 
+  <div class="card hidden" id="pendingCard">
+    <h2>待簽核</h2>
+    <div id="pending"></div>
+  </div>
+
   <div class="card">
     <span class="chapter">02</span>
     <h2>缺失概況</h2>
@@ -54,6 +59,9 @@
     <span class="chapter">03</span>
     <h2>近期單據</h2>
     <div id="recent" class="muted">載入中…</div>
+    <div class="row" style="margin-top:var(--sp-3)">
+      <a href="/static/records.html"><button class="ghost" style="width:100%">查詢已填單據（日期、表單、關鍵字）</button></a>
+    </div>
   </div>
 </div>
 
@@ -90,6 +98,16 @@ let me = null;
     <div class="panel kpi ${c}"><div class="n">${n}</div><div class="l">${l}</div></div>`
   ).join('');
 
+  // 地端沒有這個端點，也不是在地端填單：拿不到就不顯示
+  API.get('/api/sign/pending').then(list => {
+    if (!list.length) return;
+    document.getElementById('pendingCard').classList.remove('hidden');
+    document.getElementById('pending').innerHTML = list.map(p => `<div class="sign-slot">
+      <div class="who"><b>${esc(p.title)}</b>
+        <span class="muted">${esc(p.date)}　${esc(p.building || p.site)}　已簽 ${p.signed}／${p.total}</span></div>
+      <a class="sign-go" href="${esc(p.url)}"><button type="button">接著簽</button></a></div>`).join('');
+  }).catch(() => {});
+
   const [insp, coord] = await Promise.all([
     API.get('/api/inspections?days=14'), API.get('/api/coordinations?days=14')
   ]);
@@ -99,7 +117,7 @@ let me = null;
                         extra: `不合格 ${i.fail_count} 項`, url: i.pdf_url })),
     ...coord.map(c => ({ d: c.work_date, t: '每日協議巡視處理紀錄表',
                          s: c.building || c.site,
-                         extra: `參加 ${c.attendee_count} 人`, url: c.pdf_url }))
+                         extra: `參加 ${c.attendee_count} 筆`, url: c.pdf_url }))
   ].sort((a, b) => b.d.localeCompare(a.d)).slice(0, 15);
 
   document.getElementById('recent').innerHTML = rows.length ? `

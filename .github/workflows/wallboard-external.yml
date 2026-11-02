@@ -1,4 +1,4 @@
-# 工地看板外部區塊：雲端排程（每 30 分鐘）
+# 工地看板外部區塊：雲端排程（上午每 30 分、下午每小時、其餘每 2 小時）
 #
 # 取代「地端主機推快照」——把不需要公司內網、也不碰雲端資料庫的三塊
 # （微型氣象站、本日出工、職安新知）改由 GitHub Actions 定時抓、推上
@@ -31,10 +31,9 @@ name: 工地看板外部區塊
 
 on:
   # 主要時鐘是 Netlify 排程函式（backend/cloud/functions/wallboard-tick.mts）
-  # 每 2 小時（UTC 偶數小時 :07）以 API 觸發 workflow_dispatch——實測 GitHub
-  # 自己的排程常延遲 2~5 小時，不能當主力。這裡的 schedule 只是 Netlify 那邊
-  # 失效（例如 token 到期）時的後備：每 6 小時、落在 UTC 奇數小時（主時鐘的
-  # 空檔），時鐘正常時不會緊跟在後面重跑一次。
+  # 以 API 觸發 workflow_dispatch——實測 GitHub 自己的排程常延遲 2~5 小時，
+  # 不能當主力。這裡的 schedule 只是 Netlify 那邊失效（例如 token 到期）時的
+  # 後備：每 6 小時。時鐘正常時偶爾與主時鐘相鄰，多跑一輪無害（排隊不撞）。
   schedule:
     - cron: "22 1,7,13,19 * * *"
   workflow_dispatch:
@@ -104,6 +103,8 @@ jobs:
           WEATHER_API_PASS: ${{ secrets.WEATHER_API_PASS }}
           WEATHER_SITE_MAP: ${{ vars.WEATHER_SITE_MAP }}
           WORKLOG_SHEET_URL: ${{ secrets.WORKLOG_SHEET_URL }}
+          # 其他工地的今日出工（協議表帶入）目前關閉：填報頁只有主場站，抓了沒人用。
+          # 要開時在這裡補 WORKLOG_URL_<工地代碼>／WORKLOG_SOURCES，見 run_external._site_worklogs
           BUILDING_LABELS: ${{ vars.BUILDING_LABELS }}
           PRIMARY_SITE_CODE: ${{ vars.PRIMARY_SITE_CODE }}
           CLOUD_INGEST_URL: ${{ vars.CLOUD_INGEST_URL }}

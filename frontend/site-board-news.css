@@ -86,6 +86,11 @@ html.theme-news .level.danger{color:var(--paper);background:var(--red);border-co
 html.theme-news .now-card,html.theme-news .now-card.idle{background:var(--ink);box-shadow:none;color:var(--paper)}
 html.theme-news .now-label{font:600 .75rem var(--mono);text-transform:uppercase;letter-spacing:.16em;color:var(--n400)}
 html.theme-news #currentTask{font:900 3.25rem/1.1 var(--serif);color:var(--paper)}
+html.theme-news .cycle-strip #currentTask{font-size:1.625rem}
+html.theme-news .cycle-strip{border-bottom:1px solid var(--ink);padding-bottom:.5rem}
+html.theme-news .cycle-strip .next-line{border-bottom:0;padding-bottom:0;font-size:1.0625rem}
+html.theme-news .cycle-strip .later li{border-bottom:0;padding-bottom:0}
+html.theme-news .cctv-stage{border:1px solid var(--ink)}
 html.theme-news .now-meta{color:var(--paper);font-family:var(--body-serif)}
 html.theme-news .now-meta #nowSpan{font-family:var(--mono);color:var(--n400)}
 html.theme-news .now-progress{background:#333}
@@ -137,6 +142,11 @@ html.theme-news .act li b{font:600 .6875rem var(--mono);text-transform:uppercase
 html.theme-news .act li::before{background:var(--ink)}
 html.theme-news .act-sun{font-family:var(--body-serif);font-style:italic;color:var(--ink);border-top:1px solid var(--muted-rule);padding-top:.375rem}
 html.theme-news .act-sun b{color:var(--red);font-style:normal}
+html.theme-news .has-cctv .act-v,html.theme-news .has-cctv .act-lv{font-size:1.625rem}
+html.theme-news .hz-more{font:.6875rem var(--mono);letter-spacing:.06em;color:var(--n500)}
+html.theme-news .has-cctv .hz-list.single .hz-name{font-size:1.75rem}
+html.theme-news .has-cctv .hz-list.single .hz{padding:.5rem 0}
+html.theme-news .has-cctv .hz-chips button{font-size:.8125rem;padding:.3rem .55rem}
 
 /* ---- 本日出工：報紙表格 ---- */
 html.theme-news .board-panel th{font:600 .6875rem var(--mono);text-transform:uppercase;letter-spacing:.14em;color:var(--n600);border-bottom:2px solid var(--ink)}
@@ -147,10 +157,10 @@ html.theme-news .hc b{font:700 1.125rem var(--serif);color:var(--ink)}
 html.theme-news .hc i{background:var(--muted-rule)}
 html.theme-news .hc i::before{background:var(--ink);opacity:1}
 html.theme-news .gate{background:transparent;box-shadow:none;border:1px solid var(--ink);border-left:6px solid var(--ink)}
-html.theme-news .gate-k{font:600 .75rem var(--mono);text-transform:uppercase;letter-spacing:.12em;color:var(--n600)}
+html.theme-news .gate-k{font:600 .75rem var(--mono);letter-spacing:.04em;color:var(--n600)}
 html.theme-news .gate b{font:900 1.75rem/1 var(--serif);color:var(--ink)}
 html.theme-news .gate small{font-family:var(--body-serif);color:var(--ink)}
-html.theme-news .gate-sub{font:.6875rem var(--mono);letter-spacing:.06em;color:var(--n500)}
+html.theme-news .gate-sub{font:.6875rem var(--mono);color:var(--n500)}
 html.theme-news .bar-row .name{font-family:var(--body-serif);color:var(--ink)}
 html.theme-news .bar-row .val{font-family:var(--serif)}
 html.theme-news .bar-track{background:var(--muted-rule)}

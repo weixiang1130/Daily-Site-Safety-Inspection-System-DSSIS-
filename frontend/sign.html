@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>簽核</title>
+<link rel="stylesheet" href="/static/brand.css">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="topbar">
+  <div class="brand" id="brand"></div>
+  <div class="spacer"></div>
+  <a href="/static/home.html"><button class="ghost">首頁</button></a>
+</div>
+
+<div class="wrap">
+  <div class="page-head">
+    <div class="eyebrow">Sign-off</div>
+    <h1 id="title">簽核</h1>
+    <p class="lede" id="meta"></p>
+  </div>
+
+  <div class="card">
+    <h2>簽名</h2>
+    <p class="muted" id="progress"></p>
+    <div id="slots">載入中…</div>
+    <p class="muted" style="margin-bottom:0">每格由本人簽。每簽一格就會存檔，可以直接離開，
+      下一位從首頁「待簽核」接著簽，換裝置也可以。</p>
+  </div>
+
+  <div class="card" id="actions">
+    <div class="row">
+      <a href="/static/home.html"><button class="ghost" style="width:100%">先離開，之後再簽</button></a>
+      <button id="finish">完成簽核並產生 PDF</button>
+    </div>
+    <p class="muted" style="margin:12px 0 0">內容寫錯？
+      <a href="#" class="editLink">修改內容</a>（已簽的簽名會清空，要重新簽），或
+      <a href="#" id="voidLink">作廢這張單</a>。</p>
+  </div>
+
+  <div class="card hidden" id="done">
+    <h2>已完成簽核</h2>
+    <div class="row">
+      <a id="pdfLink" target="_blank"><button style="width:100%">開啟 PDF</button></a>
+      <a href="/static/home.html"><button class="ghost" style="width:100%">回首頁</button></a>
+    </div>
+    <p class="muted" style="margin:12px 0 0">內容有誤？
+      <a href="#" class="editLink">修改內容</a>。舊版會保留，改完要重新簽核。</p>
+  </div>
+
+  <div class="card">
+    <h2>單據內容</h2>
+    <p class="muted">簽名前請先確認內容。</p>
+    <div id="content"></div>
+  </div>
+
+  <div class="card hidden" id="revCard">
+    <h2>修改紀錄</h2>
+    <div id="revs"></div>
+  </div>
+</div>
+
+<!-- 一次一格，每次開都是全新的簽名板：簽完不能拿去代表別的格子 -->
+<dialog class="fx-dialog" id="dlg">
+  <h2 id="dlgTitle"></h2>
+  <p class="muted">請本人簽名。</p>
+  <label>簽名人姓名<span class="req">＊</span></label>
+  <input type="text" id="signer" autocomplete="off">
+  <label>簽名</label>
+  <div id="padBox"></div>
+  <div class="row" style="margin-top:12px">
+    <button class="ghost" type="button" id="dlgCancel">取消</button>
+    <button class="ghost" type="button" id="dlgClear">清除重簽</button>
+    <button type="button" id="dlgSave">確認簽名</button>
+  </div>
+</dialog>
+
+<script src="/static/common.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const q = new URLSearchParams(location.search);
+const kind = q.get('kind'), id = parseInt(q.get('id'), 10);
+const base = `/api/sign/${encodeURIComponent(kind)}/${id}`;
+let doc = null, pad = null, current = null, loadedAt = 0;
+
+(async () => {
+  renderBrand('system_name');
+  const r = await API.get('/api/me');
+  if (!r.user) { location.href = '/static/index.html'; return; }
+  await load();
+})();
+
+// 別人可能在另一台裝置簽了：切回這頁就更新。一分鐘內切回不重抓，每次都會叫醒資料庫
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && doc && doc.status === 'signing' && !$('dlg').open
+      && Date.now() - loadedAt > 60000) load();
+});
+
+async function load() {
+  loadedAt = Date.now();
+  try { doc = await API.get(base); }
+  catch (e) { $('slots').textContent = '讀取失敗：' + e.message; return; }
+  $('title').textContent = doc.title;
+  $('meta').textContent = [doc.no, doc.date, doc.building || doc.site, doc.location,
+                           doc.person && `填表：${doc.person}`].filter(Boolean).join('　');
+  renderSlots();
+  renderContent();
+  const open = doc.status === 'signing';
+  $('actions').classList.toggle('hidden', !open);
+  $('done').classList.toggle('hidden', doc.status !== 'submitted');
+  if (doc.pdf_url) $('pdfLink').href = doc.pdf_url;
+  if (doc.status === 'void') $('progress').textContent = '這張單已作廢。';
+  $('revCard').classList.toggle('hidden', !doc.revisions.length);
+  $('revs').innerHTML = doc.revisions.map(r => `<div class="sign-slot"><div class="who">
+    <b>第 ${r.rev} 次修改</b>
+    <span class="muted">${esc(String(r.at).replace('T', ' '))}　${esc(r.edited_name || '')}</span>
+    <span>${esc(r.reason)}</span></div>
+    ${r.pdf_url ? `<a href="${esc(r.pdf_url)}" target="_blank">修改前 PDF</a>` : ''}</div>`).join('');
+}
+
+document.querySelectorAll('.editLink').forEach(a => a.onclick = e => {
+  e.preventDefault();
+  const signed = doc.slots.filter(s => s.signed).length;
+  if (!confirm(`修改內容？\n\n${signed ? `已簽的 ${signed} 格會清空，改完要重新簽核。\n` : ''}`
+               + '修改前的版本會保留在修改紀錄。')) return;
+  location.href = `/static/${kind === 'inspection' ? 'fill' : 'coord'}.html?edit=${id}`;
+});
+
+function renderSlots() {
+  const open = doc.status === 'signing';
+  const done = doc.slots.filter(s => s.signed).length;
+  if (open) $('progress').textContent = `已簽 ${done}／${doc.slots.length} 格`;
+  $('slots').innerHTML = doc.slots.map((s, i) => `<div class="sign-slot${s.signed ? ' signed' : ''}">
+    <div class="who"><b>${esc(s.role)}</b>
+      <span class="muted">${s.signed ? `${esc(s.signer_name)}・${esc(String(s.signed_at).replace('T', ' '))}`
+                                      : (s.name ? `負責人：${esc(s.name)}` : '尚未簽名')}</span></div>
+    ${!open ? '' : s.signed
+      ? `<button class="ghost" type="button" onclick="undo(${i})">重簽</button>`
+      : `<button type="button" onclick="openSign(${i})">簽名</button>`}
+  </div>`).join('');
+}
+
+function renderContent() {
+  const parts = [];
+  if (doc.attendees.length) {
+    parts.push(`<h3>參加協議人員</h3><ul>${doc.attendees.map(a =>
+      `<li>${esc(a.vendor_name || '')}　${esc(a.person_name || '')}　<span class="muted">${esc(a.work_content || '')}</span></li>`).join('')}</ul>`);
+  }
+  if (doc.agreement_text) parts.push(`<h3>協議事項</h3><p style="white-space:pre-line">${esc(doc.agreement_text)}</p>`);
+  parts.push(`<h3>缺失（${doc.findings.length} 筆）</h3>` + (doc.findings.length
+    ? `<ul>${doc.findings.map(f => `<li>${esc(f.description)}　<span class="muted">${esc(f.vendor || '')}${f.responsible_person ? '／' + esc(f.responsible_person) : ''}</span></li>`).join('')}</ul>`
+    : '<p class="muted">無</p>'));
+  if (doc.handling_text) parts.push(`<h3>處理情形</h3><p style="white-space:pre-line">${esc(doc.handling_text)}</p>`);
+  $('content').innerHTML = parts.join('');
+}
+
+function openSign(i) {
+  current = doc.slots[i];
+  $('dlgTitle').textContent = current.role;
+  $('signer').value = current.name || '';
+  $('dlg').showModal();
+  // 每次都換一塊新畫布：沿用舊的，上一位的筆跡就可能留著被下一位送出
+  $('padBox').innerHTML = '<canvas class="sig-pad"></canvas>';
+  pad = initSignaturePad($('padBox').firstChild);
+}
+
+$('dlgCancel').onclick = () => $('dlg').close();
+$('dlgClear').onclick = () => pad.clear();
+$('dlgSave').onclick = async () => {
+  const name = $('signer').value.trim();
+  if (!name) { toast('請填寫簽名人姓名'); $('signer').focus(); return; }
+  if (pad.isEmpty() || pad.points() < 8) { toast('請在框內簽名'); return; }
+  const btn = $('dlgSave');
+  btn.disabled = true;
+  try {
+    await API.post(`${base}/sign`, { revision: doc.revision, slot_key: current.key,
+                                     signer_name: name, image: pad.toDataURL() });
+    $('dlg').close();
+    toast('已存檔。可以交給下一位，或先離開');
+    await load();
+  } catch (e) {
+    toast('簽名未存檔：' + e.message, 4000);
+    if (e.message.includes('重新整理')) { $('dlg').close(); await load(); }
+  }
+  btn.disabled = false;
+};
+
+async function undo(i) {
+  const s = doc.slots[i];
+  if (!confirm(`清掉「${s.role}」${s.signer_name} 的簽名，改由本人重簽？`)) return;
+  try { await API.post(`${base}/undo`, { revision: doc.revision, slot_key: s.key }); await load(); }
+  catch (e) { toast('操作失敗：' + e.message); await load(); }
+}
+
+$('finish').onclick = async () => {
+  const left = doc.slots.filter(s => !s.signed);
+  if (left.length === doc.slots.length) { toast('至少要有一個人簽名'); return; }
+  // 廠商可能今天不在，全部硬擋會做出永遠完成不了的單，所以確認後可以完成，PDF 上標未簽
+  if (left.length && !confirm(`還有 ${left.length} 格未簽：\n${left.map(s => s.role).join('\n')}\n\n`
+                              + '完成後就不能再簽，PDF 上這幾格會標「未簽」。確定完成？')) return;
+  const btn = $('finish');
+  btn.disabled = true;
+  try {
+    await API.post(`${base}/finish`, { revision: doc.revision });
+    toast('已完成簽核');
+    await load();
+    window.scrollTo(0, 0);
+  } catch (e) {
+    toast('完成失敗，可以再按一次：' + e.message, 5000);
+    await load();
+  }
+  btn.disabled = false;
+};
+
+$('voidLink').onclick = async e => {
+  e.preventDefault();
+  const reason = (prompt('作廢這張單？未結案的缺失會一起移除，需要重新填寫；原內容留在修改紀錄。\n\n請填寫作廢原因：') || '').trim();
+  if (!reason) return;
+  try {
+    await API.post(`${base}/void`, { revision: doc.revision, reason });
+    toast('已作廢');
+    location.href = '/static/home.html';
+  } catch (err) { toast('作廢失敗：' + err.message); await load(); }
+};
+</script>
+</body>
+</html>

@@ -197,10 +197,11 @@ if ($CheckOnly) {
     # 工地看板的資料來源：出工回報（LINE 群組經試算表）與職安署新知
     Register-SafetyOpsTask 'SafetyOps-Worklog'   'run_worklog.cmd'        (& $every 15)
     Register-SafetyOpsTask 'SafetyOps-OshaNews'  'run_osha_news.cmd'      (& $every 360)
-    # 表單與出工資料庫一天同步一次。10:00 而非 07:00：工地早上 7 點多半還沒填表；
+    # 表單與出工資料庫一天同步兩次。10:00 而非 07:00：工地早上 7 點多半還沒填表；
+    # 18:00 接住下午填的（缺失填寫集中在 16～17 點，只有 10:00 的話內網隔天才看得到）。
     # 出工資料庫雲端每晚 00:07 已寫好，任何時間抓內容都一樣，跟表單同一輪免多喚醒雲端資料庫
     Register-SafetyOpsTask 'SafetyOps-Sync'      'run_sync_forms.cmd' `
-        (New-ScheduledTaskTrigger -Daily -At '10:00')
+        @((New-ScheduledTaskTrigger -Daily -At '10:00'), (New-ScheduledTaskTrigger -Daily -At '18:00'))
     # 氣象歷史歸檔（分析用）：與同步同一時間，只抓已過完的日子，關機漏掉的日子下次自動補
     Register-SafetyOpsTask 'SafetyOps-WeatherArchive' 'run_weather_archive.cmd' `
         (New-ScheduledTaskTrigger -Daily -At '10:00')
