@@ -67,6 +67,8 @@ Netlify Functions 讀的是**部署當下的環境變數快照**。
 
 改完變數後務必 **Deploys → Trigger deploy → Deploy site**。
 
+`/api/branding` 由 CDN 快取，公司名稱等品牌設定也要重新部署才會更新（部署會清快取）。
+
 ---
 
 ## 驗證清單
@@ -131,9 +133,7 @@ Netlify Functions 讀的是**部署當下的環境變數快照**。
 `/api/inspections/{id}/pdf` 會直接報錯而不是產生方框。
 
 **網頁英文字型跟品牌規範不一樣？**
-`frontend/fonts/` 裡還沒放字型檔，瀏覽器回退到系統字體。
-放入後即恢復，版面與色彩不受影響。詳見該資料夾的 README。
-與 PDF 字型無關，兩者是獨立的。
+網頁走系統字體，沒有另外載入字型檔。與 PDF 字型無關，兩者是獨立的。
 
 **Migration 改了但沒生效？**
 Netlify 只會套用尚未執行過的 migration。已套用過的檔案再修改不會重跑，

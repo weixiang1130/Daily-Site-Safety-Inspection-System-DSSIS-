@@ -10,73 +10,10 @@
    所有元件都是消費這些變數，不需修改任何一行元件樣式。
 
    ⚠ 字型說明
-   本專案不依賴任何 CDN（工地內網／離線需可運作），因此字型採自行托管。
-   請將字型檔放入 static/fonts/，檔名見下方 @font-face。
-   檔案不存在時瀏覽器會自動回退到堆疊中的下一個字體，畫面不會壞掉。
+   本專案不依賴任何 CDN（工地內網／離線需可運作），字型走系統字體堆疊。
    =========================================================================== */
 
-/* ---------- 自行托管字型 ---------- */
-@font-face {
-  font-family: "Cormorant Garamond";
-  src: url("/static/fonts/CormorantGaramond-Regular.woff2") format("woff2");
-  font-weight: 400; font-style: normal; font-display: swap;
-}
-@font-face {
-  font-family: "Cormorant Garamond";
-  src: url("/static/fonts/CormorantGaramond-SemiBold.woff2") format("woff2");
-  font-weight: 600; font-style: normal; font-display: swap;
-}
-@font-face {
-  font-family: "Space Grotesk";
-  src: url("/static/fonts/SpaceGrotesk-Medium.woff2") format("woff2");
-  font-weight: 500; font-style: normal; font-display: swap;
-}
-@font-face {
-  font-family: "Space Grotesk";
-  src: url("/static/fonts/SpaceGrotesk-Bold.woff2") format("woff2");
-  font-weight: 700; font-style: normal; font-display: swap;
-}
-@font-face {
-  font-family: "DM Sans";
-  src: url("/static/fonts/DMSans-Regular.woff2") format("woff2");
-  font-weight: 400; font-style: normal; font-display: swap;
-}
-@font-face {
-  font-family: "DM Sans";
-  src: url("/static/fonts/DMSans-Medium.woff2") format("woff2");
-  font-weight: 500; font-style: normal; font-display: swap;
-}
-@font-face {
-  font-family: "DM Sans";
-  src: url("/static/fonts/DMSans-Bold.woff2") format("woff2");
-  font-weight: 700; font-style: normal; font-display: swap;
-}
-@font-face {
-  font-family: "DM Mono";
-  src: url("/static/fonts/DMMono-Regular.woff2") format("woff2");
-  font-weight: 400; font-style: normal; font-display: swap;
-}
-@font-face {
-  font-family: "DM Mono";
-  src: url("/static/fonts/DMMono-Medium.woff2") format("woff2");
-  font-weight: 500; font-style: normal; font-display: swap;
-}
-@font-face {
-  font-family: "Noto Sans TC";
-  src: url("/static/fonts/NotoSansTC-Regular.woff2") format("woff2");
-  font-weight: 400; font-style: normal; font-display: swap;
-}
-@font-face {
-  font-family: "Noto Sans TC";
-  src: url("/static/fonts/NotoSansTC-Medium.woff2") format("woff2");
-  font-weight: 500; font-style: normal; font-display: swap;
-}
-@font-face {
-  font-family: "Noto Sans TC";
-  src: url("/static/fonts/NotoSansTC-Bold.woff2") format("woff2");
-  font-weight: 700; font-style: normal; font-display: swap;
-}
-
+/* 字型走系統字體堆疊。@font-face 指向的檔案不存在時，每頁會多打一串 404 拖慢載入。 */
 :root {
   /* ---------- 溫暖中性色 ---------- */
   --sand-50:  #faf8f5;

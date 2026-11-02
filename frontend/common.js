@@ -5,21 +5,19 @@
 // 公司名稱由後端 /api/branding 提供（來自部署環境的環境變數），
 // 不寫死在前端，因此公開的程式碼中不含任何真實公司名稱。
 // ---------------------------------------------------------------------------
-let BRANDING = null;
+let BRANDING = null, brandingLoad = null;
 
 /** 取品牌設定。**失敗不快取**——快取一個空物件等於把暫時的連線問題
     變成永久的：之後每次呼叫都拿到那份空的，重試永遠不會成功。
     回 null 讓呼叫端能分辨「拿不到」與「拿到但沒設定」。 */
 async function loadBranding() {
   if (BRANDING) return BRANDING;
-  try {
-    const r = await fetch('/api/branding', { credentials: 'same-origin' });
-    if (!r.ok) return null;
-    BRANDING = await r.json();
-  } catch (e) {
-    return null;
-  }
-  return BRANDING;
+  // 同時呼叫共用一個請求：頁面開頭 renderBrand 與 loadBranding 常一起跑
+  brandingLoad ||= fetch('/api/branding', { credentials: 'same-origin' })
+    .then(r => (r.ok ? r.json() : null))
+    .catch(() => null)
+    .then(b => { BRANDING = b; brandingLoad = null; return b; });
+  return brandingLoad;
 }
 
 /** 在 #brand 容器渲染版頭品牌標記。 */

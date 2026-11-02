@@ -521,7 +521,14 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
 
   try {
     // ---- 不需登入 ----
-    if (p === "/api/branding") return json(BRANDING);
+    // 每頁都要，但內容只隨環境變數改變，改了要重新部署（部署會清 CDN 快取）。
+    // 交給 CDN 回應，不用每頁都跑一次函式
+    if (p === "/api/branding") {
+      return json(BRANDING, { headers: {
+        "cache-control": "public, max-age=300",
+        "netlify-cdn-cache-control": "public, durable, s-maxage=86400",
+      } });
+    }
 
     if (p === "/api/health") {
       const [{ n: templates }] = await db.sql`SELECT COUNT(*)::int AS n FROM form_templates`;

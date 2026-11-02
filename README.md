@@ -24,7 +24,7 @@ safety-ops/
 │  ├─ style.css       元件樣式，只消費權杖
 │  ├─ common.js       共用工具（品牌、簽名板、工地選單）
 │  ├─ assets/         建築線條框景 SVG
-│  └─ fonts/          網頁字型（自行放入，見該資料夾 README）
+│  └─ fonts/          保留資料夾（網頁走系統字體，見該資料夾 README）
 │
 ├─ backend/           後端
 │  ├─ cloud/          雲端版　Netlify Functions（TypeScript）

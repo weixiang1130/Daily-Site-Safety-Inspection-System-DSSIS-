@@ -73,7 +73,7 @@ let me = null;
   renderBrand('system_name');
   injectArchFrame();
 
-  const r = await API.get('/api/me');
+  const [r, brand0] = await Promise.all([API.get('/api/me'), loadBranding()]);
   if (!r.user) { location.href = '/static/index.html'; return; }
   me = r.user;
   document.getElementById('who').textContent = `${me.name}（${me.username}）`;
@@ -81,7 +81,7 @@ let me = null;
 
   // 戰情室入口只在跑得起戰情室的那一側顯示。雲端已把它移到公司內網，
   // 留著按鈕只會連到 404。出工資料庫同理：只有雲端有 /api/worklog/*。
-  const brand = (await loadBranding()) || {};
+  const brand = brand0 || {};
   if (brand.war_room) document.getElementById('warRoomLink').classList.remove('hidden');
   if (brand.worklog_db && ['admin', 'manager', 'safety'].includes(me.role)) {
     document.getElementById('worklogRow').classList.remove('hidden');
@@ -89,6 +89,9 @@ let me = null;
 
   // 只取三個數字。戰情室搬到地端後 /api/dashboard 已不在雲端，
   // 而首頁本來也用不到那份完整彙總。
+  const recent = Promise.all([
+    API.get('/api/inspections?days=14'), API.get('/api/coordinations?days=14')
+  ]);
   const d = await API.get('/api/findings/summary');
   document.getElementById('mini').innerHTML = [
     ['accent', d.findings_today, '今日缺失'],
@@ -108,9 +111,7 @@ let me = null;
       <a class="sign-go" href="${esc(p.url)}"><button type="button">接著簽</button></a></div>`).join('');
   }).catch(() => {});
 
-  const [insp, coord] = await Promise.all([
-    API.get('/api/inspections?days=14'), API.get('/api/coordinations?days=14')
-  ]);
+  const [insp, coord] = await recent;
   // 單一工地之後，棟別才是有資訊量的欄位；舊資料沒有棟別時退回工地名
   const rows = [
     ...insp.map(i => ({ d: i.inspect_date, t: i.form_title, s: i.building || i.site,

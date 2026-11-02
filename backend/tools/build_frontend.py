@@ -7,7 +7,9 @@ API 由同一個 Netlify 站台的 Functions 提供（/api/*），因此不需�
 本機執行：
     python backend/tools/build_frontend.py
 """
+import hashlib
 import os
+import re
 import shutil
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -42,6 +44,35 @@ REDIRECTS = "/  /static/index.html  302\n"
 #     一個每分鐘空打 404 的輪詢
 CLOUD_EXCLUDE = ()
 
+# HTML 參照的 CSS／JS 網址帶內容雜湊，這些檔案就能長期快取：內容沒變不用回伺服器
+# 確認，改了網址也跟著變。HTML 本身每次都確認，部署後才拿得到新網址。
+ASSET_REF = re.compile(r'(/static/[\w.-]+\.(?:css|js))(?=["\'])')
+LONG_CACHE = "  Cache-Control: public, max-age=31536000, immutable\n"
+
+
+def version_assets(static_dir):
+    """改寫 HTML 的 CSS／JS 網址，回傳要長期快取的路徑。"""
+    used = set()
+
+    def stamp(m):
+        path = os.path.join(static_dir, os.path.basename(m.group(1)))
+        if not os.path.isfile(path):
+            return m.group(1)
+        with open(path, "rb") as f:
+            digest = hashlib.sha256(f.read()).hexdigest()[:10]
+        used.add(m.group(1))
+        return f"{m.group(1)}?v={digest}"
+
+    for name in os.listdir(static_dir):
+        if not name.endswith(".html"):
+            continue
+        path = os.path.join(static_dir, name)
+        with open(path, encoding="utf-8", newline="") as f:
+            html = f.read()
+        with open(path, "w", encoding="utf-8", newline="") as f:
+            f.write(ASSET_REF.sub(stamp, html))
+    return sorted(used)
+
 
 def main():
     if os.path.isdir(DIST):
@@ -55,6 +86,11 @@ def main():
 
     if CLOUD_EXCLUDE:
         print("[build] not deployed to cloud: " + ", ".join(CLOUD_EXCLUDE))
+
+    assets = version_assets(os.path.join(DIST, "static"))
+    with open(os.path.join(DIST, "_headers"), "w", encoding="utf-8", newline="\n") as f:
+        f.write("".join(f"{a}\n{LONG_CACHE}" for a in assets))
+    print(f"[build] 長期快取 {len(assets)} 個 CSS／JS")
 
     with open(os.path.join(DIST, "index.html"), "w", encoding="utf-8") as f:
         f.write(ROOT_INDEX)
