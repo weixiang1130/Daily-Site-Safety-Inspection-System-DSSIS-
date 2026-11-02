@@ -112,6 +112,8 @@ async function load() {
       b.push(`<button class="ghost" onclick="verify(${f.id})">覆驗通過</button>`);
       b.push(`<button class="ghost" onclick="openReject(${f.id})">不通過</button>`);
     }
+    // 內容填錯要回原單修改
+    if (f.doc_url) b.push(`<a href="${esc(f.doc_url)}"><button class="ghost" type="button">原單</button></a>`);
     return b.length ? `<div class="act-btns">${b.join('')}</div>` : '';
   };
 

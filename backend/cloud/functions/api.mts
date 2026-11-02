@@ -17,6 +17,7 @@ import { buildCoordinationPdf, buildInspectionPdf, type SigInput } from "../lib/
 import { boardPayload, validateBoard } from "../lib/site-board.ts";
 import {
   OPTION_FIELDS, PERSON_SEPARATOR, UNNAMED_VENDOR, cleanPerson, cleanTaskText, cleanVendor, learnFormOptions,
+  reportVendor,
   refreshFormOptions, splitTrades,
 } from "../lib/form-options.ts";
 
@@ -1077,11 +1078,13 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
           WHERE r.report_date BETWEEN ${from}::date AND ${to}::date
             AND (${site}::text = '' OR r.site_code = ${site}::text)
           ORDER BY r.site_code, r.report_date, r.building, r.vendor`;
-        const header = ["工地代碼", "工地", "日期", "棟別", "廠商", "總人數", "工種摘要", "作業主管", "施作項目",
-                        "回報人", "回報時間", "LINE訊息ID", ...(withRaw ? ["原文"] : [])];
-        return csvResponse(`出工回報_${tag}.csv`, `worklog_reports_${tag}.csv`, header, rows.map((r: any) => [
-          r.site_code, r.site_name, r.d, r.building, r.vendor, r.headcount, r.trade_summary, r.supervisor, r.tasks,
-          r.reporter, r.at, r.message_id, ...(withRaw ? [r.raw] : [])]));
+        const header = ["工地代碼", "工地", "日期", "棟別", "廠商", "工項", "總人數", "工種摘要", "作業主管", "施作項目",
+                        "回報人", "回報時間", "LINE訊息ID", "廠商原文", ...(withRaw ? ["原文"] : [])];
+        return csvResponse(`出工回報_${tag}.csv`, `worklog_reports_${tag}.csv`, header, rows.map((r: any) => {
+          const c = reportVendor(r.vendor, r.trade_summary);
+          return [r.site_code, r.site_name, r.d, r.building, c.vendor ?? r.vendor, c.work, r.headcount, c.trade,
+                  r.supervisor, r.tasks, r.reporter, r.at, r.message_id, r.vendor, ...(withRaw ? [r.raw] : [])];
+        }));
       }
       if (kind === "trades") {
         const rows = await db.sql`
@@ -1096,8 +1099,12 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
             AND (${site}::text = '' OR r.site_code = ${site}::text)
           ORDER BY r.site_code, r.report_date, r.building, r.vendor, t.trade`;
         return csvResponse(`工種明細_${tag}.csv`, `worklog_trades_${tag}.csv`,
-          ["工地代碼", "工地", "日期", "棟別", "廠商", "工種（原寫法）", "工種歸類", "人數"],
-          rows.map((r: any) => [r.site_code, r.site_name, r.d, r.building, r.vendor, r.trade, r.trade_group, r.headcount]));
+          ["工地代碼", "工地", "日期", "棟別", "廠商", "工項", "工種（原寫法）", "工種歸類", "人數", "廠商原文"],
+          rows.map((r: any) => {
+            const c = cleanVendor(r.vendor);
+            return [r.site_code, r.site_name, r.d, r.building, c.vendor ?? r.vendor, c.work,
+                    r.trade, r.trade_group, r.headcount, r.vendor];
+          }));
       }
       if (kind === "rejects") {
         const rows = await db.sql`
@@ -1265,8 +1272,8 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
       if (!code || date > today) return json({ date, updated_at: null, rows: [] });
       // 回報的廠商欄常帶人數或工項；看不出是廠商的留原文，由現場判斷。
       // 明確是工項的（鋼承板）不當廠商：供應商留空讓現場選，否則會多出一個假的簽名格
-      const shape = (r: any, trade: string | null) => {
-        const { vendor, work: said } = cleanVendor(r.vendor);
+      const shape = (r: any, summary: string | null) => {
+        const { vendor, work: said, trade } = reportVendor(r.vendor, summary);
         const work = said === UNNAMED_VENDOR ? null : said;   // 沒寫廠商不是一種作業項目
         return {
           building: r.building ?? null, vendor: vendor ?? (said ? null : r.vendor ?? null), work,
@@ -1476,6 +1483,8 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
       const formCode = (sp.get("form_code") || "").trim();
       const building = (sp.get("building") || "").trim();
       const siteId = parseInt(sp.get("site_id") || "", 10) || null;
+      // 沒指定狀態時不列作廢的單，要看才選
+      const status = ["signing", "submitted", "void"].includes(sp.get("status") || "") ? sp.get("status")! : "";
       const q = (sp.get("q") || "").trim().slice(0, 50);
       // LIKE 的 % _ \ 要跳脫，否則輸入「100%」會變成萬用字元
       const pat = q ? `%${q.replace(/[\\%_]/g, (m) => "\\" + m)}%` : "";
@@ -1483,7 +1492,7 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
         SELECT * FROM (
           SELECT 'inspection' AS kind, i.id, i.inspect_date AS d, i.building, s.name AS site,
                  ft.title, i.form_code, COALESCE(i.inspector_name, u.display_name) AS person,
-                 i.location, i.pdf_key, i.status,
+                 i.location, i.pdf_key, i.status, i.revision, i.inspector_id AS owner,
                  (SELECT COUNT(*)::int FROM inspection_results r
                    WHERE r.inspection_id = i.id AND r.result = 'fail') AS fail_count,
                  (SELECT COUNT(*)::int FROM findings f WHERE f.inspection_id = i.id) AS finding_count,
@@ -1492,7 +1501,8 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
           JOIN sites s ON s.id = i.site_id
           JOIN form_templates ft ON ft.form_code = i.form_code
           JOIN users u ON u.id = i.inspector_id
-          WHERE ${kind}::text IN ('', 'inspection') AND i.status <> 'void'
+          WHERE ${kind}::text IN ('', 'inspection')
+            AND (i.status = ${status}::text OR (${status}::text = '' AND i.status <> 'void'))
             AND i.inspect_date BETWEEN ${from}::date AND ${to}::date
             AND (${siteId}::int IS NULL OR i.site_id = ${siteId}::int)
             AND (${building}::text = '' OR i.building = ${building}::text)
@@ -1506,12 +1516,14 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
                                 OR f.responsible_person ILIKE ${pat}::text)))
           UNION ALL
           SELECT 'coordination', c.id, c.work_date, c.building, s.name,
-                 '每日協議巡視處理紀錄表', NULL, c.recorder_name, NULL, c.pdf_key, c.status, NULL,
+                 '每日協議巡視處理紀錄表', NULL, c.recorder_name, NULL, c.pdf_key, c.status,
+                 c.revision, c.created_by, NULL,
                  (SELECT COUNT(*)::int FROM findings f WHERE f.coordination_id = c.id),
                  (SELECT COUNT(*)::int FROM coordination_attendees a WHERE a.coordination_id = c.id)
           FROM coordinations c
           JOIN sites s ON s.id = c.site_id
-          WHERE ${kind}::text IN ('', 'coordination') AND c.status <> 'void'
+          WHERE ${kind}::text IN ('', 'coordination')
+            AND (c.status = ${status}::text OR (${status}::text = '' AND c.status <> 'void'))
             AND ${formCode}::text = ''
             AND c.work_date BETWEEN ${from}::date AND ${to}::date
             AND (${siteId}::int IS NULL OR c.site_id = ${siteId}::int)
@@ -1536,7 +1548,7 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
         rows: rows.slice(0, 200).map((r: any) => ({
           kind: r.kind, id: r.id, date: dateOnly(r.d), building: r.building, site: r.site,
           title: r.title, form_code: r.form_code, person: r.person, location: r.location,
-          status: r.status,
+          status: r.status, revision: r.revision, can_alter: canAlter(me, r.owner),
           no: `${r.kind === "inspection" ? "INSP" : "COORD"}-${String(r.id).padStart(6, "0")}`,
           fail_count: r.fail_count, finding_count: r.finding_count, attendee_count: r.attendee_count,
           pdf_url: r.pdf_key ? `/api/${r.kind === "inspection" ? "inspections" : "coordinations"}/${r.id}/pdf` : null,
@@ -1899,6 +1911,8 @@ function shapeFinding(f: any) {
     verified_at: f.verified_at ? minuteISO(f.verified_at) : null,
     review_note: f.review_note ?? null,
     photo_before: f.photo_before, photo_after: f.photo_after,
+    doc_url: f.inspection_id ? `/static/sign.html?kind=inspection&id=${f.inspection_id}`
+      : f.coordination_id ? `/static/sign.html?kind=coordination&id=${f.coordination_id}` : null,
   };
 }
 
@@ -2488,7 +2502,9 @@ async function handleSign(
     });
   }
   if (method !== "POST") return fail(405, "方法不支援");
-  if (doc.status !== "signing") return fail(409, "這張單已完成簽核或已作廢，請重新整理");
+  // 已完成的單填錯也要能作廢；其他動作只在簽核中
+  const voidable = action === "void" && doc.status === "submitted";
+  if (doc.status !== "signing" && !voidable) return fail(409, "這張單已完成簽核或已作廢，請重新整理");
   const b = await req.json();
   // 頁面開著時內容可能被改過：簽名是對看到的內容負責，舊頁面不能簽到新內容上
   if (Number(b.revision) !== doc.revision) return fail(409, STALE_DOC);

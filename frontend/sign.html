@@ -36,7 +36,7 @@
     </div>
     <p class="muted" style="margin:12px 0 0">內容寫錯？
       <a href="#" class="editLink">修改內容</a>（已簽的簽名會清空，要重新簽），或
-      <a href="#" id="voidLink">作廢這張單</a>。</p>
+      <a href="#" class="voidLink">作廢這張單</a>。</p>
   </div>
 
   <div class="card hidden" id="done">
@@ -46,7 +46,8 @@
       <a href="/static/home.html"><button class="ghost" style="width:100%">回首頁</button></a>
     </div>
     <p class="muted" style="margin:12px 0 0">內容有誤？
-      <a href="#" class="editLink">修改內容</a>。舊版會保留，改完要重新簽核。</p>
+      <a href="#" class="editLink">修改內容</a>（舊版會保留，改完要重新簽核），或
+      <a href="#" class="voidLink">作廢這張單</a>。</p>
   </div>
 
   <div class="card">
@@ -213,16 +214,11 @@ $('finish').onclick = async () => {
   btn.disabled = false;
 };
 
-$('voidLink').onclick = async e => {
+document.querySelectorAll('.voidLink').forEach(a => a.onclick = async e => {
   e.preventDefault();
-  const reason = (prompt('作廢這張單？未結案的缺失會一起移除，需要重新填寫；原內容留在修改紀錄。\n\n請填寫作廢原因：') || '').trim();
-  if (!reason) return;
-  try {
-    await API.post(`${base}/void`, { revision: doc.revision, reason });
-    toast('已作廢');
-    location.href = '/static/home.html';
-  } catch (err) { toast('作廢失敗：' + err.message); await load(); }
-};
+  if (!await voidDoc(kind, id, doc.revision)) { await load(); return; }
+  location.href = '/static/home.html';
+});
 </script>
 </body>
 </html>

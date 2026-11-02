@@ -62,6 +62,8 @@ WORK_WORDS = ("綁紮", "模板", "水電", "帷幕", "鋼筋", "鋼構", "放�
 # 這些是施工機具不是工種——鋼構類廠商常把「760塔吊*1」列在人數
 # 清單旁邊，不濾掉的話工種欄會混進機具、加總人數也會多算
 MACHINE_WORDS = ("堆高機", "塔吊", "作業車", "挖掘機", "吊車", "吊卡")
+# 「塔吊手」「吊車司機」是操作的人，要算人數
+MACHINE_OPERATOR = re.compile(r"(手|工|員|司機|師傅)$")
 
 # 單行人數上限。「聯絡電話：0912345678」「編號X3000000000」也長得像
 # 「名稱：數字」，不擋的話一則訊息就是幾十億人，還會讓雲端寫入整批失敗。
@@ -294,7 +296,7 @@ def parse_message(content: str, labels: list, fallback_date: Optional[date]) -> 
     supervisor = _supervisor(content)
 
     def is_machine(name: str) -> bool:
-        return any(w in name for w in MACHINE_WORDS)
+        return any(w in name for w in MACHINE_WORDS) and not MACHINE_OPERATOR.search(name)
 
     def is_trade(name: str, n: int) -> bool:
         # 名稱不含中文的是機具型號或分區代號，不是工種：「PC*120*2」是挖土機

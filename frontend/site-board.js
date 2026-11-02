@@ -812,6 +812,15 @@ function renderHazards() {
  * 棟別排後面、未填棟別歸「未分棟」），每頁只放同一棟、同棟太多就分頁。
  * 純函式——縮列時要用新的列數重算頁序。
  */
+/** 幾家廠商：同一家的不同工班只算一家，只寫工項的列不算。 */
+function vendorCount(rows) {
+  const names = rows.map(r => {
+    const c = reportVendor(r.vendor, r.trade);
+    return c.vendor || (c.work ? null : r.vendor);
+  });
+  return new Set(names.filter(Boolean)).size;
+}
+
 function workforcePages(rows, per) {
   const groups = new Map();                         // 棟別 → rows[]
   for (const r of rows) {
@@ -829,7 +838,7 @@ function workforcePages(rows, per) {
     const total = Math.ceil(list.length / per);
     for (let i = 0; i < total; i++) {
       pages.push({ building: b, start: i * per, rows: list.slice(i * per, i * per + per),
-        headcount, vendors: list.length, pg: i + 1, total });
+        headcount, vendors: vendorCount(list), pg: i + 1, total });
     }
   }
   return pages;
@@ -856,7 +865,7 @@ function renderHeadcountCard(w) {
     return;
   }
   rollText(total, w.total.toLocaleString());
-  vendors.textContent = `${w.rows.length} 家廠商回報`;
+  vendors.textContent = `${vendorCount(w.rows)} 家廠商回報`;
   const groups = workforcePages(w.rows, w.rows.length);   // 每棟一頁＝每棟一組
   const sum = groups.reduce((a, g) => a + g.headcount, 0) || 1;
   bars.innerHTML = groups.map(g => `<div class="bar-row">
@@ -874,7 +883,7 @@ function renderWorkforce() {
     body.innerHTML = `<tr><td colspan="5"><div class="workforce-empty">
       <span class="empty-mark">／</span><h3>等待今日出工回報</h3>
       <p>各廠商於工務所群組回報後，依當日日期彙整顯示。</p></div></td></tr>`;
-    document.getElementById('wfMeta').textContent = '工種 / 人數 / 施作項目';
+    document.getElementById('wfMeta').textContent = '工項 / 人數 / 施作項目';
     return;
   }
   const pages = workforcePages(w.rows, wfPer);
@@ -887,13 +896,19 @@ function renderWorkforce() {
   // 每頁只放同一棟（棟別在卡片右上），所以不列棟別欄；整頁都沒有作業主管
   // 就收掉那一欄，把寬度讓給施作項目
   body.closest('table').classList.toggle('no-sup', !page.rows.some(r => r.supervisor));
-  swapHtml(body, page.rows.map(r => `<tr>
-    <td>${esc(r.vendor)}</td>
-    <td title="${esc(r.trade || '')}"><div class="clamp2">${esc(r.trade || '—')}</div></td>
+  // 廠商欄原文常連工項一起寫（某某連續壁）：拆開才不會被當成廠商全名，原文留在滑鼠提示
+  swapHtml(body, page.rows.map(r => {
+    const c = reportVendor(r.vendor, r.trade);
+    const work = c.work === '未標示廠商' ? '' : c.work;
+    const trade = [work && !(c.trade || '').includes(work) ? work : '', c.trade].filter(Boolean).join('・');
+    return `<tr>
+    <td title="${esc(r.vendor)}">${esc(c.vendor || (c.work ? '未標示廠商' : r.vendor))}</td>
+    <td title="${esc(trade)}"><div class="clamp2">${esc(trade || '—')}</div></td>
     <td>${r.headcount == null ? '—'
       : `<span class="hc"><b>${r.headcount}</b><i style="--w:${(r.headcount / maxHc * 100).toFixed(0)}%"></i></span>`}</td>
     <td>${esc(r.supervisor || '—')}</td>
-    <td title="${esc(r.tasks || '')}"><div class="clamp2">${esc(r.tasks || '—')}</div></td></tr>`).join(''));
+    <td title="${esc(r.tasks || '')}"><div class="clamp2">${esc(r.tasks || '—')}</div></td></tr>`;
+  }).join(''));
   document.getElementById('wfMeta').textContent =
     page.total > 1
       ? `${page.building} ${page.headcount.toLocaleString()} 人・${page.vendors} 家・第 ${page.pg}／${page.total} 頁`

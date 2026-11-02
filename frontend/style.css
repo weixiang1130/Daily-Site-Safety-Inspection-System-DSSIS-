@@ -1309,6 +1309,26 @@ table.fixed th {
   margin: 0 0 var(--sp-6);
 }
 
+/* 已填單據：工地 > 棟別 > 清單。手機改成一張一塊，操作鈕不用橫捲才看得到 */
+.rec-site { font-size: 1.125rem; margin: var(--sp-6) 0 var(--sp-3); padding-bottom: var(--sp-2); border-bottom: 2px solid var(--border-strong); }
+.rec-site:first-of-type { margin-top: var(--sp-3); }
+.card h3.rec-building { font-size: var(--fs-body); font-weight: 700; color: var(--text); letter-spacing: 0; text-transform: none; margin: var(--sp-4) 0 var(--sp-2); }
+.rec-site small, .rec-building small { font-weight: 400; color: var(--text-muted); }
+table.rec-table { width: 100%; table-layout: fixed; }
+table.rec-table th, table.rec-table td { white-space: normal; overflow-wrap: anywhere; vertical-align: top; }
+table.rec-table .tag { white-space: nowrap; }
+table.rec-table .act-btns a { display: inline-flex; }
+@media (max-width: 980px) {
+  table.rec-table, table.rec-table tbody, table.rec-table tr, table.rec-table td { display: block; width: 100%; }
+  table.rec-table colgroup, table.rec-table thead { display: none; }
+  table.rec-table tr { padding: var(--sp-3) 0; border-bottom: 1px solid var(--border); }
+  table.rec-table td { padding: 2px 0; border: 0; }
+  table.rec-table td[data-l]:not(:empty)::before { content: attr(data-l) "　"; color: var(--text-muted); font-size: var(--fs-sm); }
+  table.rec-table td.rec-title { font-weight: 600; }
+  table.rec-table td.rec-title .muted { font-weight: 400; }
+  table.rec-table .act-btns { margin-top: var(--sp-2); }
+}
+
 @media (max-width: 640px) {
   .wrap { padding: var(--sp-5) var(--sp-4) var(--sp-8); }
   /* 戰情室走舞台縮放，真實視窗寬度的手機規則不可動到它 */

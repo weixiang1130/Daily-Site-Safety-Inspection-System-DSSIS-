@@ -15,16 +15,18 @@ const TRADE_ALIASES: Record<string, string> = {
   電工班: "電班", 水工班: "水班", 電銲工: "電焊工", 電銲小工: "電焊小工", 監火工: "監火員",
 };
 
-const AREA_PREFIX = /^(住宅|商辦|辦公)(區|棟)?/;
+const AREA_PREFIX = /^(住宅|商辦|辦公|[A-Za-z][棟動])(區|棟)?/;
 const AREA_ONLY = /^(住宅|商辦|辦公)(區|棟)?$/;
 const NOT_A_NAME = /作業主管|勞工|劳工|工人|更正|修正/;
 /** 回報者把工項填在廠商欄。只比整格：「某某模板」「某某鷹架」是正常的廠商名。 */
 const WORK_TERM = /^(鋼承板|續接器鎖接|續接器|輕隔間|連續壁|鋼筋綁紮|模板|鷹架|放樣|粉光|防火批覆|壓送|植釘|地改|未標示廠商)$/;
 /** 廠商名後面接的工項或班別：「某某連續壁」「某某移工」。沒有這些字的是另一家
-    （「某某鋼鐵」不能拆成某某）。前端 listVendor 用同一份。 */
-const WORK_SUFFIX = /鋼承板|續接器|輕隔間|連續壁|綁紮|模板|鷹架|放樣|粉光|防火|壓送|植釘|地改|水電|帷幕|配管|吊裝|泥作|油漆|防水|機電|鋼筋|鋼構|移工|點工/;
+    （「某某鋼鐵」不能拆成某某）。前端 common.js 的 cleanVendor 用同一份。 */
+const WORK_SUFFIX = /鋼承板|續接器|輕隔間|連續壁|電梯井|綁紮|模板|模扳|鷹架|放樣|粉光|防火|壓送|植釘|地改|水電|帷幕|配管|吊裝|泥作|油漆|防水|機電|鋼筋|鋼構|監控|移工|點工|泰工/;
 /** 工項黏在廠商名前面（「放樣某某」）。 */
-const WORK_PREFIX = /^(放樣|測量)(?=\S{2})/;
+const WORK_PREFIX = /^(放樣|測量|泥作|油漆)(?=\S{2})/;
+/** 公司全名不拆：主檔的「某某模板工程行」就是登記名稱。 */
+const COMPANY_TAIL = /(公司|工程行|企業社?|實業|工業)$/;
 
 /** 回報廠商欄 → {廠商, 順帶寫在後面的工項}。不像廠商名回 vendor=null。 */
 export function cleanVendor(raw: unknown): { vendor: string | null; work: string | null } {
@@ -43,6 +45,11 @@ export function cleanVendor(raw: unknown): { vendor: string | null; work: string
   }
   const pre = WORK_PREFIX.exec(vendor);
   if (pre && !work) { work = pre[1]; vendor = vendor.slice(pre[1].length); }
+  const cut = COMPANY_TAIL.test(vendor) ? -1 : vendor.slice(2).search(WORK_SUFFIX);   // 廠商名至少兩個字
+  if (cut >= 0) {
+    work = [vendor.slice(cut + 2).replace("模扳", "模板"), work].filter(Boolean).join(" ");
+    vendor = vendor.slice(0, cut + 2);
+  }
   // 含數字或「區」的是工區與工項（1F出土、E區篩土），不是廠商
   if (vendor.length < 2 || vendor.length > 8 || /\d|[A-Za-z]區|區$/.test(vendor)
       || AREA_PREFIX.test(vendor) || NOT_A_NAME.test(s)) {
@@ -68,6 +75,18 @@ export function splitTrades(raw: unknown): { name: string; counted: boolean }[] 
     }
   }
   return out;
+}
+
+/** 回報一列 → 廠商、工項、工種。廠商欄填工項時，廠商常寫在工種欄（兩欄填反）：
+    工種欄只有一個沒寫人數、也不像工種的名稱才敢認定。 */
+export function reportVendor(raw: unknown, tradeSummary: unknown) {
+  const { vendor, work } = cleanVendor(raw);
+  const parts = splitTrades(tradeSummary);
+  const swapped = !vendor && work && parts.length === 1 && !parts[0].counted
+    && !WORK_SUFFIX.test(parts[0].name) && !/[工班]$/.test(parts[0].name);
+  return swapped
+    ? { vendor: parts[0].name, work, trade: null }
+    : { vendor, work, trade: tradeSummary == null ? null : String(tradeSummary) };
 }
 
 /** 一段施作項目的整理：去掉編號、欄位標籤（「工作內容：」）、開頭的連字號、結尾的人數。 */
@@ -114,22 +133,11 @@ export interface OptionRow {
   field: string; value: string; vendor: string; n: number; last_used: string | null;
 }
 
-/** 「某某連續壁」前段是常見廠商時，拆成廠商＋工項。常見＝出現 5 次以上的名稱。 */
-function knownVendors(rows: SourceRow[]): string[] {
-  const n = new Map<string, number>();
-  for (const r of rows) {
-    const { vendor } = cleanVendor(r.vendor);
-    if (vendor) n.set(vendor, (n.get(vendor) || 0) + 1);
-  }
-  return [...n].filter(([, c]) => c >= 5).map(([v]) => v).sort((a, b) => b.length - a.length);
-}
-
 /** 來源列 → 去重計數的選項。minContent：作業內容至少出現幾次才收（單次多半是當天
     敘述）；大於 1 時廠商也篩：只出現一次又長的名稱多半是打字或工項，不是廠商。 */
 export function buildOptions(
   rows: SourceRow[], aliases: Record<string, string> = {}, minContent = 1,
 ): OptionRow[] {
-  const known = minContent > 1 ? knownVendors(rows) : [];
   const seen = new Set(rows.map((r) => cleanVendor(r.vendor).vendor));
   const map = new Map<string, OptionRow>();
   const add = (field: string, value: string, vendor: string, last: string | null) => {
@@ -145,11 +153,7 @@ export function buildOptions(
   const trade = (t: string) => aliases[t] || TRADE_ALIASES[t] || t;
 
   for (const r of rows) {
-    const cleaned = cleanVendor(r.vendor);
-    let { vendor, work } = cleaned;
-    const base = vendor && known.find((k) => vendor !== k && vendor!.startsWith(k)
-      && WORK_SUFFIX.test(vendor!.slice(k.length)));
-    if (base) { work = work || vendor!.slice(base.length); vendor = base; }
+    let { vendor, work } = cleanVendor(r.vendor);
     const parts = splitTrades(r.trade_summary);
     // 廠商欄填了工項時，廠商常寫在工種欄（兩欄填反）：只有一個名稱才敢認定
     if (!vendor && work && parts.length === 1 && !parts[0].counted && seen.has(parts[0].name)) {
@@ -259,6 +263,18 @@ export async function refreshFormOptions(sql: Sql, siteCode: string): Promise<nu
     WHERE site_code = ${siteCode} AND canonical IS NOT NULL
     GROUP BY field, value, canonical`;
   const master = (await sql`SELECT name FROM vendors WHERE active`).map((m: any) => m.name);
+  // 表單累積的舊寫法（「某某模板」）已拆成廠商＋工項，不再是選項；現場親手加的不動
+  const learned = await sql`
+    SELECT DISTINCT value FROM form_options
+    WHERE site_code = ${siteCode} AND field = 'vendor' AND source = 'form' AND canonical IS NULL`;
+  for (const { value } of learned as any[]) {
+    const { vendor } = cleanVendor(value);
+    if (vendor && vendor !== value) {
+      await sql`DELETE FROM form_options
+                WHERE site_code = ${siteCode} AND field = 'vendor' AND source = 'form'
+                  AND value = ${value} AND canonical IS NULL`;
+    }
+  }
   const built = buildOptions(rows, aliases, 2);
   // 被併掉後現場又親手加回來的不是錯字，不能每晚再併一次
   const confirmed = await sql`

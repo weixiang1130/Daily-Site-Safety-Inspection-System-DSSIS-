@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>已填單據查詢</title>
+<title>已填單據</title>
 <link rel="stylesheet" href="/static/brand.css">
 <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -17,9 +17,9 @@
 <div class="wrap wide">
   <div class="page-head">
     <div class="eyebrow">Submitted Records</div>
-    <h1>已填單據查詢</h1>
-    <p class="lede">自主檢查表與協議巡視表都在這裡。關鍵字會比對填表人、地點、表單名稱、
-      廠商、參加人員、缺失內容與協議事項。</p>
+    <h1>已填單據</h1>
+    <p class="lede">自主檢查表與協議巡視表都在這裡，依工地、棟別分開列出。填錯可以直接修改或作廢。
+      關鍵字會比對填表人、地點、表單名稱、廠商、參加人員、缺失內容與協議事項。</p>
   </div>
 
   <div class="card">
@@ -28,6 +28,17 @@
       <button type="button" id="go">搜尋</button>
     </div>
     <div class="row">
+      <div><label>工地</label><select id="site"></select></div>
+      <div><label>棟別</label><select id="building"></select></div>
+      <div><label>狀態</label>
+        <select id="status">
+          <option value="">簽核中與已完成</option>
+          <option value="signing">簽核中</option>
+          <option value="submitted">已完成</option>
+          <option value="void">已作廢</option>
+        </select></div>
+    </div>
+    <div class="row" style="margin-top:var(--sp-3)">
       <div><label>起日</label><input type="date" id="from"></div>
       <div><label>迄日</label><input type="date" id="to"></div>
       <div><label>單別</label>
@@ -37,7 +48,6 @@
           <option value="coordination">每日協議巡視表</option>
         </select></div>
       <div><label>表單</label><select id="form"><option value="">全部表單</option></select></div>
-      <div><label>棟別</label><select id="building"></select></div>
     </div>
     <div class="row" style="margin-top:var(--sp-3)">
       <button type="button" class="ghost" data-days="7">近 7 日</button>
@@ -55,7 +65,10 @@
 <script src="/static/common.js"></script>
 <script>
 const $ = id => document.getElementById(id);
-const FIELDS = ['q', 'from', 'to', 'kind', 'form', 'building'];
+const FIELDS = ['q', 'from', 'to', 'kind', 'form', 'site', 'building', 'status'];
+const API_NAME = { form: 'form_code', site: 'site_id' };
+const DOC_STATUS = { signing: ['fixed', '簽核中'], submitted: ['closed', '已完成'], void: ['', '已作廢'] };
+let buildingOrder = [], ROWS = [];
 
 const daysAgo = n => {
   const d = new Date(); d.setDate(d.getDate() - n);
@@ -67,16 +80,18 @@ const daysAgo = n => {
   const r = await API.get('/api/me');
   if (!r.user) { location.href = '/static/index.html'; return; }
 
-  const forms = await API.get('/api/forms');
+  const [forms, sites] = await Promise.all([API.get('/api/forms'), API.get('/api/sites')]);
+  $('site').innerHTML = siteOptions(sites, null, '全部工地');
   $('form').innerHTML += forms.map(f => `<option value="${esc(f.form_code)}">${esc(f.title)}</option>`).join('');
+  buildingOrder = buildingList(brand);
   $('building').innerHTML = '<option value="">全部棟別</option>'
-    + buildingList(brand).map(b => `<option value="${esc(b)}">${esc(b)}</option>`).join('');
+    + buildingOrder.map(b => `<option value="${esc(b)}">${esc(b)}</option>`).join('');
 
   // 條件放在網址上：從 PDF 回上一頁、或把查詢結果傳給同事，條件都還在
   const sp = new URLSearchParams(location.search);
   $('from').value = sp.get('from') || daysAgo(30);
   $('to').value = sp.get('to') || today();
-  ['q', 'kind', 'form', 'building'].forEach(k => { if (sp.get(k)) $(k).value = sp.get(k); });
+  ['q', 'kind', 'form', 'site', 'building', 'status'].forEach(k => { if (sp.get(k)) $(k).value = sp.get(k); });
   syncKind();
   search();
 })();
@@ -93,7 +108,7 @@ let searchSeq = 0;
 async function search() {
   const mine = ++searchSeq;   // 連續改條件時，較慢回來的舊結果不能蓋掉新的
   const sp = new URLSearchParams();
-  FIELDS.forEach(k => { if ($(k).value) sp.set(k === 'form' ? 'form_code' : k, $(k).value); });
+  FIELDS.forEach(k => { if ($(k).value) sp.set(API_NAME[k] || k, $(k).value); });
   const shown = new URLSearchParams();
   FIELDS.forEach(k => { if ($(k).value) shown.set(k, $(k).value); });
   history.replaceState(null, '', '?' + shown.toString());
@@ -106,38 +121,78 @@ async function search() {
     return;
   }
   if (mine !== searchSeq) return;
-
-  const summary = r => r.kind === 'inspection'
-    ? `不合格 ${r.fail_count} 項${r.finding_count ? `・缺失 ${r.finding_count} 筆` : ''}`
-    : `參加 ${r.attendee_count} 筆${r.finding_count ? `・缺失 ${r.finding_count} 筆` : ''}`;
+  ROWS = d.rows;
   const q = $('q').value.trim();
   $('list').innerHTML = d.rows.length ? `
     <p class="muted" style="margin-top:0">${esc(d.from)} ～ ${esc(d.to)}${q ? `，關鍵字「${esc(q)}」` : ''}：
       共 ${d.rows.length} 張${d.truncated ? '（只列最近 200 張，請縮小日期或加關鍵字）' : ''}</p>
-    <div class="table-scroll"><table class="grid-fixed">
-    <colgroup><col style="width:104px"><col style="width:118px"><col><col style="width:76px"><col style="width:88px">
-      <col style="width:170px"><col style="width:168px"><col style="width:96px"></colgroup>
-    <thead><tr><th>日期</th><th>單號</th><th>單別／表單</th><th>棟別</th><th>填表人</th>
-      <th>地點</th><th>結果</th><th></th></tr></thead>
-    <tbody>${d.rows.map(r => `<tr>
-      <td class="num">${esc(r.date)}</td>
-      <td class="num">${esc(r.no)}</td>
-      <td>${esc(r.title)}</td>
-      <td title="${esc(r.site)}">${esc(r.building || r.site)}</td>
-      <td>${esc(r.person || '')}</td>
-      <td>${esc(r.location || '')}</td>
-      <td class="muted">${esc(summary(r))}</td>
-      <td>${r.status === 'signing'
-            ? `<a href="/static/sign.html?kind=${esc(r.kind)}&id=${r.id}">簽核中</a>`
-            : (r.pdf_url ? `<a href="${esc(r.pdf_url)}" target="_blank">PDF</a>
-                 <a href="/static/sign.html?kind=${esc(r.kind)}&id=${r.id}">修改</a>` : '')}</td>
-    </tr>`).join('')}</tbody></table></div>`
+    ${renderGroups(d.rows)}`
     : `<p class="muted">${esc(d.from)} ～ ${esc(d.to)} 查無符合的單據。可放寬日期區間或換個關鍵字。</p>`;
 }
 
+const summary = r => r.kind === 'inspection'
+  ? `不合格 ${r.fail_count} 項${r.finding_count ? `・缺失 ${r.finding_count} 筆` : ''}`
+  : `參加 ${r.attendee_count} 筆${r.finding_count ? `・缺失 ${r.finding_count} 筆` : ''}`;
+
+/** 工地 > 棟別 > 清單。棟別照設定的順序，沒填的放最後。 */
+function renderGroups(rows) {
+  const sites = new Map();
+  rows.forEach((r, i) => {
+    if (!sites.has(r.site)) sites.set(r.site, new Map());
+    const b = r.building || '未分棟', list = sites.get(r.site);
+    if (!list.has(b)) list.set(b, []);
+    list.get(b).push({ r, i });
+  });
+  const rank = b => { const n = buildingOrder.indexOf(b); return b === '未分棟' ? 1e4 : n < 0 ? 1e3 : n; };
+  return [...sites].map(([site, list]) => `
+    <h2 class="rec-site">${esc(site)} <small>${[...list.values()].reduce((n, x) => n + x.length, 0)} 張</small></h2>
+    ${[...list].sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0])).map(([b, items]) => `
+      <h3 class="rec-building">${esc(b)} <small>${items.length} 張</small></h3>
+      <table class="rec-table">
+      <colgroup><col style="width:104px"><col><col style="width:84px"><col style="width:14%">
+        <col style="width:13%"><col style="width:76px"><col style="width:246px"></colgroup>
+      <thead><tr><th>日期</th><th>單別／表單</th><th>填表人</th><th>地點</th><th>結果</th><th>狀態</th><th></th></tr></thead>
+      <tbody>${items.map(({ r, i }) => row(r, i)).join('')}</tbody></table>`).join('')}`).join('');
+}
+
+function row(r, i) {
+  const [cls, label] = DOC_STATUS[r.status] || ['', r.status];
+  const open = `/static/sign.html?kind=${esc(r.kind)}&id=${r.id}`;
+  const acts = [];
+  if (r.pdf_url) acts.push(`<a href="${esc(r.pdf_url)}" target="_blank"><button class="ghost" type="button">PDF</button></a>`);
+  acts.push(`<a href="${open}"><button class="ghost" type="button">${r.status === 'signing' ? '簽核' : '開啟'}</button></a>`);
+  if (r.can_alter && r.status !== 'void') {
+    acts.push(`<button class="ghost" type="button" data-act="edit" data-i="${i}">修改</button>`);
+    acts.push(`<button class="ghost" type="button" data-act="void" data-i="${i}">作廢</button>`);
+  }
+  return `<tr>
+    <td class="num">${esc(r.date)}</td>
+    <td class="rec-title">${esc(r.title)}<div class="muted num">${esc(r.no)}</div></td>
+    <td data-l="填表人">${esc(r.person || '')}</td>
+    <td data-l="地點">${esc(r.location || '')}</td>
+    <td class="muted">${esc(summary(r))}</td>
+    <td><span class="tag ${cls}">${esc(label)}</span></td>
+    <td><div class="act-btns">${acts.join('')}</div></td>
+  </tr>`;
+}
+
+$('list').addEventListener('click', async e => {
+  const b = e.target.closest('button[data-act]');
+  if (!b) return;
+  const r = ROWS[parseInt(b.dataset.i, 10)];
+  if (b.dataset.act === 'edit') {
+    if (!confirm(`修改 ${r.no}？\n\n已簽的簽名會清空，改完要重新簽核。修改前的版本會保留在修改紀錄。`)) return;
+    location.href = `/static/${r.kind === 'inspection' ? 'fill' : 'coord'}.html?edit=${r.id}`;
+    return;
+  }
+  b.disabled = true;
+  await voidDoc(r.kind, r.id, r.revision);
+  search();
+});
+
 $('go').onclick = search;
 $('q').addEventListener('keydown', e => { if (e.key === 'Enter') search(); });
-['from', 'to', 'form', 'building'].forEach(k => $(k).addEventListener('change', search));
+['from', 'to', 'form', 'site', 'building', 'status'].forEach(k => $(k).addEventListener('change', search));
 $('kind').addEventListener('change', () => { syncKind(); search(); });
 document.querySelectorAll('[data-days]').forEach(b => b.onclick = () => {
   $('from').value = daysAgo(parseInt(b.dataset.days, 10));

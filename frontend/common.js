@@ -304,6 +304,17 @@ const STATUS_LABEL = { open: '改善中', fixed: '待複驗', verified: '已複�
 // 標籤文字已經集中在上面，顏色也集中在這裡，兩者才不會再各自漂移。
 const STATUS_CLASS = { open: 'open', fixed: 'fixed', verified: 'verified', closed: 'closed' };
 
+/** 作廢單據：問原因後送出，回 true＝已作廢。作廢不是真的刪除：單據要留存，內容留在修改紀錄。 */
+async function voidDoc(kind, id, revision) {
+  const reason = (prompt('作廢這張單？未結案的缺失會一起移除，需要重新填寫；原內容留在修改紀錄。\n\n請填寫作廢原因：') || '').trim();
+  if (!reason) return false;
+  try {
+    await API.post(`/api/sign/${encodeURIComponent(kind)}/${id}/void`, { revision, reason });
+    toast('已作廢');
+    return true;
+  } catch (err) { toast('作廢失敗：' + err.message); return false; }
+}
+
 /** 產出狀態標籤。status 未知時退回原字串，不硬套成「需處理」的紅色。 */
 function statusTag(status) {
   const cls = STATUS_CLASS[status] || '';
@@ -704,18 +715,63 @@ function optionCanon(field, value) {
   return map[value] || value;
 }
 
-/** 廠商名後面接的工項或班別，與後端 form-options.ts 的 WORK_SUFFIX 相同。 */
-const WORK_SUFFIX = /鋼承板|續接器|輕隔間|連續壁|綁紮|模板|鷹架|放樣|粉光|防火|壓送|植釘|地改|水電|帷幕|配管|吊裝|泥作|油漆|防水|機電|鋼筋|鋼構|移工|點工/;
+/* 以下規則與後端 form-options.ts 相同（cleanVendor、reportVendor），改一邊要同步改另一邊。 */
+const WORK_SUFFIX = /鋼承板|續接器|輕隔間|連續壁|電梯井|綁紮|模板|模扳|鷹架|放樣|粉光|防火|壓送|植釘|地改|水電|帷幕|配管|吊裝|泥作|油漆|防水|機電|鋼筋|鋼構|監控|移工|點工|泰工/;
+const WORK_TERM = /^(鋼承板|續接器鎖接|續接器|輕隔間|連續壁|鋼筋綁紮|模板|鷹架|放樣|粉光|防火批覆|壓送|植釘|地改|未標示廠商)$/;
+const WORK_PREFIX = /^(放樣|測量|泥作|油漆)(?=\S{2})/;
+const COMPANY_TAIL = /(公司|工程行|企業社?|實業|工業)$/;
+const AREA_PREFIX = /^(住宅|商辦|辦公|[A-Za-z][棟動])(區|棟)?/;
 
-/** LINE 回報的廠商對到清單：「某某連續壁」→ 某某＋連續壁，帶進表單才不會多一種寫法。
-    後段要是工項才拆：清單有「某某」時，新進場的「某某鋼鐵」是另一家。 */
+/** 回報廠商欄 → {廠商, 順帶寫在後面的工項}：「某某連續壁」→ 某某＋連續壁。
+    後段要是工項才拆：「某某鋼鐵」是另一家。不像廠商名回 vendor=null。 */
+function cleanVendor(raw) {
+  const s = String(raw ?? '')
+    .replace(/[（(][^）)]*[）)]/g, ' ')
+    .replace(/\s*\d+\s*[人名工].*$/, '')
+    .replace(/^[\s.。．、,，+＋\-]+/, '')
+    .replace(AREA_PREFIX, '')
+    .trim();
+  const m = /^(\S+)\s+(.+)$/.exec(s);
+  let vendor = m ? m[1] : s;
+  let work = m ? m[2].trim() : null;
+  if (WORK_TERM.test(vendor)) {
+    if (!work) return { vendor: null, work: vendor };
+    [vendor, work] = [work, vendor];
+  }
+  const pre = WORK_PREFIX.exec(vendor);
+  if (pre && !work) { work = pre[1]; vendor = vendor.slice(pre[1].length); }
+  const cut = COMPANY_TAIL.test(vendor) ? -1 : vendor.slice(2).search(WORK_SUFFIX);
+  if (cut >= 0) {
+    work = [vendor.slice(cut + 2).replace('模扳', '模板'), work].filter(Boolean).join(' ');
+    vendor = vendor.slice(0, cut + 2);
+  }
+  if (vendor.length < 2 || vendor.length > 8 || /\d|[A-Za-z]區|區$/.test(vendor)
+      || AREA_PREFIX.test(vendor) || /作業主管|勞工|劳工|工人|更正|修正/.test(s)) {
+    return { vendor: null, work: null };
+  }
+  return { vendor, work };
+}
+
+/** 回報一列 → 廠商、工項、工種。廠商欄填工項時，廠商常寫在工種欄（兩欄填反）：
+    工種欄只有一個沒寫人數、也不像工種的名稱才敢認定。 */
+function reportVendor(raw, tradeSummary) {
+  const { vendor, work } = cleanVendor(raw);
+  const parts = String(tradeSummary ?? '').split(/[、，,；;+＋\n]/).map(p => p.trim())
+    .map(p => ({ name: p.replace(/[\s*＊xX×]*\d+\s*[人名工]?$/, '').trim(), p }))
+    .filter(x => x.name.length >= 2 && x.name.length <= 10 && !/\d|\*/.test(x.name));
+  const swapped = !vendor && work && parts.length === 1 && parts[0].name === parts[0].p
+    && !WORK_SUFFIX.test(parts[0].name) && !/[工班]$/.test(parts[0].name);
+  return swapped
+    ? { vendor: parts[0].name, work, trade: null }
+    : { vendor, work, trade: tradeSummary == null ? null : String(tradeSummary) };
+}
+
+/** LINE 回報的廠商對到清單，帶進表單才不會多一種寫法。清單上有這個寫法就照清單（現場親手加的）。 */
 function listVendor(raw) {
   const v = optionCanon('vendor', String(raw || '').trim());
-  const names = (FORM_OPTIONS.vendor || []).map(o => o.value);
-  if (names.includes(v)) return { vendor: v, work: '' };
-  const base = names.filter(n => n.length >= 2 && v.startsWith(n) && WORK_SUFFIX.test(v.slice(n.length)))
-    .sort((a, b) => b.length - a.length)[0];
-  return base ? { vendor: base, work: v.slice(base.length).trim() } : { vendor: v, work: '' };
+  if ((FORM_OPTIONS.vendor || []).some(o => o.value === v)) return { vendor: v, work: '' };
+  const c = cleanVendor(v);
+  return c.vendor ? { vendor: optionCanon('vendor', c.vendor), work: c.work || '' } : { vendor: v, work: '' };
 }
 
 /** 工種摘要 → 只留名稱：「電班8、水班1」→「電班、水班」。與後端 splitTrades 同規則，
