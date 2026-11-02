@@ -2519,6 +2519,11 @@ async function handleSign(
   }
 
   if (action === "undo") {
+    const sig = (await db.sql`
+      SELECT signer_id FROM signatures WHERE doc_key = ${docKey} AND slot_key = ${String(b.slot_key)}`)[0];
+    if (sig && sig.signer_id !== me.id && !canAlter(me, doc.owner)) {
+      return fail(403, "僅簽名的帳號、填表人、職安人員或主管可清除簽名");
+    }
     await db.sql`DELETE FROM signatures WHERE doc_key = ${docKey} AND slot_key = ${String(b.slot_key)}`;
     return json({ ok: true });
   }
@@ -2526,6 +2531,10 @@ async function handleSign(
   if (action === "finish") {
     const n = (await db.sql`SELECT COUNT(*)::int AS n FROM signatures WHERE doc_key = ${docKey}`)[0].n;
     if (!n) return fail(400, "至少要有一個人簽名才能完成");
+    // 全部簽完任何帳號都能按（最後一位可能換裝置）；留空格提前完成會讓 PDF 標未簽，要有權限
+    if (n < slots.length && !canAlter(me, doc.owner)) {
+      return fail(403, "還有未簽的格子，僅填表人、職安人員或主管可提前完成");
+    }
     // PDF 印提交時間，要先寫；狀態等 PDF 產好才改：產檔失敗或逾時，單據還在簽核中，再按一次就好
     let done: any[];
     if (kind === "inspection") {
