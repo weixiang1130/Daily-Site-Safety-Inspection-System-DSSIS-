@@ -13,7 +13,9 @@ import {
   clearSessionCookie, createSession, hashPassword, readSession,
   sessionCookieHeader, verifyPassword, type SessionUser,
 } from "../lib/auth.ts";
-import { buildCoordinationPdf, buildInspectionPdf, type SigInput } from "../lib/pdf.ts";
+import {
+  buildCoordinationPdf, buildFindingReportPdf, buildInspectionPdf, imageKind, type PhotoGroup, type SigInput,
+} from "../lib/pdf.ts";
 import { boardPayload, validateBoard } from "../lib/site-board.ts";
 import {
   OPTION_FIELDS, PERSON_SEPARATOR, UNNAMED_VENDOR, cleanPerson, cleanTaskText, cleanVendor, learnFormOptions,
@@ -156,6 +158,45 @@ async function readFileBytes(pathOrKey: string | null): Promise<Uint8Array | nul
   } catch {
     return null;
   }
+}
+
+/** PDF 用的照片總量。串流回應上限 20MB，字型約 1MB；函式裡沒有影像程式庫，照片是原檔放入。 */
+const PDF_PHOTO_BYTES = 12 * 1024 * 1024;
+
+/** 缺失 → PDF 附頁的照片。讀不到或格式不支援的只計數，不能讓整份 PDF 產不出來。 */
+async function findingPhotos(findings: any[]): Promise<PhotoGroup[]> {
+  let left = PDF_PHOTO_BYTES;
+  const groups: PhotoGroup[] = [];
+  for (const f of findings) {
+    const g: PhotoGroup = {
+      no: `F${String(f.id).padStart(6, "0")}`, text: f.description,
+      sub: [f.location, [f.vendor_name ?? f.vendor, f.responsible_person].filter(Boolean).join("／")]
+        .filter(Boolean).join("　"),
+      before: [], after: [], broken: 0, skipped: 0,
+    };
+    for (const which of ["before", "after"] as const) {
+      const paths = String(f[`photo_${which}`] ?? "").split("\n").map((s) => s.trim())
+        .filter((s) => s.startsWith(FILE_PREFIX));
+      for (const bytes of await Promise.all(paths.map(readFileBytes))) {
+        if (!bytes || !imageKind(bytes)) g.broken++;
+        else if (bytes.length > left) g.skipped++;
+        else { left -= bytes.length; g[which].push(bytes); }
+      }
+    }
+    groups.push(g);
+  }
+  return groups;
+}
+
+/** PDF 回應。一定要串流：一般回應的二進位上限約 4.5MB，放了照片的 PDF 會下載失敗。 */
+function pdfResponse(body: ReadableStream | Uint8Array, name: string) {
+  const stream = body instanceof Uint8Array ? new Blob([body as BlobPart]).stream() : body;
+  return new Response(stream, {
+    headers: {
+      "content-type": "application/pdf",
+      "content-disposition": `inline; filename="${name}"`,
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1608,7 +1649,7 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
       return json({ findings_today, open, overdue });
     }
 
-    if (p === "/api/findings" && method === "GET") {
+    if ((p === "/api/findings" || p === "/api/findings/report") && method === "GET") {
       const days = parseInt(url.searchParams.get("days") || "30", 10);
       const siteId = url.searchParams.get("site_id");
       const status = url.searchParams.get("status");
@@ -1623,7 +1664,12 @@ async function handle(req: Request, _ctx: Context): Promise<Response> {
           AND (${status}::text IS NULL OR f.status = ${status})
         ORDER BY f.found_at DESC LIMIT 500`;
       const out = rows.map(shapeFinding).filter((f) => !overdueOnly || f.overdue);
-      return json(out);
+      if (p === "/api/findings") return json(out);
+      // 條件和畫面上的清單相同：看到什麼就匯出什麼
+      const site = siteId ? rows.find((r: any) => String(r.site_id) === siteId)?.site : "";
+      const filter = [site || "全部工地", `近 ${days} 日`, overdueOnly ? "只看逾期" : ""].filter(Boolean).join("　");
+      const bytes = await buildFindingReportPdf(filter, out, await findingPhotos(out));
+      return pdfResponse(bytes, "findings-report.pdf");
     }
 
     if (p === "/api/findings" && method === "POST") {
@@ -2056,7 +2102,7 @@ async function renderInspectionPdf(id: number): Promise<string | null> {
     WHERE inspection_id = ${id} ORDER BY id`;
   const sigs = await hydrateSignatures(sigRows, insp.sign_slots);
 
-  const bytes = await buildInspectionPdf(insp, results, findings, sigs);
+  const bytes = await buildInspectionPdf(insp, results, findings, sigs, await findingPhotos(findings));
   // 每版一個檔：修改紀錄留著舊版的路徑，重新完成簽核不能蓋掉它
   const key = `pdf/INSP-${String(id).padStart(6, "0")}${insp.revision ? `-r${insp.revision}` : ""}.pdf`;
   await files().set(key, bytes.buffer as ArrayBuffer, {
@@ -2138,7 +2184,7 @@ async function renderCoordinationPdf(id: number): Promise<string | null> {
     WHERE coordination_id = ${id} ORDER BY id`;
   const sigs = await hydrateSignatures(sigRows, co.sign_slots);
 
-  const bytes = await buildCoordinationPdf(co, attendees, findings, sigs);
+  const bytes = await buildCoordinationPdf(co, attendees, findings, sigs, await findingPhotos(findings));
   const key = `pdf/COORD-${String(id).padStart(6, "0")}${co.revision ? `-r${co.revision}` : ""}.pdf`;
   await files().set(key, bytes.buffer as ArrayBuffer, {
     metadata: { contentType: "application/pdf" },
@@ -2605,14 +2651,9 @@ async function servePdf(table: "inspections" | "coordinations", id: number) {
 }
 
 async function servePdfKey(key: string) {
-  const data = await files().get(key, { type: "arrayBuffer" });
+  const data = await files().get(key, { type: "stream" });
   if (!data) return fail(404, "PDF 檔案不存在");
-  return new Response(data as ArrayBuffer, {
-    headers: {
-      "content-type": "application/pdf",
-      "content-disposition": `inline; filename="${key.split("/").pop()}"`,
-    },
-  });
+  return pdfResponse(data as ReadableStream, key.split("/").pop()!);
 }
 
 export const config: Config = {

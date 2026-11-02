@@ -306,11 +306,66 @@ class Doc {
     this.y -= boxH + 8;
   }
 
-  finish(): void {
+  /** 缺失照片附頁：有改善後照片時前後左右對照，只有改善前時一列三張。 */
+  async photos(groups: PhotoGroup[]) {
+    const list = groups.filter((g) => g.before.length || g.after.length || g.broken || g.skipped);
+    if (!list.length) return;
+    this.newPage();
+    this.heading("缺失照片");
+    for (const g of list) {
+      const paired = g.after.length > 0;
+      const cols = paired ? 2 : 3;
+      const gap = 8;
+      const w = (CONTENT_W - gap * (cols - 1)) / cols;
+      const h = w * 0.75;
+      const cells: (PhotoCell | null)[] = [];
+      if (paired) {
+        for (let i = 0; i < Math.max(g.before.length, g.after.length); i++) {
+          cells.push(g.before[i] ? { label: `改善前 ${i + 1}`, bytes: g.before[i] } : null);
+          cells.push(g.after[i] ? { label: `改善後 ${i + 1}`, bytes: g.after[i] } : null);
+        }
+      } else {
+        g.before.forEach((bytes, i) => cells.push({ label: `改善前 ${i + 1}`, bytes }));
+      }
+      // 標題不和第一列照片分在兩頁
+      this.need(40 + (cells.length ? h + 14 : 0));
+      this.text(`${g.no}　${g.text}`, { size: 9 });
+      if (g.sub) this.text(g.sub, { size: 7.5, color: MUTED, gap: 2 });
+      for (let i = 0; i < cells.length; i += cols) {
+        this.need(h + 14);
+        for (let c = 0; c < cols; c++) {
+          const cell = cells[i + c];
+          if (cell) await this.photoCell(cell, M.left + c * (w + gap), this.y, w, h);
+        }
+        this.y -= h + 14;
+      }
+      if (g.broken) this.text(`另有 ${g.broken} 張照片無法顯示，請至系統查看。`, { size: 7.5, color: MUTED });
+      if (g.skipped) this.text(`另有 ${g.skipped} 張照片超過這份 PDF 的容量未放入，請至系統查看。`, { size: 7.5, color: MUTED });
+      this.y -= 8;
+    }
+  }
+
+  private async photoCell(cell: PhotoCell, x: number, top: number, w: number, h: number) {
+    this.page.drawText(printable(cell.label), { x, y: top - 8, size: 7.5, font: this.font, color: MUTED });
+    const boxTop = top - 12;
+    this.page.drawRectangle({ x, y: boxTop - h, width: w, height: h, borderColor: LINE, borderWidth: 0.5 });
+    try {
+      const img = imageKind(cell.bytes) === "png"
+        ? await this.doc.embedPng(cell.bytes) : await this.doc.embedJpg(cell.bytes);
+      const scale = Math.min(w / img.width, h / img.height);
+      const iw = img.width * scale, ih = img.height * scale;
+      this.page.drawImage(img, { x: x + (w - iw) / 2, y: boxTop - h + (h - ih) / 2, width: iw, height: ih });
+    } catch {
+      // 檔案毀損時留空框與標籤，不能讓整份 PDF 產不出來
+      this.page.drawText(printable("照片無法顯示"), { x: x + 6, y: boxTop - 14, size: 8, font: this.font, color: MUTED });
+    }
+  }
+
+  finish(note = "電子簽名紀錄存於系統資料庫"): void {
     const stamp = new Date().toLocaleString("zh-TW", { timeZone: "Asia/Taipei", hour12: false });
     const pages = this.doc.getPages();
     pages.forEach((p, i) => {
-      p.drawText(printable(`本文件由職安填報系統於 ${stamp} 產出，電子簽名紀錄存於系統資料庫`), {
+      p.drawText(printable(`本文件由職安填報系統於 ${stamp} 產出，${note}`), {
         x: M.left, y: 28, size: 7, font: this.font, color: MUTED,
       });
       p.drawText(printable(`第 ${i + 1} / ${pages.length} 頁`), {
@@ -352,9 +407,23 @@ export interface SigInput {
   printed_name?: string; unsigned?: boolean;
 }
 
+/** 一筆缺失的照片。broken＝讀不到或格式放不進 PDF，skipped＝超過這份 PDF 的容量。 */
+export interface PhotoGroup {
+  no: string; text: string; sub: string;
+  before: Uint8Array[]; after: Uint8Array[]; broken: number; skipped: number;
+}
+interface PhotoCell { label: string; bytes: Uint8Array }
+
+/** pdf-lib 只能嵌入 JPEG 與 PNG（WebP 不行），看檔頭判斷，不信副檔名。 */
+export function imageKind(b: Uint8Array): "jpg" | "png" | null {
+  if (b[0] === 0xff && b[1] === 0xd8) return "jpg";
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "png";
+  return null;
+}
+
 /** 自主檢查表 PDF。 */
 export async function buildInspectionPdf(
-  insp: any, results: any[], findings: any[], sigs: SigInput[],
+  insp: any, results: any[], findings: any[], sigs: SigInput[], photos: PhotoGroup[] = [],
 ): Promise<Uint8Array> {
   const d = await Doc.create(insp.form_title);
 
@@ -406,13 +475,14 @@ export async function buildInspectionPdf(
   }
 
   await d.signatures(sigs);
+  await d.photos(photos);
   d.finish();
   return d.doc.save();
 }
 
 /** 每日協議、巡視及處理紀錄表 PDF。 */
 export async function buildCoordinationPdf(
-  co: any, attendees: any[], findings: any[], sigs: SigInput[],
+  co: any, attendees: any[], findings: any[], sigs: SigInput[], photos: PhotoGroup[] = [],
 ): Promise<Uint8Array> {
   const d = await Doc.create("每日協議、巡視及處理紀錄表");
 
@@ -464,6 +534,35 @@ export async function buildCoordinationPdf(
   d.text(co.handling_text || "－");
 
   await d.signatures(sigs);
+  await d.photos(photos);
   d.finish();
+  return d.doc.save();
+}
+
+/** 缺失改善紀錄：簽核 PDF 完成後內容固定，之後補的改善照片在這份看。按需產生，不存檔。 */
+export async function buildFindingReportPdf(
+  filter: string, findings: any[], photos: PhotoGroup[],
+): Promise<Uint8Array> {
+  const d = await Doc.create("缺失改善紀錄");
+  d.text("缺失改善紀錄", { size: 15 });
+  d.text(`${filter}　共 ${findings.length} 筆`, { size: 8, color: MUTED, gap: 6 });
+  d.hr();
+  if (findings.length) {
+    const rows = [["缺失單號", "發現時間", "棟別", "缺失內容", "責任廠商／人", "改善方式", "改善說明", "狀態"]];
+    for (const x of findings) {
+      rows.push([
+        `F${String(x.id).padStart(6, "0")}`, fmtDate(x.found_at), x.building || x.site || "", x.description,
+        [x.vendor, x.responsible_person].filter(Boolean).join("／"), actionText(x),
+        // 覆驗紀錄裡的舊照片是系統路徑，印出來沒有意義
+        [x.fix_note, x.review_note?.replace(/；?前次改善照片：\S+/g, "")].filter(Boolean).join("\n"),
+        STATUS_LABEL[x.status] || x.status,
+      ]);
+    }
+    d.table([50, 50, 42, 130, 70, 60, 62, CONTENT_W - 464], rows);
+  } else {
+    d.text("這個條件沒有缺失。", { color: MUTED });
+  }
+  await d.photos(photos);
+  d.finish("僅供查閱，簽核版本以各單據 PDF 為準");
   return d.doc.save();
 }

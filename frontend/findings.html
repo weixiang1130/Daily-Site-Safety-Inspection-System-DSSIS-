@@ -43,6 +43,10 @@
           <input type="checkbox" id="overdue" style="width:auto"> 只看逾期
         </label></div>
     </div>
+    <div class="row hidden" id="reportRow" style="margin-top:var(--sp-3)">
+      <a id="reportLink" target="_blank"><button class="ghost" type="button" style="width:100%">匯出改善紀錄 PDF（含改善前後照片）</button></a>
+    </div>
+    <p class="muted hidden" id="reportNote" style="margin-bottom:0">依上面的條件匯出。簽核 PDF 完成後內容固定，之後補的改善照片在這份看。</p>
   </div>
 
   <div class="card">
@@ -86,6 +90,11 @@ let me = null;
   const r = await API.get('/api/me');
   if (!r.user) { location.href = '/static/index.html'; return; }
   me = r.user;
+  // 改善紀錄只有雲端有（地端沒有這個端點）
+  if ((await loadBranding() || {}).worklog_db) {
+    document.getElementById('reportRow').classList.remove('hidden');
+    document.getElementById('reportNote').classList.remove('hidden');
+  }
   const sites = await API.get('/api/sites');
   document.getElementById('site').innerHTML = siteOptions(sites, null, '全部工地');
   ['site', 'status', 'days', 'overdue'].forEach(id =>
@@ -102,6 +111,7 @@ async function load() {
   q.set('days', document.getElementById('days').value);
   if (document.getElementById('overdue').checked) q.set('overdue', 'true');
 
+  document.getElementById('reportLink').href = '/api/findings/report?' + q.toString();
   const rows = await API.get('/api/findings?' + q.toString());
   const canVerify = ['safety', 'manager', 'admin'].includes(me.role);
   ROWS = new Map(rows.map(f => [f.id, f]));
