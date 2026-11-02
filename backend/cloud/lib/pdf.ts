@@ -414,10 +414,16 @@ export interface PhotoGroup {
 }
 interface PhotoCell { label: string; bytes: Uint8Array }
 
+const MAX_PNG_PIXELS = 4000 * 4000;
+
 /** pdf-lib 只能嵌入 JPEG 與 PNG（WebP 不行），看檔頭判斷，不信副檔名。 */
 export function imageKind(b: Uint8Array): "jpg" | "png" | null {
   if (b[0] === 0xff && b[1] === 0xd8) return "jpg";
-  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "png";
+  if (b.length >= 24 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) {
+    // PNG 要解壓才能嵌入，小檔案也可能展開成幾 GB，尺寸看檔頭擋掉。JPEG 是原樣放入，不解壓
+    const head = new DataView(b.buffer, b.byteOffset, 24);
+    return head.getUint32(16) * head.getUint32(20) <= MAX_PNG_PIXELS ? "png" : null;
+  }
   return null;
 }
 

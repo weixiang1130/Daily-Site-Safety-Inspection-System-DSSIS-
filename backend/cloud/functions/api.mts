@@ -162,10 +162,12 @@ async function readFileBytes(pathOrKey: string | null): Promise<Uint8Array | nul
 
 /** PDF 用的照片總量。串流回應上限 20MB，字型約 1MB；函式裡沒有影像程式庫，照片是原檔放入。 */
 const PDF_PHOTO_BYTES = 12 * 1024 * 1024;
+/** 每份 PDF 最多讀幾個檔：照片欄位是使用者送的字串，不能照著無上限地讀。 */
+const PDF_PHOTO_READS = 40;
 
 /** 缺失 → PDF 附頁的照片。讀不到或格式不支援的只計數，不能讓整份 PDF 產不出來。 */
 async function findingPhotos(findings: any[]): Promise<PhotoGroup[]> {
-  let left = PDF_PHOTO_BYTES;
+  let left = PDF_PHOTO_BYTES, reads = PDF_PHOTO_READS;
   const groups: PhotoGroup[] = [];
   for (const f of findings) {
     const g: PhotoGroup = {
@@ -175,11 +177,15 @@ async function findingPhotos(findings: any[]): Promise<PhotoGroup[]> {
       before: [], after: [], broken: 0, skipped: 0,
     };
     for (const which of ["before", "after"] as const) {
-      const paths = String(f[`photo_${which}`] ?? "").split("\n").map((s) => s.trim())
-        .filter((s) => s.startsWith(FILE_PREFIX));
-      for (const bytes of await Promise.all(paths.map(readFileBytes))) {
+      const paths = new Set(String(f[`photo_${which}`] ?? "").split("\n").map((s) => s.trim())
+        .filter((s) => s.startsWith(`${FILE_PREFIX}photos/`)));
+      for (const path of paths) {
+        // 一個一個讀，容量用完就不再讀：改善紀錄可能有幾百筆缺失
+        if (left <= 0 || reads <= 0) { g.skipped++; continue; }
+        reads--;
+        const bytes = await readFileBytes(path);
         if (!bytes || !imageKind(bytes)) g.broken++;
-        else if (bytes.length > left) g.skipped++;
+        else if (bytes.length > left) { g.skipped++; left = 0; }
         else { left -= bytes.length; g[which].push(bytes); }
       }
     }
